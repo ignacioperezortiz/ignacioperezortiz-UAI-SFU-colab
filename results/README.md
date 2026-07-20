@@ -1,9 +1,12 @@
 # Per-transformer results
 
-One analysis workbook per transformer (`TR1`–`TR9`) from the rolling-horizon
-FOR study. Each `.xlsx` collects that transformer's rolling-horizon results,
-self-consumption / self-sufficiency metrics, prosumer breakdown, and battery
-SOC behaviour, with charts.
+For each transformer (`TR1`–`TR9`) there are two files:
+
+- **`TR<n>_analysis.xlsx`** — the analysis workbook: rolling-horizon results,
+  self-consumption / self-sufficiency metrics, prosumer breakdown, and battery
+  SOC behaviour, with charts.
+- **`TR<n>_analysis.md`** — a short written summary of that transformer's results
+  (renders directly here on GitHub).
 
 | File | Transformer |
 |------|-------------|
