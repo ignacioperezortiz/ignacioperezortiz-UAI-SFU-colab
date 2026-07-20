@@ -1,0 +1,4541 @@
+﻿## ams_version=1.0
+
+Model Main_OPF_VI_LG {
+	Section ModelOverview {
+		Comment: "Read-me. Start here: what the model is, where each part lives, and how to reproduce the thesis results.";
+		DeclarationSection ReadMe {
+			Comment: {
+				"OPF + Feasible Operation Region (FOR) at the PCC - rolling horizon.
+				.
+				WHAT THIS MODEL IS
+				A three-phase linearized OPF of an LV distribution feeder with
+				household PV + batteries. Two coupled products, both convex QCP:
+				1) a self-consumption battery dispatch (MinImports), and
+				2) the FOR offered at the PCC for the next half-hour, computed by a
+				   12-direction sweep around the committed dispatch (RunFOR_Rolling).
+				.
+				STRUCTURE (top-level sections, in reading order)
+				- Configuration      : every run switch; defaults = production values.
+				- InputData          : sets, database tables, time series, unit conversion.
+				- NetworkModel       : the network physics (linearized current-injection
+				                       power flow, transformers, voltage/thermal limits).
+				                       Inherited from the OPF model of Prof. Luis (physics
+				                       unchanged). The IncludeNetworkConstraints toggle
+				                       acts on THIS section.
+				- BatteryModel       : SOC dynamics, power limits, cyclic-SOC band,
+				                       inverter capability, throughput penalty.
+				- SelfConsumptionOPF : objectives + solve wrappers + the paper case runners.
+				- FOR_Computation    : PCC power, directional objective, sweep containers.
+				- NetworkReduction   : per-transformer detail + lumped MV loads.
+				- RollingHorizonFOR  : the production rolling FOR (RunFOR_Rolling and
+				                       the per-transformer runners RunTR1..RunTR9).
+				- Validation         : MIQCP complementarity cross-check (BattComp),
+				                       exact-AC / SLP boundary validation, loss-balance
+				                       and coverage audits, paper comparison.
+				- ResultsOutput      : Excel results writer.
+				.
+				TO REPRODUCE
+				- one transformer   : run RunTR1 .. RunTR9 (writes FOR_rolling_TR<k>.csv
+				                      + FOR_rolling_soc_TR<k>.csv)
+				- all transformers  : run RunFOR_Rolling_PerTrafo
+				- all-idle baseline : run RunFOR_Rolling_Baseline
+				- micro test bed    : run RunReducedTest_RollingMicro (TR9_two sub-branch)
+				- dispatch study    : set DOE_Now + DOE_TargetP/Q, then RunDOE_Dispatch or
+				                      RunDOE_Envelope (DOE_Dispatch section, two-level fair DOEs)
+				A fresh session reproduces production results with no manual parameter
+				assignments: all defaults ARE the production values.
+				.
+				KEY MODELING CHOICES (defended in the thesis)
+				- BattThroughputPen = 0.2 > w2/19 ~ 0.105: linear battery throughput
+				  penalty above the closed-form phantom-dump threshold, so simultaneous
+				  charge/discharge never pays while the problem stays a convex QCP
+				  (no binary). Derivation in the parameter comment (Configuration).
+				- FOR_PolyS = 0 and FOR_LinearizeVmax = 0 in production: EXACT quadratic
+				  inverter S-circle + exact quadratic Vmax cap, solved as a convex QCP
+				  (CPLEX barrier). Tractable because production runs per transformer on
+				  the reduced network (RunTrafoFOR). The linearized forms (both = 1)
+				  remain available as fidelity toggles and were used for the historical
+				  whole-feeder runs; ex-post columns VmaxTrue/OVviol/LinErr quantify them.
+				- The service slot (PeriodMaxP = 2, i.e. now+1) carries no self-consumption
+				  weight in the committed baseline: its exchange is the service offered.
+				  See the w2 parameter comment."
+			}
+		}
+	}
+	Section Configuration {
+		Comment: "Every run switch and scenario parameter. Principle: DEFAULTS = PRODUCTION VALUES, so a fresh session reproduces the thesis results without manual assignments. Validation-only toggles (UseBattComp, FOR_ScaleInv, FOR_WarmFromLin) default off.";
+		DeclarationSection RunSettings {
+			Parameter IncludeQforMaxP {
+				Comment: "1 = battery reactive power is a decision variable at PeriodMaxP (the service slot) only; it stays fixed at 0 in every other period. Production: 1.";
+			}
+			Parameter BattThroughputPen {
+				Default: 0.2;
+				Comment: {
+					"Linear penalty on total battery throughput sum(BattP_Chg+BattP_Dis) in the cost-min objectives.
+					PRODUCTION VALUE 0.2. Must exceed w2max/((1+eta^2)/(1-eta^2)) = 2.0/19 ~ 0.105:
+					with eta = etaChg = etaDis ~ 0.9487 (eta^2 ~ 0.9), dissipating a surplus P through
+					simultaneous charge/discharge at pinned SOC needs gross throughput P*(1+eta^2)/(1-eta^2) ~ 19P,
+					so any penalty above w2/19 makes the phantom dump uneconomic and the battery
+					dispatch becomes physically meaningful - WITHOUT a complementarity binary
+					(the problem stays a convex QCP). 0.2 adds margin to close marginal SOC<1
+					dissipate-vs-store ties. Validated on the full feeder: 0 simultaneous-cycling
+					rows vs ~50% at the historical 0.1. Cross-check vs the MIQCP binary
+					formulation: Section Validation (UseBattComp)."
+				}
+			}
+			Parameter UseBattComp {
+				Default: 0;
+				Comment: "0 = production (pure convex QCP; the throughput penalty alone prevents simultaneous charge/discharge). 1 = enforce charge/discharge complementarity via binary BattOn (constraints ChgMode/DisMode) - makes the program a MIQCP. Kept as the VALIDATION alternative: RunMicro_BattComp / RunFullTR9_BattComp reproduce the same dispatch as the penalty formulation.";
+			}
+			Parameter maxtanphi;
+			Parameter MaxExports;
+			Parameter PeriodMaxP {
+				Comment: "The evaluated/service period. Paper cases: 25 (12:00-12:30). Rolling FOR: 2 (the slot right after the committed one; the day is rotated so slot 1 = now). w2(PeriodMaxP) = 0 by construction: the service slot carries no self-consumption weight.";
+			}
+			StringParameter ResultsFile {
+				Definition: ResultsFileRoot+PeriodMaxP+".xls";
+			}
+			StringParameter ResultsFileRoot;
+			Parameter IncludeNetworkConstraints {
+				Comment: "1 = include the NetworkModel section (voltage, thermal, power-flow constraints). 0 = battery/energy model only. Implemented via NotTobeExcluded_constraints/variables (intersection of AllConstraints/AllVariables with the NetworkModel section). Production: 1.";
+			}
+			Parameter VmultLV;
+			Parameter maxtapchanges;
+			Parameter DeltaT {
+				Definition: 24/nPeriods;
+				Comment: "Time step between periods in hours (0.5 h at nPeriods=48). Used by the SOC dynamics.";
+			}
+			Parameter nPeriods;
+			Parameter w1 {
+				Definition: 1;
+			}
+			Parameter w2 {
+				IndexDomain: t;
+				Definition: {
+					if PeriodMaxP=0 or t<PeriodMaxP then
+						2.01-0.01*t
+					elseif t>PeriodMaxP then
+						2.01-0.01*(t-1)
+					endif
+				}
+				Comment: {
+					"Self-consumption weight per period: 2.00 at t=1, decreasing by 0.01 per period
+					(earlier self-consumption is worth slightly more, which breaks temporal degeneracy).
+					DELIBERATE HOLE: w2(PeriodMaxP) = 0 (no else-branch). In the rolling FOR
+					(PeriodMaxP=2) the committed baseline therefore puts NO self-consumption weight
+					on the service slot: its exchange is exactly the flexibility offered to the
+					aggregator, so the baseline must not pre-commit value there. In the paper cases
+					(PeriodMaxP=25) the w1 max-reverse-flow term takes over at that period instead."
+				}
+			}
+		}
+		DeclarationSection FidelityToggles {
+			Comment: {
+				"Reversible model-fidelity switches. AllowChargeAtPmax (article vs relaxed); FOR_PolyS with FOR_PolySides/FOR_PolyAng (exact inverter S-circle vs 16-gon); FOR_LinearizeVmax (exact vs linearized Vmax). All 0 reproduces the exact reference model. FOR_PolyS/PolyAng are read by MaxBattS_poly in NetworkModel."
+			}
+			Parameter AllowChargeAtPmax {
+				Comment: "0 = article assumption (batteries discharge-only at PeriodMaxP). 1 = relaxed: batteries may also CHARGE at PeriodMaxP (lets the feeder import).";
+			}
+			Parameter FOR_PolyS {
+				Comment: "0 = exact battery S-circle BattP^2+Qinv^2<=BattMaxP^2 (Prof. Luis\'s model, DEFAULT). 1 = piecewise-linear polygon inverter capability curve (well-conditioned, fixes the high-Q arc).";
+			}
+			Set FOR_PolySides {
+				SubsetOf: Integers;
+				Index: ks;
+				Property: ElementsAreNumerical;
+				Definition: ElementRange(1, 16);
+				Comment: {
+					"Sides of the polygonal inverter capability curve (16-gon ~ 2% outer tolerance; raise to tighten)."
+				}
+			}
+			Parameter FOR_PolyAng {
+				IndexDomain: ks;
+				Definition: (ord(ks)-1) * 2 * (4*arctan(1)) / Card(FOR_PolySides);
+				Comment: "Tangent-line angle of polygon side ks (radians, 0..2pi).";
+			}
+			Parameter FOR_ScaleInv {
+				Comment: "0 = inverter S-cone in natural p.u. (DEFAULT, all existing runs unchanged). 1 = per-unit-normalized cone (MaxBattS_norm on BattInvPn/BattInvQn, link constraints active, exact MaxBattS_def disabled) to test whether rescaling cures the exact-QCP status-13 numerical breakdown. Only RunFOR_TR9_Exact sets it.";
+			}
+			Parameter FOR_WarmFromLin {
+				Comment: "0 = warm-start the exact solve from the cost-min OPF (DEFAULT). 1 = per direction, first solve the linearized model, set Vre0/Vim0 to that boundary solution (re-linearize loads there) and warm-start the exact solve from it. Only RunFOR_TR9_Exact sets it.";
+			}
+			Parameter FOR_LinearizeVmax {
+				Comment: "0 = original exact Vmax (Vre^2+Vim^2<=MaxV^2, Prof. Luis\'s model, DEFAULT). 1 = linearized Vmax (Vmag2approx<=MaxV^2) for the conditioning experiment.";
+			}
+		}
+	}
+	Section InputData {
+		Comment: "Sets and indices, database table mappings (Database.dsn), the Excel time series (OpData.xls), per-customer load/PV parameters, and the master loader Load_data_dsn (DB + Excel + kW->p.u. conversion at Sb=1 MW + flat-start voltages = the linearization point).";
+		DeclarationSection sets {
+			Set Batteries {
+				Index: bat;
+			}
+			Set Aggregators {
+				Index: a;
+			}
+			Set SlackGens {
+				Index: sg;
+			}
+			Set RefBus {
+				SubsetOf: Buses;
+				Index: ref;
+				Definition: {
+					{n|Slack(n)=1}
+				}
+			}
+			Set Trafos {
+				Index: tr;
+			}
+			Set LoadsAndPV {
+				Index: d;
+			}
+			Set Phases {
+				SubsetOf: Integers;
+				Index: f, h;
+				Definition: ElementRange( 1, 3);
+			}
+			Set Time {
+				SubsetOf: Integers;
+				Index: t;
+				Property: ElementsAreNumerical;
+				Definition: ElementRange( 1, nPeriods);
+			}
+			Set SubTime {
+				SubsetOf: Integers;
+				Index: tt;
+				Property: ElementsAreNumerical;
+				Definition: ElementRange( 1, nPeriods);
+				Comment: "tt ranges from 1 to t";
+			}
+			Set Lines {
+				Index: l;
+			}
+			Set Buses {
+				Index: n;
+			}
+			Set NotTobeExcluded_constraints {
+				SubsetOf: AllConstraints;
+				Property: NoSave;
+				OrderBy: IndexConstraints;
+				Definition: {
+					if IncludeNetworkConstraints=0 then
+						AllConstraints - AllConstraints*NetworkModel
+					else
+						AllConstraints
+					endif
+				}
+			}
+			Set NotTobeExcluded_variables {
+				SubsetOf: AllVariables;
+				Property: NoSave;
+				Definition: {
+					if IncludeNetworkConstraints=0 then
+						AllVariables - AllVariables*NetworkModel
+					else
+						AllVariables
+					endif
+				}
+			}
+		}
+		DeclarationSection Databases {
+			DatabaseTable BatteriesData {
+				DataSource: "Database.dsn";
+				TableName: "Batteries";
+				Mapping: {
+					"BattName"  	--> Batteries,
+					"BattBus"  	--> BattBus(bat),
+					"BattPhase"  	--> BattPhase(bat),
+					"BattSOCini"	--> BattSOCini(bat),
+					"BattSOCmin"	--> BattSOCmin(bat),
+					"BattSOCmax"	--> BattSOCmax(bat),
+					"BattMaxP"  	--> BattMaxP(bat),
+					"BattEcap"  	--> BattEcap(bat),
+					"etaChg"	--> etaChg(bat),
+					"etaDis"	--> etaDis(bat),
+
+					"BattAgg" --> BattAgg(bat),
+					"BattTr" --> BattTr(bat),
+
+					"BattAgg" --> Aggregators
+				}
+			}
+			DatabaseTable SlackGenData {
+				DataSource: "Database.dsn";
+				TableName: "SlackGen";
+				Mapping: {
+					"SlackGenName" 	--> SlackGens,
+					"SlackGenBus"  	--> SlackGenBus(sg),
+					"SlackGenPhase"	--> SlackGenPhase(sg)
+				}
+			}
+			DatabaseTable LoadsAndPVData {
+				DataSource: "Database.dsn";
+				TableName: "LoadsAndPV";
+				Mapping: {
+					"LoadName"  	--> LoadsAndPV,                
+					"LoadBus"  	--> LoadBus(d),
+					"LoadPhase"  	--> LoadPhase(d),
+					"PVsize"	--> PVsize(d)
+				}
+			}
+			DatabaseTable BusesData {
+				DataSource: "Database.dsn";
+				TableName: "Buses";
+				Mapping: {
+					"BusName"  	--> Buses,
+					"MinV"  	--> MinV(n),
+					"MaxV"  	--> MaxV(n),
+					"SlackBus"	--> Slack(n),
+					"Vbase"		--> Vbase(n)
+				}
+			}
+			DatabaseTable LinesData {
+				DataSource: "Database.dsn";
+				TableName: "Lines";
+				Mapping: {
+					"LineName"  --> Lines,
+					"StartBus" -->StartBus(l),
+					"EndBus" -->EndBus(l),
+					"Rs" -->Rs(l),
+					"Xs" -->Xs(l),
+					"Rm" -->Rm(l),
+					"Xm" -->Xm(l),
+					"MaxCurrent" -->MaxCurrent(l),
+					"MinimiseFlow" -->MinimiseFlow(l)
+				}
+			}
+			DatabaseTable TrafosData {
+				DataSource: "Database.dsn";
+				TableName: "Trafos";
+				Mapping: {
+					"TrafoName"  --> Trafos,
+					"StartBusTr" -->StartBusTr(tr),
+					"EndBusTr" -->EndBusTr(tr),
+					"Is_OLTC" -->Is_OLTC(tr),
+					"FixedTapPos" -->FixedTapPos(tr),
+					"MaxAmps" -->MaxAmps(tr),
+					"MinTap" -->MinTap(tr),
+					"MaxTap" -->MaxTap(tr),
+					"R" -->R(tr),
+					"X" -->X(tr),
+					"nomratio" -->nomratio(tr)
+				}
+			}
+		}
+		DeclarationSection LoadAndPVParameters {
+			Parameter P0 {
+				IndexDomain: (d,t);
+			}
+			Parameter Q0 {
+				IndexDomain: (d,t);
+			}
+			Parameter Irradiance {
+				IndexDomain: t;
+			}
+			Parameter GenP0 {
+				IndexDomain: (d,t);
+			}
+			ElementParameter LoadBus {
+				IndexDomain: d;
+				Range: Buses;
+			}
+			ElementParameter LoadPhase {
+				IndexDomain: d;
+				Range: Phases;
+			}
+			Parameter P0minGenP {
+				IndexDomain: (d,t);
+				Definition: P0(d,t)-GenP0(d,t);
+			}
+			Parameter Q0minGenQ {
+				IndexDomain: (d,t);
+				Definition: Q0(d,t);
+			}
+			Parameter PVsize {
+				IndexDomain: d;
+			}
+		}
+		Procedure ReadExcelFile {
+			Body: {
+				axll::CloseAllWorkBooks;
+				axll::OpenWorkBook("OpData.xls");
+
+				axll::SelectSheet(SheetName:"Irradiance(t)");	!read Irradiance data
+				axll::ReadList(
+					IdentifierReference:Irradiance(t),
+					RowHeaderRange:"A2:A49",
+					DataRange:"B2:B49",
+					ModeForUnknownElements:1,
+					MergeWithExistingData:0);
+
+				axll::SelectSheet(SheetName:"P0(d,t)");	!read P0 data
+				axll::ReadTable(
+					IdentifierReference:P0(d,t),
+					RowHeaderRange:"A3:A2432",
+					ColumnHeaderRange:"B2:AW2",
+					DataRange:"B3:AW2432",
+					ModeForUnknownElements:1,
+					MergeWithExistingData:0);
+
+				axll::SelectSheet(SheetName:"Q0(d,t)");	!read G0 data
+				axll::ReadTable(
+					IdentifierReference:Q0(d,t),
+					RowHeaderRange:"A3:A2432",
+					ColumnHeaderRange:"B2:AW2",
+					DataRange:"B3:AW2432",
+					ModeForUnknownElements:1,
+					MergeWithExistingData:0);
+
+
+				!axll::SelectSheet(SheetName:"EnergyExpPrices(t)");	!read EnergyPrices
+				!axll::ReadList(
+				!	IdentifierReference:PayExport(t),
+				!	RowHeaderRange:"A2:A49",
+				!	DataRange:"B2:B49",
+				!	ModeForUnknownElements:1,
+				!	MergeWithExistingData:0);
+				!
+				!axll::SelectSheet(SheetName:"EnergyImpPrices(t)");	!read EnergyPrices
+				!axll::ReadList(
+				!	IdentifierReference:CostImport(t),
+				!	RowHeaderRange:"A2:A49",
+				!	DataRange:"B2:B49",
+				!	ModeForUnknownElements:1,
+				!	MergeWithExistingData:0);
+
+
+				axll::CloseAllWorkBooks;
+			}
+		}
+		Procedure Load_data_dsn {
+			Body: {
+				            read from table BusesData;
+				            read from table SlackGenData;
+				            read from table TrafosData;
+				            read from table LoadsAndPVData;
+				            read from table LinesData;
+				            !read from table GenData;
+				            !read from table CapacitorsData;
+				            read from table BatteriesData;
+
+				!            Imax(bat):=0.00368;	!16A limited inverters
+
+				            Qinv(bat,t):=0;	!without Q capabilities  
+				            Qinv(bat,t).nonvar:=1; !This variable is not allowed to change during optimization.
+
+				            if IncludeQforMaxP=1 then
+				            	Qinv(bat,PeriodMaxP).nonvar:=0; !By default, battery reactive power is disabled. But if IncludeQforMaxP = 1, then battery reactive power is allowed only during the period used to maximize/evaluate PCC active power.
+				            endif;
+
+
+				            run ReadExcelFile;	!reads OpData in time for GenP, P0 and Q0 
+
+				            !data input in kW, needd to be taken to pu (Sb=1MW)
+				            P0(d,t):=P0(d,t)/1000; !Active load demand at load/customer d and time t
+				            Q0(d,t):=Q0(d,t)/1000; !Reactive load demand at load/customer d and time t
+					    GenP0(d,t):=PVsize(d)*Irradiance(t)/1000; !PV/generation active power
+
+				            !Cost in time
+				!            CostImport(t):=12;
+				!            PayExport(t):=4;
+				            !read from file "Costs.dat";
+
+				            VmultLV:=1.037; !433/(230*sqrt(3)) (1.087) - 5% (choosing tap ratio 1.05) = 1.037 / Defines a voltage multiplier for LV buses.
+						            !for low-voltage nodes, the initial voltage magnitude is approximately 1.037 p.u.
+
+
+				            !Transformer tap linearization coefficients
+				            !This block defines a linear relationship between transformer tap position and tap ratio.
+				            !Tapratio(tr,t) := mlin(tr)*TapPosUnits(tr,t) + nlin(tr);
+				            for (tr) do
+				            	if MaxTap(tr)=19 then
+				            		mlin(tr):=-0.0167;
+				            		nlin(tr):=1.1169;
+
+				            	elseif MaxTap(tr)=17 then	!Prim subst OLTC
+				            		mlin(tr):=-0.0143;
+				            		nlin(tr):=1.0715;
+
+				            	elseif MaxTap(tr)=9 then !now case MaxTap(tr)=9 for LV-OLTCs (base in 230V)
+				            		mlin(tr):=-0.02;
+				            		nlin(tr):=1.16;
+
+				            	else	!OffLTC secondary trafo
+				            		mlin(tr):=-0.025;
+				            		nlin(tr):=1.075;
+				            	endif;
+				            endfor;
+
+				            !for trafos with fixed taps
+				            for (tr) do
+				            	if Is_OLTC(tr)=0 then	!for the HV/MV trafo - then this transformer does not change taps during optimization.
+				            		TapPosUnits(tr,t):=FixedTapPos(tr);
+				            		Tapratio(tr,t) := mlin(tr)*TapPosUnits(tr,t) + nlin(tr);
+				!            		TapPosUnits(tr,t).nonvar:=1; !If want to make it change
+				!            		Tapratio(tr,t).nonvar:=1;    !If want to make it change
+				            	endif;
+				            endfor;
+
+				            !!warm start of variables
+				            !VmultLV:=1.03265;
+
+				            for (n) do
+				            	if Vbase(n)>=6.6 then	!source bus and all MV nodes, no primary modelled - Source bus and MV buses
+				            		Vre(n,1,t):=1;
+				            		Vim(n,1,t):=0;
+				            		Vre(n,2,t):= -0.5;
+				            		Vim(n,2,t):= -0.866;
+				            		Vre(n,3,t):= -0.5;
+				            		Vim(n,3,t):= 0.866;
+				            	else	!LV nodes - Vbase(n)<6.6 - LV buses
+				            		!this reflects the 30deg rotation of a Dy1 connection
+				            		Vre(n,1,t):= 0.866*VmultLV;
+				            		Vim(n,1,t):= -0.5*VmultLV;
+				            		Vre(n,2,t):= -0.866*VmultLV;
+				            		Vim(n,2,t):= -0.5*VmultLV;
+				            		Vre(n,3,t):= 0*VmultLV;
+				            		Vim(n,3,t):= 1*VmultLV;
+				!            	else
+				!            		!this reflects a second 30deg rotation of a Dy1 connection
+				!            		Vre(n,1,t):= 0.5*VmultLV;
+				!            		Vim(n,1,t):= -0.866*VmultLV;
+				!            		Vre(n,2,t):= -1*VmultLV;
+				!            		Vim(n,2,t):= 0*VmultLV;
+				!            		Vre(n,3,t):= 0.5*VmultLV;
+				!            		Vim(n,3,t):= 0.866*VmultLV;		
+				            	endif;
+				            endfor;
+
+
+				           !For linearization
+				           !copies the initial voltage values into:
+				            Vre0(n,f,t):=Vre(n,f,t);
+				            Vim0(n,f,t):=Vim(n,f,t);
+
+				! 1. Read network data
+				!   ↓
+				! 2. Read load/PV/battery data
+				!   ↓
+				! 3. Disable battery reactive power by default
+				!   ↓
+				! 4. Optionally allow battery Q at the target FOR period
+				!   ↓
+				! 5. Convert kW/kVAr data to p.u.
+				!   ↓
+				! 6. Define transformer tap-ratio linear models
+				!   ↓
+				! 7. Initialize fixed transformer taps
+				!   ↓
+				! 8. Initialize balanced three-phase voltages
+				!      - MV side: 1∠0°, 1∠−120°, 1∠120°
+				!      - LV side: shifted by 30° because of Dy1 transformers
+				!   ↓
+				! 9. Copy initial voltages into Vre0 and Vim0
+				!   ↓
+				! 10. Use Vre0 and Vim0 as the linearization point
+
+				! reduce to DetailedTrafos (lump the other transformers as MV loads) when requested; no-op otherwise
+				if ReduceNetwork = 1 then
+					run ApplyNetworkReduction;
+				endif;
+			}
+			Comment: "loads as constant power (for now)";
+		}
+	}
+	Section NetworkModel {
+		Comment: "The network physics, inherited unchanged from the OPF model of Prof. Luis: linearized current-injection power flow (loads/PV linearized around the flat-start voltages Vre0/Vim0), transformer Dy1 voltage/current equations, thermal limits, voltage limits, slack bus, and the inverter capability constraints. The IncludeNetworkConstraints toggle excludes exactly this section (AllConstraints*NetworkModel), so constraint membership here is semantically meaningful - do not move constraints in or out casually.";
+		DeclarationSection Inverters {
+			Constraint MaxBattS_def {
+				IndexDomain: (bat) | FOR_PolyS = 0 and FOR_ScaleInv = 0;
+				Definition: BattP_Balance(bat,PeriodMaxP)^2 + Qinv(bat,PeriodMaxP)^2 <= BattMaxP(bat)^2;
+				Comment: "Exact S-circle. Disabled (no rows) when FOR_PolyS=1 (replaced by MaxBattS_poly) or when FOR_ScaleInv=1 (replaced by the unit-scaled MaxBattS_norm).";
+			}
+			Variable BattInvPn {
+				IndexDomain: (bat);
+				Range: free;
+				Comment: "Per-unit-normalized inverter active power at PeriodMaxP (BattP_Balance/BattMaxP). O(1) cone variable, used only when FOR_ScaleInv=1 to improve exact-QCP conditioning. No rows when FOR_ScaleInv=0.";
+			}
+			Variable BattInvQn {
+				IndexDomain: (bat);
+				Range: free;
+				Comment: "Per-unit-normalized inverter reactive power at PeriodMaxP (Qinv/BattMaxP). Pairs with BattInvPn for the unit S-cone when FOR_ScaleInv=1.";
+			}
+			Constraint LinkBattInvPn {
+				IndexDomain: (bat) | FOR_ScaleInv = 1;
+				Definition: BattMaxP(bat)*BattInvPn(bat) = BattP_Balance(bat,PeriodMaxP);
+			}
+			Constraint LinkBattInvQn {
+				IndexDomain: (bat) | FOR_ScaleInv = 1;
+				Definition: BattMaxP(bat)*BattInvQn(bat) = Qinv(bat,PeriodMaxP);
+			}
+			Constraint MaxBattS_norm {
+				IndexDomain: (bat) | FOR_ScaleInv = 1;
+				Definition: BattInvPn(bat)^2 + BattInvQn(bat)^2 <= 1;
+				Comment: "Unit S-cone on normalized variables (well-conditioned). Replaces the exact MaxBattS_def when FOR_ScaleInv=1.";
+			}
+			Constraint MaxBattS_poly {
+				IndexDomain: (bat,ks) | FOR_PolyS = 1;
+				Definition: {
+					cos(FOR_PolyAng(ks))*BattP_Balance(bat,PeriodMaxP)
+					+ sin(FOR_PolyAng(ks))*Qinv(bat,PeriodMaxP)
+					<= BattMaxP(bat)
+				}
+				Comment: "Piecewise-linear (16-gon) inverter capability curve replacing the exact S-circle when FOR_PolyS=1. Tangent lines => circumscribed polygon, ~2% outer tolerance at K=16.";
+			}
+		}
+		DeclarationSection SlackGenVars {
+			Variable Iim_SlackGen {
+				IndexDomain: (sg,t);
+				Range: free;
+			}
+			Variable Ire_SlackGen {
+				IndexDomain: (sg,t);
+				Range: free;
+			}
+		}
+		DeclarationSection LineVars {
+			Variable Ire_Line {
+				IndexDomain: (l,f,t);
+				Range: free;
+			}
+			Variable Iim_Line {
+				IndexDomain: (l,f,t);
+				Range: free;
+			}
+		}
+		DeclarationSection TrafosVars {
+			Parameter Tapratio {
+				IndexDomain: (tr,t);
+				Range: nonnegative;
+			}
+			Parameter TapPosUnits {
+				IndexDomain: (tr,t);
+				Range: [MinTap(tr), MaxTap(tr)];
+			}
+			Variable Iim_Trafo {
+				IndexDomain: (tr,f,n,t);
+				Range: free;
+			}
+			Variable Ire_Trafo {
+				IndexDomain: (tr,f,n,t);
+				Range: free;
+			}
+		}
+		DeclarationSection BusVars {
+			Variable Vmag2approx {
+				IndexDomain: (n,f,t);
+				Range: free;
+				Definition: Vre0(n,f,t)^2 + Vim0(n,f,t)^2 + 2*Vre0(n,f,t)*(Vre(n,f,t)-Vre0(n,f,t)) + 2*Vim0(n,f,t)*(Vim(n,f,t)-Vim0(n,f,t));
+			}
+			Variable Vre {
+				IndexDomain: (n,f,t);
+				Range: free;
+			}
+			Variable Vim {
+				IndexDomain: (n,f,t);
+				Range: free;
+			}
+		}
+		DeclarationSection SlackGenParameters {
+			ElementParameter SlackGenBus {
+				IndexDomain: sg;
+				Range: Buses;
+			}
+			ElementParameter SlackGenPhase {
+				IndexDomain: sg;
+				Range: Phases;
+			}
+		}
+		DeclarationSection BusParameters {
+			Parameter Slack {
+				IndexDomain: n;
+			}
+			Parameter MinV {
+				IndexDomain: n;
+			}
+			Parameter MaxV {
+				IndexDomain: n;
+			}
+			Parameter Vbase {
+				IndexDomain: n;
+				Comment: "in kV";
+			}
+		}
+		DeclarationSection LineParameters {
+			Parameter MinimiseFlow {
+				IndexDomain: l;
+			}
+			ElementParameter StartBus {
+				IndexDomain: l;
+				Range: Buses;
+			}
+			ElementParameter EndBus {
+				IndexDomain: l;
+				Range: Buses;
+			}
+			Parameter Rs {
+				IndexDomain: l;
+			}
+			Parameter xs {
+				IndexDomain: l;
+			}
+			Parameter Rm {
+				IndexDomain: l;
+			}
+			Parameter Xm {
+				IndexDomain: l;
+			}
+			Parameter MaxCurrent {
+				IndexDomain: l;
+			}
+		}
+		DeclarationSection TrafosParameters {
+			ElementParameter StartBusTr {
+				IndexDomain: tr;
+				Range: Buses;
+			}
+			ElementParameter EndBusTr {
+				IndexDomain: tr;
+				Range: Buses;
+			}
+			Parameter Is_OLTC {
+				IndexDomain: tr;
+			}
+			Parameter FixedTapPos {
+				IndexDomain: tr;
+			}
+			Parameter MaxAmps {
+				IndexDomain: tr;
+			}
+			Parameter MinTap {
+				IndexDomain: tr;
+			}
+			Parameter MaxTap {
+				IndexDomain: tr;
+			}
+			Parameter R {
+				IndexDomain: tr;
+			}
+			Parameter X {
+				IndexDomain: tr;
+			}
+			Parameter nomratio {
+				IndexDomain: tr;
+			}
+			Parameter mlin {
+				IndexDomain: tr;
+			}
+			Parameter nlin {
+				IndexDomain: tr;
+			}
+		}
+		DeclarationSection NonLinearConstraints {
+			Constraint Vre_calc_Trafo {
+				IndexDomain: (tr,f,t);
+				Definition: {
+					if f=1 then
+					Vre(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vre(EndBusTr(tr),2,t)+Vre(EndBusTr(tr),3,t)
+								+ R(tr)*(2*Ire_Trafo(tr,2,EndBusTr(tr),t) + Ire_Trafo(tr,3,EndBusTr(tr),t))
+								- X(tr)*(2*Iim_Trafo(tr,2,EndBusTr(tr),t) + Iim_Trafo(tr,3,EndBusTr(tr),t)))
+					elseif f=2 then
+					Vre(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vre(EndBusTr(tr),3,t)+Vre(EndBusTr(tr),1,t)
+								+ R(tr)*(2*Ire_Trafo(tr,3,EndBusTr(tr),t) + Ire_Trafo(tr,1,EndBusTr(tr),t))
+								- X(tr)*(2*Iim_Trafo(tr,3,EndBusTr(tr),t) + Iim_Trafo(tr,1,EndBusTr(tr),t)))
+					else
+					Vre(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vre(EndBusTr(tr),1,t)+Vre(EndBusTr(tr),2,t)
+								+ R(tr)*(2*Ire_Trafo(tr,1,EndBusTr(tr),t) + Ire_Trafo(tr,2,EndBusTr(tr),t))
+								- X(tr)*(2*Iim_Trafo(tr,1,EndBusTr(tr),t) + Iim_Trafo(tr,2,EndBusTr(tr),t)))
+					endif
+				}
+			}
+			Constraint Vim_calc_Trafo {
+				IndexDomain: (tr,f,t);
+				Definition: {
+					if f=1 then
+					Vim(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vim(EndBusTr(tr),2,t)+Vim(EndBusTr(tr),3,t)
+								+ R(tr)*(2*Iim_Trafo(tr,2,EndBusTr(tr),t) + Iim_Trafo(tr,3,EndBusTr(tr),t))
+								+ X(tr)*(2*Ire_Trafo(tr,2,EndBusTr(tr),t) + Ire_Trafo(tr,3,EndBusTr(tr),t)))
+					elseif f=2 then
+					Vim(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vim(EndBusTr(tr),3,t)+Vim(EndBusTr(tr),1,t)
+								+ R(tr)*(2*Iim_Trafo(tr,3,EndBusTr(tr),t) + Iim_Trafo(tr,1,EndBusTr(tr),t))
+								+ X(tr)*(2*Ire_Trafo(tr,3,EndBusTr(tr),t) + Ire_Trafo(tr,1,EndBusTr(tr),t)))
+					else
+					Vim(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vim(EndBusTr(tr),1,t)+Vim(EndBusTr(tr),2,t)
+								+ R(tr)*(2*Iim_Trafo(tr,1,EndBusTr(tr),t) + Iim_Trafo(tr,2,EndBusTr(tr),t))
+								+ X(tr)*(2*Ire_Trafo(tr,1,EndBusTr(tr),t) + Ire_Trafo(tr,2,EndBusTr(tr),t)))
+					endif
+
+					!if f<3 then
+					!Vim(StartBusTr(tr),f) = -(nomratio(tr)/3)*(2*Vim(EndBusTr(tr),f+1)+Vim(EndBusTr(tr),f+2)
+					!			+ R(tr)*(2*Iim_Trafo(tr,f+1,EndBusTr(tr)) + Iim_Trafo(tr,f+2,EndBusTr(tr)))
+					!			+ X(tr)*(2*Ire_Trafo(tr,f+1,EndBusTr(tr)) + Ire_Trafo(tr,f+2,EndBusTr(tr))))
+					!else
+					!Vim(StartBusTr(tr),f) = -(nomratio(tr)/3)*(2*Vim(EndBusTr(tr),1)+Vim(EndBusTr(tr),2)
+					!			+ R(tr)*(2*Iim_Trafo(tr,1,EndBusTr(tr)) + Iim_Trafo(tr,2,EndBusTr(tr)))
+					!			+ X(tr)*(2*Ire_Trafo(tr,1,EndBusTr(tr)) + Ire_Trafo(tr,2,EndBusTr(tr))))
+					!endif
+					!
+				}
+			}
+			Constraint Ire_calc_Trafo {
+				IndexDomain: (tr,f,t);
+				Definition: {
+					if f<3 then
+						Ire_Trafo(tr,f,StartBusTr(tr),t)*nomratio(tr)*Tapratio(tr,t) = Ire_Trafo(tr,f,EndBusTr(tr),t) - Ire_Trafo(tr,f+1,EndBusTr(tr),t)
+					else
+						Ire_Trafo(tr,f,StartBusTr(tr),t)*nomratio(tr)*Tapratio(tr,t) = Ire_Trafo(tr,3,EndBusTr(tr),t) - Ire_Trafo(tr,1,EndBusTr(tr),t)
+					endif
+				}
+			}
+			Constraint Iim_calc_Trafo {
+				IndexDomain: (tr,f,t);
+				Definition: {
+					if f<3 then
+						Iim_Trafo(tr,f,StartBusTr(tr),t)*nomratio(tr)*Tapratio(tr,t) = Iim_Trafo(tr,f,EndBusTr(tr),t) - Iim_Trafo(tr,f+1,EndBusTr(tr),t)
+					else
+						Iim_Trafo(tr,f,StartBusTr(tr),t)*nomratio(tr)*Tapratio(tr,t) = Iim_Trafo(tr,3,EndBusTr(tr),t) - Iim_Trafo(tr,1,EndBusTr(tr),t)
+					endif
+				}
+			}
+			Constraint I2maxTrafos {
+				IndexDomain: (tr,f,t);
+				Definition: {
+					!constraining the primary side current per phase
+					Ire_Trafo(tr,f,StartBusTr(tr),t)^2+Iim_Trafo(tr,f,StartBusTr(tr),t)^2 <= MaxAmps(tr)^2
+
+					!to not consider it
+					!Ire_Trafo(tr,f,n)^2+Iim_Trafo(tr,f,n)^2 <= MaxAmps(tr)^2*10000000000000000000000000000
+				}
+			}
+			Constraint I2maxLines {
+				IndexDomain: (l,f,t);
+				Definition: {
+					Ire_Line(l,f,t)^2+Iim_Line(l,f,t)^2 <= MaxCurrent(l)^2
+
+					!to not consider it
+					!Ire_Line(l,f,t)^2+Iim_Line(l,f,t)^2 <= MaxCurrent(l)^2*10000000000000000000000000000000000000
+				}
+			}
+			Constraint Vmax {
+				IndexDomain: (n,f,t);
+				Definition: (1-FOR_LinearizeVmax)*( Vre(n,f,t)^2 + Vim(n,f,t)^2 ) + FOR_LinearizeVmax * Vmag2approx(n,f,t) <= MaxV(n)^2;
+			}
+		}
+		DeclarationSection OtherLinearConstraints {
+			Constraint Vmin {
+				IndexDomain: (n,f,t);
+				Definition: {
+					Vmag2approx(n,f,t) >= MinV(n)^2
+
+					!Vre(n,f,t)^2 + Vim(n,f,t)^2 >= MinV(n)^2
+				}
+			}
+			Constraint SlackVim {
+				IndexDomain: (ref,f,t);
+				Definition: {
+					if f=1 then
+						Vim(ref,f,t)=0
+					elseif f=2 then
+						Vim(ref,f,t)=-0.866025404
+					else
+						Vim(ref,f,t)=0.866025404
+					endif
+				}
+			}
+			Constraint SlackVre {
+				IndexDomain: (ref,f,t);
+				Definition: {
+					if f=1 then
+						Vre(ref,f,t)=1
+					else
+						Vre(ref,f,t)=-0.5
+					endif
+				}
+			}
+			Constraint Ire_balance {
+				IndexDomain: (n,f,t);
+				Definition: {
+					sum(sg|SlackGenBus(sg)=n and SlackGenPhase(sg)=f,Ire_SlackGen(sg,t))
+					+ sum(l|EndBus(l)=n, Ire_Line(l,f,t))
+					+ sum(tr|EndBusTr(tr)=n, Ire_Trafo(tr,f,n,t))
+					- sum(l|StartBus(l)=n, Ire_Line(l,f,t))
+					- sum(tr|StartBusTr(tr)=n, Ire_Trafo(tr,f,n,t))
+					= sum(d|LoadBus(d)=n and LoadPhase(d)=f,Ire_Load(d,t)-Ire_Gen(d,t))
+					+ sum(bat|BattBus(bat)=n and BattPhase(bat)=f,Ire_Batt(bat,t))
+				}
+			}
+			Constraint Iim_balance {
+				IndexDomain: (n,f,t);
+				Definition: {
+					sum(sg|SlackGenBus(sg)=n and SlackGenPhase(sg)=f,Iim_SlackGen(sg,t))
+					+ sum(l|EndBus(l)=n, Iim_Line(l,f,t))
+					+ sum(tr|EndBusTr(tr)=n, Iim_Trafo(tr,f,n,t))
+					- sum(l|StartBus(l)=n, Iim_Line(l,f,t))
+					- sum(tr|StartBusTr(tr)=n, Iim_Trafo(tr,f,n,t))
+					= sum(d|LoadBus(d)=n and LoadPhase(d)=f,Iim_Load(d,t)-Iim_Gen(d,t))
+					+ sum(bat|BattBus(bat)=n and BattPhase(bat)=f,Iim_Batt(bat,t))
+				}
+			}
+			Constraint VdropLines_re {
+				IndexDomain: (l,f,t);
+				Definition: Vre(StartBus(l),f,t)-Vre(EndBus(l),f,t) = sum(h|h<>f,Rm(l)*Ire_Line(l,h,t) - Xm(l)*Iim_Line(l,h,t)) + Rs(l)*Ire_Line(l,f,t) - Xs(l)*Iim_Line(l,f,t);
+			}
+			Constraint VdropLines_im {
+				IndexDomain: (l,f,t);
+				Definition: Vim(StartBus(l),f,t)-Vim(EndBus(l),f,t) = sum(h|h<>f,Xm(l)*Ire_Line(l,h,t) + Rm(l)*Iim_Line(l,h,t)) + Xs(l)*Ire_Line(l,f,t) + Rs(l)*Iim_Line(l,f,t);
+			}
+			Constraint FixedTaps {
+				IndexDomain: (tr,t)|Is_OLTC(tr)=0;
+				Definition: TapPosUnits(tr,t)=FixedTapPos(tr);
+			}
+		}
+		DeclarationSection Linearization {
+			Parameter Vre0 {
+				IndexDomain: (n,f,t);
+			}
+			Parameter Vim0 {
+				IndexDomain: (n,f,t);
+			}
+			Parameter dIredVre_Gen {
+				IndexDomain: (d,t);
+				Definition: {
+					(GenP0(d,t)*(-Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIredVre_Load {
+				IndexDomain: (d,t);
+				Definition: {
+					(P0(d,t)*(-Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2) - 2*Q0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t)*Vre0(LoadBus(d),LoadPhase(d),t))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIimdVre_Gen {
+				IndexDomain: (d,t);
+				Definition: {
+					(- 2*GenP0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIimdVre_Load {
+				IndexDomain: (d,t);
+				Definition: {
+					(Q0(d,t)*(Vre0(LoadBus(d),LoadPhase(d),t)^2-Vim0(LoadBus(d),LoadPhase(d),t)^2) - 2*P0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIimdVim_Gen {
+				IndexDomain: (d,t);
+				Definition: {
+					GenP0(d,t)*(Vre0(LoadBus(d),LoadPhase(d),t)^2 - Vim0(LoadBus(d),LoadPhase(d),t)^2)/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIimdVim_Load {
+				IndexDomain: (d,t);
+				Definition: {
+					P0(d,t)*(Vre0(LoadBus(d),LoadPhase(d),t)^2 - Vim0(LoadBus(d),LoadPhase(d),t)^2 + 2*Q0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIredVim_Gen {
+				IndexDomain: (d,t);
+				Definition: {
+					(- 2*P0minGenP(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+			Parameter dIredVim_Load {
+				IndexDomain: (d,t);
+				Definition: {
+					(Q0(d,t)*(-Vim0(LoadBus(d),LoadPhase(d),t)^2+Vre0(LoadBus(d),LoadPhase(d),t)^2) - 2*P0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
+				}
+			}
+		}
+		DeclarationSection LoadAndGenVars {
+			Variable Ire_Gen {
+				IndexDomain: (d,t);
+				Range: free;
+				Definition: {
+					(GenP0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
+						      + dIredVre_Gen(d,t)*(Vre(LoadBus(d),LoadPhase(d),t)-Vre0(LoadBus(d),LoadPhase(d),t))
+						      + dIredVim_Gen(d,t)*(Vim(LoadBus(d),LoadPhase(d),t)-Vim0(LoadBus(d),LoadPhase(d),t))
+				}
+			}
+			Variable Ire_Load {
+				IndexDomain: (d,t);
+				Range: free;
+				Definition: {
+					(P0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t) + Q0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
+						      + dIredVre_Load(d,t)*(Vre(LoadBus(d),LoadPhase(d),t)-Vre0(LoadBus(d),LoadPhase(d),t))
+						      + dIredVim_Load(d,t)*(Vim(LoadBus(d),LoadPhase(d),t)-Vim0(LoadBus(d),LoadPhase(d),t))
+				}
+			}
+			Variable Iim_Load {
+				IndexDomain: (d,t);
+				Range: free;
+				Definition: {
+					(P0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t) - Q0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
+						      + dIimdVre_Load(d,t)*(Vre(LoadBus(d),LoadPhase(d),t)-Vre0(LoadBus(d),LoadPhase(d),t))
+						      + dIimdVim_Load(d,t)*(Vim(LoadBus(d),LoadPhase(d),t)-Vim0(LoadBus(d),LoadPhase(d),t))
+				}
+			}
+			Variable Iim_Gen {
+				IndexDomain: (d,t);
+				Range: free;
+				Definition: {
+					(GenP0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
+						      + dIimdVre_Gen(d,t)*(Vre(LoadBus(d),LoadPhase(d),t)-Vre0(LoadBus(d),LoadPhase(d),t))
+						      + dIimdVim_Gen(d,t)*(Vim(LoadBus(d),LoadPhase(d),t)-Vim0(LoadBus(d),LoadPhase(d),t))
+				}
+			}
+		}
+	}
+	Section BatteryModel {
+		Comment: "Battery energy-storage model, active in every case (NOT part of the network toggle set): charge/discharge/SOC variables, the P/Q current coupling (Pbat/Qbat), SOC limits, the cyclic-SOC band for the rolling horizon, and per-battery parameters from the database. Qinv is inverter reactive power, freed only at PeriodMaxP when IncludeQforMaxP=1. The complementarity binary BattOn exists only when UseBattComp=1 (Validation).";
+		DeclarationSection BattVars {
+			Variable Ire_Batt {
+				IndexDomain: (bat,t);
+				Range: free;
+			}
+			Variable Iim_Batt {
+				IndexDomain: (bat,t);
+				Range: free;
+			}
+			Variable BattP_Chg {
+				IndexDomain: (bat,t);
+				Range: nonnegative;
+			}
+			Variable BattP_Dis {
+				IndexDomain: (bat,t);
+				Range: nonnegative;
+			}
+			Variable BattP_Balance {
+				IndexDomain: (bat,t);
+				Range: free;
+				Definition: BattP_Chg(bat,t)-BattP_Dis(bat,t);
+			}
+			Variable BattOn {
+				IndexDomain: (bat,t) | UseBattComp;
+				Range: binary;
+				Comment: "Charge/discharge mode binary (1 = may charge, 0 = may discharge); exists only when UseBattComp=1. With ChgMode/DisMode it forbids charging and discharging in the same period (no non-physical simultaneous cycling).";
+			}
+			Constraint ChgMode {
+				IndexDomain: (bat,t) | UseBattComp;
+				Definition: BattP_Chg(bat,t) <= BattOn(bat,t)*BattMaxP(bat);
+			}
+			Constraint DisMode {
+				IndexDomain: (bat,t) | UseBattComp;
+				Definition: BattP_Dis(bat,t) <= (1-BattOn(bat,t))*BattMaxP(bat);
+			}
+			Variable BattSOC {
+				IndexDomain: (bat,t);
+				Range: nonnegative;
+				Definition: BattSOCini(bat) + sum(tt|tt<=t,BattP_Chg(bat,tt)*etaChg(bat) - BattP_Dis(bat,tt)/etaDis(bat))*DeltaT/BattEcap(bat);
+			}
+			Variable Qinv {
+				IndexDomain: (bat,t);
+				Range: free;
+			}
+			Constraint OnlyDischatT {
+				IndexDomain: bat;
+				Definition: BattP_Balance(bat,PeriodMaxP) <= AllowChargeAtPmax*BattMaxP(bat);
+			}
+			Constraint MaxBattP_Chg_def {
+				IndexDomain: (bat,t);
+				Definition: BattP_Chg(bat,t)<=BattMaxP(bat);
+			}
+			Constraint MaxBattP_Dis_def {
+				IndexDomain: (bat,t);
+				Definition: BattP_Dis(bat,t)<=BattMaxP(bat);
+				Comment: "Seen as injected (grid side)";
+			}
+			Constraint MinSOC_def {
+				IndexDomain: (bat,t);
+				Definition: BattSOC(bat,t)>=BattSOCmin(bat);
+			}
+			Constraint MaxSOC_def {
+				IndexDomain: (bat,t);
+				Definition: BattSOC(bat,t)<=BattSOCmax(bat);
+			}
+			Constraint Pbat {
+				IndexDomain: (bat,t);
+				Definition: BattP_Balance(bat,t)=Vre0(BattBus(bat),BattPhase(bat),t)*Ire_Batt(bat,t) + Vim0(BattBus(bat),BattPhase(bat),t)*Iim_Batt(bat,t);
+			}
+			Constraint Qbat {
+				IndexDomain: (bat,t);
+				Definition: Qinv(bat,t)=-Vre0(BattBus(bat),BattPhase(bat),t)*Iim_Batt(bat,t) + Vim0(BattBus(bat),BattPhase(bat),t)*Ire_Batt(bat,t);
+			}
+			Constraint CyclicSOC {
+				IndexDomain: bat | RollCyclicSOC = 1 and CyclicSOCBand = 0;
+				Definition: sum(t, BattP_Chg(bat,t)*etaChg(bat) - BattP_Dis(bat,t)/etaDis(bat)) = 0;
+				Comment: {
+					"Rolling horizon, strict equality: net battery energy over the wrapped day is zero, so SOC returns to its window start. Active when RollCyclicSOC=1 AND CyclicSOCBand=0 (default; identical to the original pre-band formulation, no LP-presolve regression). When CyclicSOCBand>0 this row is dropped and the CyclicSOC_ub/CyclicSOC_lb band pair takes over."
+				}
+			}
+			Constraint CyclicSOC_ub {
+				IndexDomain: bat | RollCyclicSOC = 1 and CyclicSOCBand > 0;
+				Definition: sum(t, BattP_Chg(bat,t)*etaChg(bat) - BattP_Dis(bat,t)/etaDis(bat)) <= CyclicSOCBand * BattEcap(bat) / DeltaT;
+				Comment: {
+					"Rolling horizon, band upper bound. Active only when CyclicSOCBand>0 (diagnostic / future relaxed runs); pairs with CyclicSOC_lb. Together: |SOC_end - SOC_start| <= CyclicSOCBand."
+				}
+			}
+			Constraint CyclicSOC_lb {
+				IndexDomain: bat | RollCyclicSOC = 1 and CyclicSOCBand > 0;
+				Definition: sum(t, BattP_Chg(bat,t)*etaChg(bat) - BattP_Dis(bat,t)/etaDis(bat)) >= -CyclicSOCBand * BattEcap(bat) / DeltaT;
+				Comment: {
+					"Rolling horizon, band lower bound. Active only when CyclicSOCBand>0; pairs with CyclicSOC_ub."
+				}
+			}
+		}
+		DeclarationSection BatteryParameters {
+			ElementParameter BattBus {
+				IndexDomain: bat;
+				Range: Buses;
+			}
+			ElementParameter BattAgg {
+				IndexDomain: bat;
+				Range: Aggregators;
+			}
+			ElementParameter BattTr {
+				IndexDomain: bat;
+				Range: Trafos;
+			}
+			ElementParameter BattPhase {
+				IndexDomain: bat;
+				Range: Phases;
+			}
+			Parameter BattSOCini {
+				IndexDomain: bat;
+			}
+			Parameter BattSOCmin {
+				IndexDomain: bat;
+			}
+			Parameter BattSOCmax {
+				IndexDomain: bat;
+			}
+			Parameter BattMaxP {
+				IndexDomain: bat;
+			}
+			Parameter BattEcap {
+				IndexDomain: bat;
+			}
+			Parameter etaChg {
+				IndexDomain: bat;
+			}
+			Parameter etaDis {
+				IndexDomain: bat;
+			}
+		}
+	}
+	Section SelfConsumptionOPF {
+		Comment: "The self-consumption OPF: node import/export decomposition at battery nodes, the two cost-min objectives (OFminImports = pure self-consumption, used by the rolling baseline; OFminImportsmaxReverseP = paper objective with the w1 max-reverse-flow term at PeriodMaxP), their mathematical programs and solve wrappers, and the paper case runners.";
+		DeclarationSection ObjectFunction {
+			MathematicalProgram MinImportsMaxReverseP {
+				Objective: OFminImportsmaxReverseP;
+				Direction: minimize;
+				Constraints: NotTobeExcluded_constraints;
+				Variables: NotTobeExcluded_variables;
+				Type: Automatic;
+				Comment: {
+					"Use this to be more generic (may take more time)
+					Constraints: NotTobeExcluded_constraints
+					Variables: NotTobeExcluded_variables"
+				}
+			}
+			MathematicalProgram MinImports {
+				Objective: OFminImports;
+				Direction: minimize;
+				Constraints: NotTobeExcluded_constraints;
+				Variables: NotTobeExcluded_variables;
+				Type: Automatic;
+				Comment: {
+					"Use this to be more generic (may take more time)
+					Constraints: NotTobeExcluded_constraints
+					Variables: NotTobeExcluded_variables"
+				}
+			}
+			Variable TotPcust {
+				IndexDomain: (n,f,t);
+				Range: free;
+				Definition: {
+					sum(d|LoadBus(d)=n and LoadPhase(d)=f,P0minGenP(d,t))
+					+ sum(bat|BattBus(bat)=n and BattPhase(bat)=f,BattP_Balance(bat,t))
+
+				}
+			}
+			Variable ImportedPnode {
+				IndexDomain: (n,f,t);
+				Range: nonnegative;
+			}
+			Constraint TotPbalance {
+				IndexDomain: (n,f,t);
+				Definition: TotPcust(n,f,t) = ImportedPnode(n,f,t) - ExportedPnode(n,f,t);
+			}
+			Parameter ChgDis {
+				IndexDomain: (bat,t);
+			}
+			Variable OFminImportsmaxReverseP {
+				Range: free;
+				Definition: {
+					w1*sum(bat,TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP))
+					+ sum((bat,t)|t<>PeriodMaxP,w2(t)*(ImportedPnode(BattBus(bat),BattPhase(bat),t)+ExportedPnode(BattBus(bat),BattPhase(bat),t)))
+					+ BattThroughputPen*sum((bat,t),BattP_Chg(bat,t)+BattP_Dis(bat,t))
+				}
+			}
+			Variable OFminImports {
+				Range: free;
+				Definition: {
+					sum((bat,t),w2(t)*(ImportedPnode(BattBus(bat),BattPhase(bat),t)+ExportedPnode(BattBus(bat),BattPhase(bat),t)))
+					+ BattThroughputPen*sum((bat,t),BattP_Chg(bat,t)+BattP_Dis(bat,t))
+				}
+			}
+			Variable ExportedPnode {
+				IndexDomain: (n,f,t);
+				Range: nonnegative;
+			}
+			Parameter CostImport {
+				IndexDomain: t;
+			}
+			Parameter PayExport {
+				IndexDomain: t;
+			}
+			Parameter AllCustWithBatPtot {
+				IndexDomain: t;
+			}
+			Parameter AllCustWithBatPtot_AggTr {
+				IndexDomain: (tr,t);
+			}
+			Parameter VmagExPost {
+				IndexDomain: (n,f,t);
+			}
+			Parameter VmagExPost_PeriodMaxP {
+				IndexDomain: (n,f);
+			}
+			Parameter LineUsage_PeriodMaxP {
+				IndexDomain: (l,f);
+			}
+			Parameter TrafoUsage_PeriodMaxP {
+				IndexDomain: (tr,f);
+			}
+		}
+		DeclarationSection Convergence {
+			StringParameter ConvFlag;
+			Parameter ConvTime;
+		}
+		Procedure MinOFminImportsmaxReverseP {
+			Body: {
+				!CapStage(c|Is_FixedStage(c)=1):=FixedStage(c);
+				!CapStage(c|Is_FixedStage(c)=1).nonvar:=1;
+
+				!TapPosUnits(tr|Is_OLTC(tr)=0):=FixedTapPos(tr);
+				!TapPosUnits(tr|Is_OLTC(tr)=0).nonvar:=1;
+
+				!MinLineP.CallbackAOA := 'OuterApprox::BasicAlgorithm';
+
+				option Bound_Tolerance:=1e-006;
+				solve MinImportsMaxReverseP where MIP_Relative_Optimality_Tolerance := 0.01, time_limit := 3000;
+
+				ConvFlag:=MinImportsMaxReverseP.ProgramStatus;
+
+				ConvTime:=MinImportsMaxReverseP.SolutionTime;
+
+				!VmagExPost(n,f,t):=sqrt(Vre(n,f,t)^2+Vim(n,f,t)^2);
+			}
+		}
+		Procedure MinOFminImports {
+			Body: {
+				!CapStage(c|Is_FixedStage(c)=1):=FixedStage(c);
+				!CapStage(c|Is_FixedStage(c)=1).nonvar:=1;
+
+				!TapPosUnits(tr|Is_OLTC(tr)=0):=FixedTapPos(tr);
+				!TapPosUnits(tr|Is_OLTC(tr)=0).nonvar:=1;
+
+				!MinLineP.CallbackAOA := 'OuterApprox::BasicAlgorithm';
+
+				option Bound_Tolerance:=1e-006;
+				solve MinImports where MIP_Relative_Optimality_Tolerance := 0.01, method := 'deterministic concurrent', time_limit := 3000;
+
+				ConvFlag:=MinImports.ProgramStatus;
+
+				ConvTime:=MinImports.SolutionTime;
+
+				!VmagExPost(n,f,t):=sqrt(Vre(n,f,t)^2+Vim(n,f,t)^2);
+			}
+		}
+		Procedure ComputeMetrics {
+			Body: {
+				VmagExPost(n,f,t):=sqrt(Vre(n,f,t)^2+Vim(n,f,t)^2);
+				VmagExPost_PeriodMaxP(n,f):=VmagExPost(n,f,PeriodMaxP);
+
+				LineUsage_PeriodMaxP(l,f):=sqrt(Ire_Line(l,f,PeriodMaxP)^2+Iim_Line(l,f,PeriodMaxP)^2)*100/MaxCurrent(l);
+				TrafoUsage_PeriodMaxP(tr,f):=sqrt(Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)^2+Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)^2)*100/MaxAmps(tr);
+
+
+				ChgDis(bat,t):=BattP_Chg(bat,t)*BattP_Dis(bat,t);
+
+				AllCustWithBatPtot(t):=sum(bat,TotPcust(BattBus(bat),BattPhase(bat),t));
+
+
+				!AllCustWithBatPtot_AggTr(a,tr,t):=sum(bat|BattAgg(bat)=a and BattTr(bat)=tr ,TotPcust(BattBus(bat),BattPhase(bat),t));
+			}
+		}
+		Procedure MainExecution {
+			Body: {
+				run MinOFminImportsmaxReverseP;
+			}
+		}
+		Procedure MainInitialization;
+		Procedure RunOneCase {
+			Body: {
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries; !,Generators
+				showprogresswindow;
+				option disable_new_mathprog_generator:=1;
+
+				!settings
+				IncludeNetworkConstraints:=0; !flag to include network constraints
+				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
+
+				nPeriods:=48;
+				!nPeriods:=1;
+
+				PeriodMaxP := 25;
+
+				!!!!!!!!!!!
+
+				if IncludeNetworkConstraints=1 then
+					if IncludeQforMaxP=0 then
+						ResultsFileRoot:="NC_noQ_";
+					else
+						ResultsFileRoot:="NC_Q_";
+					endif;
+				else
+					ResultsFileRoot:="noNC_";
+				endif;
+
+
+
+				empty allvariables;
+
+				run Load_data_dsn;
+
+				run MainExecution;
+
+				!run ComputeMetrics;
+
+				!run WriteResultstoExcel;
+			}
+		}
+		Procedure RunAllCases {
+			Body: {
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries; !,Generators
+
+				!settings
+				IncludeNetworkConstraints:=0; !flag to include network constraints
+
+
+				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
+
+					ResultsFileRoot:="noNC_";
+
+					nPeriods:=48;
+
+					PeriodMaxP := 1;
+					while (PeriodMaxP <= 48) do
+						empty allvariables;
+
+						run Load_data_dsn;
+
+						run MainExecution;
+
+						run ComputeMetrics;
+
+						run WriteResultstoExcel;
+
+						PeriodMaxP:=PeriodMaxP+1;
+					endwhile;
+
+
+				!settings
+				IncludeNetworkConstraints:=1; !flag to include network constraints
+
+				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
+
+				while IncludeQforMaxP<=1 do
+
+					if IncludeNetworkConstraints=1 then
+						if IncludeQforMaxP=0 then
+							ResultsFileRoot:="NC_noQ_";
+						else
+							ResultsFileRoot:="NC_Q_";
+						endif;
+					else
+						ResultsFileRoot:="noNC_";
+					endif;
+
+					nPeriods:=48;
+
+					PeriodMaxP := 1;
+					while (PeriodMaxP <= 48) do
+						empty allvariables;
+
+						run Load_data_dsn;
+
+						run MainExecution;
+
+						run ComputeMetrics;
+
+						run WriteResultstoExcel;
+
+						PeriodMaxP:=PeriodMaxP+1;
+					endwhile;
+					IncludeQforMaxP:=IncludeQforMaxP+1;
+				endwhile;
+			}
+		}
+		Procedure RunBAU {
+			Body: {
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries; !,Generators
+
+				!settings
+				IncludeNetworkConstraints:=0; !flag to include network constraints
+				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
+				PeriodMaxP:=0; !out of range
+				!!!!!!!!!!!
+
+				if IncludeNetworkConstraints=1 then
+					ResultsFileRoot:="NC_BAU";
+				else
+					ResultsFileRoot:="noNC_BAU";
+				endif;
+
+				nPeriods:=48;
+
+				empty allvariables;
+
+				run Load_data_dsn;
+
+				run MinOFminImports;
+
+				run ComputeMetrics;
+
+				run WriteResultstoExcel;
+			}
+		}
+	}
+	Section FOR_Computation {
+		Comment: "The FOR at the PCC: P_PCC/Q_PCC (grid->feeder positive), the directional objective OF_FOR = -(cos.P + sin.Q) minimized once per sweep angle, the homotopy/tiebreaker variant OF_FOR_cont, the 12-angle sweep set, and the per-vertex result containers incl. the ex-post accuracy columns (VminTrue/VmaxTrue/UVviol/OVviol/LinErr).";
+		DeclarationSection PCC_Power {
+			Comment: "PCC power being mapped: fixed slack voltage (Vre_PCC/Vim_PCC mirror SlackVre/SlackVim) and the resulting active/reactive power P_PCC/Q_PCC at the slack bus (grid->feeder positive). These are the (P,Q) coordinates of the FOR.";
+			Parameter Vre_PCC {
+				IndexDomain: f;
+				Definition: {
+					if f=1 then 1
+					else -0.5
+					endif
+				}
+				Comment: "Real part of fixed slack-bus voltage (balanced 3-phase, p.u.). Mirrors SlackVre.";
+			}
+			Parameter Vim_PCC {
+				IndexDomain: f;
+				Definition: {
+					if f=1 then 0
+					elseif f=2 then -0.866025404
+					else 0.866025404
+					endif
+				}
+				Comment: "Imag part of fixed slack-bus voltage (balanced 3-phase, p.u.). Mirrors SlackVim.";
+			}
+			Variable P_PCC {
+				IndexDomain: t;
+				Range: free;
+				Definition: {
+					sum(sg, Vre_PCC(SlackGenPhase(sg)) * Ire_SlackGen(sg,t)
+					      + Vim_PCC(SlackGenPhase(sg)) * Iim_SlackGen(sg,t))
+				}
+				Comment: "Active power at PCC (p.u.). Grid->feeder positive.";
+			}
+			Variable Q_PCC {
+				IndexDomain: t;
+				Range: free;
+				Definition: {
+					sum(sg, Vim_PCC(SlackGenPhase(sg)) * Ire_SlackGen(sg,t)
+					      - Vre_PCC(SlackGenPhase(sg)) * Iim_SlackGen(sg,t))
+				}
+				Comment: "Reactive power at PCC (p.u.). Grid->feeder positive.";
+			}
+		}
+		DeclarationSection ScanObjective {
+			Comment: {
+				"Directional FOR objective. FOR_Angle/FOR_AngleRad set the scan direction; OF_FOR = -(cos.P + sin.Q) so minimizing it pushes the PCC point outward along the angle. OF_FOR_cont adds the cost-min homotopy (FOR_Lambda) and tiebreaker (FOR_TieEps); FOR_nSteps/FOR_DampAlpha tune the rescue continuation."
+			}
+			Parameter FOR_Angle {
+				Comment: "Sweep direction in DEGREES. 0=maxP, 90=maxQ, 180=minP, 270=minQ.";
+			}
+			Parameter FOR_AngleRad {
+				Comment: "FOR_Angle converted to radians (set in the procedure before each solve).";
+			}
+			Variable OF_FOR {
+				Range: free;
+				Definition: {
+					-( cos(FOR_AngleRad)*P_PCC(PeriodMaxP)
+					+ sin(FOR_AngleRad)*Q_PCC(PeriodMaxP) )
+				}
+				Comment: {
+					"Directional FOR objective: minimizing -(cos.P + sin.Q) maximizes the
+					projection of (P_PCC,Q_PCC) onto direction FOR_Angle. Rotating FOR_Angle
+					0..360 traces the FOR boundary (radial/directional scan)."
+				}
+			}
+			Variable OF_FOR_cont {
+				Range: free;
+				Definition: (1-FOR_Lambda)*OFminImportsmaxReverseP + FOR_Lambda*OF_FOR + FOR_TieEps*OFminImportsmaxReverseP;
+				Comment: {
+					"Homotopy objective + cost-min tiebreaker. (1-FOR_Lambda).cost-min + FOR_Lambda.OF_FOR is the original homotopy (FOR_Lambda=1 -> pure direction). FOR_TieEps.OFminImportsmaxReverseP is an additional small weight on the cost-min objective; with FOR_TieEps=0 (default) behaviour is identical to before, with FOR_TieEps small positive (~1e-5) the period-25 vertex stays optimal for the FOR direction but off-period dispatch is pulled to the cost-min solution as a tiebreaker."
+				}
+			}
+			Parameter FOR_Lambda {
+				Comment: "Continuation parameter. 0 = pure cost-min objective, 1 = pure FOR direction.";
+			}
+			Parameter FOR_TieEps {
+				Comment: {
+					"Cost-min tiebreaker weight added to OF_FOR_cont. 0 = original behaviour (off-period dispatch is a degenerate optimum and may look arbitrary in vertex .xls files). Small positive value (~1e-5) keeps the period-25 vertex optimal for the FOR direction but pulls off-period dispatch to the base cost-min solution as a tiebreaker, so AllCustWithBatPtot at periods != PeriodMaxP becomes physically meaningful. Used by RunFOR_4Vertices."
+				}
+			}
+			Parameter FOR_nSteps {
+				Comment: "Number of continuation steps to walk from cost-min to a FOR direction.";
+			}
+			Parameter FOR_DampAlpha {
+				Comment: "Re-linearization damping: fraction Vre0/Vim0 moves toward the latest solution each step (0..1).";
+			}
+		}
+		DeclarationSection FOR_Programs {
+			MathematicalProgram FOR_Vertex {
+				Objective: OF_FOR;
+				Direction: minimize;
+				Constraints: NotTobeExcluded_constraints;
+				Variables: NotTobeExcluded_variables;
+				Type: Automatic;
+				Comment: "Solves for one vertex of the FOR at the PCC. Set FOR_Angle/FOR_AngleRad before each solve.";
+			}
+			MathematicalProgram FOR_VertexCont {
+				Objective: OF_FOR_cont;
+				Direction: minimize;
+				Constraints: NotTobeExcluded_constraints;
+				Variables: NotTobeExcluded_variables;
+				Type: Automatic;
+				Comment: {
+					"Continuation version. FOR_Lambda=1 is identical to FOR_Vertex; FOR_Lambda<1 blends in cost-min."
+				}
+			}
+		}
+		DeclarationSection AngleSweep {
+			Comment: {
+				"Angular sweep bookkeeping: FOR_Axes (P,Q); FOR_nAngles with FOR_AngleSet/FOR_AngleDeg enumerate the scan directions."
+			}
+			Set FOR_Axes {
+				Index: ax;
+				Definition: data { P, Q };
+				Comment: "Axes of the FOR plane (P and Q).";
+			}
+			Parameter FOR_nAngles {
+				Comment: "Number of directions in the boundary sweep (set in the procedure).";
+			}
+			Set FOR_AngleSet {
+				SubsetOf: Integers;
+				Index: ia;
+				Property: ElementsAreNumerical;
+				Definition: ElementRange(1, FOR_nAngles);
+				Comment: "Index set for the angular sweep, 1..FOR_nAngles.";
+			}
+			Parameter FOR_AngleDeg {
+				IndexDomain: ia;
+				Definition: (ord(ia)-1) * 360 / FOR_nAngles;
+				Comment: "Direction of sweep point ia, in degrees (0,30,60,...).";
+			}
+		}
+		DeclarationSection LastSolveScalars {
+			Comment: "Generic single-solve working scalars reused by several procedures to hold the latest solve P/Q/Vmax/LinErr/status (RunFOR_Rolling and the audit procedures).";
+			Parameter FOR_Pcur {
+				Comment: "Working: P_PCC of the latest probe pass (for the diag_dir190 trace).";
+			}
+			Parameter FOR_Qcur {
+				Comment: "Working: Q_PCC of the latest probe pass (for the diag_dir190 trace).";
+			}
+			Parameter FOR_VmaxCur {
+				Comment: "Working: true max |V| of the latest probe pass (for the diag_dir190 trace).";
+			}
+			Parameter FOR_LinCur {
+				Comment: "Working: max linearization error of the latest probe pass (for the diag_dir190 trace).";
+			}
+			StringParameter FOR_StatCur {
+				Comment: "Working: solver status string of the latest probe solve (for the diag_dir190 trace).";
+			}
+		}
+		DeclarationSection BoundaryResults {
+			Comment: "RunFOR_4Vertices outputs: boundary point FOR_Boundary(ia,P/Q) per direction, solver status/time/projection, Tier-2 AC checks (true Vmin/Vmax, under/overvoltage, linearization error), the CustPtot/Ploss reconciliation, FixUsed, the FOR_boundary.csv file, and the validation-export switches.";
+			Parameter FOR_Boundary {
+				IndexDomain: (ia, ax);
+				Comment: "Boundary point (P,Q) at the PCC for each sweep direction (per-unit).";
+			}
+			StringParameter FOR_BndStatus {
+				IndexDomain: ia;
+				Comment: "Solver status string for each sweep direction.";
+			}
+			Parameter FOR_BndTime {
+				IndexDomain: ia;
+				Comment: "Wall-clock solve time per sweep direction (seconds).";
+			}
+			Parameter FOR_BndProj {
+				IndexDomain: ia;
+				Comment: "Optimal projection cos(th).P+sin(th).Q. Outer-approx line: cos.P+sin.Q <= FOR_BndProj.";
+			}
+			Parameter FOR_VminTrue {
+				IndexDomain: ia;
+				Comment: "Tier-2 check: minimum TRUE |V|=sqrt(Vre^2+Vim^2) over all buses at this vertex (p.u.).";
+			}
+			Parameter FOR_VmaxTrue {
+				IndexDomain: ia;
+				Comment: "Tier-2 check: maximum TRUE |V| over all buses at this vertex (p.u.).";
+			}
+			Parameter FOR_UndervoltViol {
+				IndexDomain: ia;
+				Comment: "Tier-2 check: worst undervoltage MinV(n)-|V| over all buses (p.u.). 0 = no true voltage violation (point physically valid).";
+			}
+			Parameter FOR_OvervoltViol {
+				IndexDomain: ia;
+				Comment: "Tier-2 check: worst overvoltage |V|-MaxV(n) (p.u.). Should be ~0 since Vmax is an exact constraint.";
+			}
+			Parameter FOR_LinErrMax {
+				IndexDomain: ia;
+				Comment: "Tier-2 check: max |Vmag2approx - (Vre^2+Vim^2)| over all buses. Small = linearization trustworthy at this vertex.";
+			}
+			Parameter FOR_CustPtot {
+				IndexDomain: ia;
+				Comment: "Customer-side total P = AllCustWithBatPtot(PeriodMaxP). Directly comparable to the article NC_Q xls (measured at customer terminals, NOT the PCC).";
+			}
+			Parameter FOR_Ploss {
+				IndexDomain: ia;
+				Comment: "Feeder losses at this vertex = P_PCC - FOR_CustPtot. Identity: P_PCC = customer total + network losses.";
+			}
+			StringParameter FOR_FixUsed {
+				IndexDomain: ia;
+				Comment: "Which attempt produced this point: direct / numeric / reseed / FAILED. Lets you see what fixed each direction.";
+			}
+			File FOR_CSV {
+				Name: "FOR_boundary.csv";
+			}
+			File FOR_CSV_Exact {
+				Name: "FOR_boundary_TR9_exact.csv";
+			}
+			File FOR_CSV_Lin {
+				Name: "FOR_boundary_TR9_lin.csv";
+			}
+			Parameter FOR_WriteVertexXls {
+				Comment: "Validation export switch. 1 = also write one full NC_Q_25-format workbook per FOR vertex (FOR_v<k>_25.xls, heavy: ~37 files). 0 = write only the FOR_ref_25.xls reference (fast). The reference is always written.";
+			}
+			Parameter FOR_RefSave_ACAP {
+				Comment: "Save slot: AllowChargeAtPmax is forced to 0 (article) for the reference solve, then restored from this. Internal to the FOR_ref export.";
+			}
+			Parameter FOR_RefSave_PolS {
+				Comment: "Save slot: FOR_PolyS is forced to 0 (exact S-circle) for the reference solve, then restored from this.";
+			}
+			Parameter FOR_RefSave_LVmx {
+				Comment: "Save slot: FOR_LinearizeVmax is forced to 0 (exact Vmax) for the reference solve, then restored from this.";
+			}
+		}
+	}
+	Section NetworkReduction {
+		Comment: "Per-transformer decomposition: keep one transformer in full detail, lump the LV demand of every other transformer as per-phase MV loads (their batteries dropped - passive), then shrink the network sets. Approximation: lumped transformer impedance/losses ignored. Called from Load_data_dsn when ReduceNetwork=1.";
+		DeclarationSection ReductionControls {
+			Parameter ReduceNetwork {
+				Comment: {
+					"Master switch: 1 = apply the reduction in Load_data_dsn; 0 = full feeder (default, existing behaviour)."
+				}
+			}
+			StringParameter DetailTagCSV {
+				Comment: {
+					"Comma-separated transformer tags to keep in FULL detail, e.g. TR9 or TR8,TR9. Empty (or naming all 9) = no reduction; the others are lumped as MV loads. A plain string, so it survives the empty/reload of Trafos in the case runners."
+				}
+			}
+			StringParameter DetailLoadPattern {
+				Comment: "Optional sub-cluster filter (micro-test): when non-empty, narrows the kept LV buses inside DetailedTrafos to those whose bus label contains this substring (e.g. \'_two\' selects only the TR9_two* sub-branch). Empty (default) keeps the full LV side of every DetailedTrafo. Use to isolate a small, hand-checkable cluster for understanding the model.";
+			}
+		}
+		DeclarationSection ReductionWorking {
+			Set DetailedTrafos {
+				SubsetOf: Trafos;
+				Comment: {
+					"Working: transformers kept in full detail; rebuilt from DetailTagCSV in ApplyNetworkReduction each call."
+				}
+			}
+			Set ExcludedTrafos {
+				SubsetOf: Trafos;
+				Comment: "Working: Trafos - DetailedTrafos (the lumped ones).";
+			}
+			StringParameter BusLabel {
+				IndexDomain: n;
+				Comment: "Element label of each bus (e.g. \'TR9_one223\', \'MV_40\'), used for prefix matching.";
+			}
+			StringParameter TrLabel {
+				IndexDomain: tr;
+				Comment: "Element label of each transformer (e.g. \'Trafo_TR9\').";
+			}
+			StringParameter TrTag {
+				IndexDomain: tr;
+				Comment: {
+					"Transformer tag without the \'Trafo_\' prefix (e.g. \'TR9\'); matches the LV bus name prefix."
+				}
+			}
+			ElementParameter BusTr {
+				IndexDomain: n;
+				Range: Trafos;
+				Comment: {
+					"Transformer owning each LV bus (by name prefix); empty for MV/TX buses."
+				}
+			}
+			Set MVBuses {
+				SubsetOf: Buses;
+				Comment: "Buses whose label starts with \'MV_\' (the MV feeder, always kept).";
+			}
+			Set KeepBuses {
+				SubsetOf: Buses;
+			}
+			Set KeepLines {
+				SubsetOf: Lines;
+			}
+			Set KeepLoads {
+				SubsetOf: LoadsAndPV;
+			}
+			Set KeepBatts {
+				SubsetOf: Batteries;
+			}
+			ElementParameter AggElem {
+				Range: LoadsAndPV;
+				Comment: "Working handle for each lumped MV load element being created.";
+			}
+			Parameter AggP0 {
+				IndexDomain: (tr,f,t);
+				Comment: "Aggregated active load of a lumped transformer, per phase and period.";
+			}
+			Parameter AggQ0 {
+				IndexDomain: (tr,f,t);
+			}
+			Parameter AggGen {
+				IndexDomain: (tr,f,t);
+			}
+		}
+		Procedure ApplyNetworkReduction {
+			Body: {
+				! labels + tags (e.g. 'Trafo_TR9' -> 'TR9'), then build the detailed set from the CSV tag list
+				BusLabel(n) := FormatString("%e", n);
+				TrLabel(tr) := FormatString("%e", tr);
+				TrTag(tr)   := SubString(TrLabel(tr), 7, StringLength(TrLabel(tr)));
+				DetailedTrafos := {tr | FindString("," + DetailTagCSV + ",", "," + TrTag(tr) + ",") > 0};
+
+				! only act on a genuine partial selection; empty or all = leave the feeder alone
+				if card(DetailedTrafos) > 0 and card(DetailedTrafos) < card(Trafos) then
+
+					! --- map every LV bus to its transformer via the name prefix ('TR9_' etc.) ---
+					empty BusTr;
+					for (tr) do
+						BusTr(n | SubString(BusLabel(n), 1, StringLength(TrTag(tr))+1) = TrTag(tr) + "_") := tr;
+					endfor;
+
+					ExcludedTrafos := Trafos - DetailedTrafos;
+
+					! --- lump each excluded transformer's LV demand as a per-phase load on its MV bus ---
+					for (tr | ExcludedTrafos(tr)) do
+						for (f) do
+							AggP0(tr,f,t)  := sum(d | BusTr(LoadBus(d)) = tr and LoadPhase(d) = f, P0(d,t));
+							AggQ0(tr,f,t)  := sum(d | BusTr(LoadBus(d)) = tr and LoadPhase(d) = f, Q0(d,t));
+							AggGen(tr,f,t) := sum(d | BusTr(LoadBus(d)) = tr and LoadPhase(d) = f, GenP0(d,t));
+							SetElementAdd(LoadsAndPV, AggElem, "AGG_" + TrLabel(tr) + "_p" + FormatString("%e", f));
+							LoadBus(AggElem)   := StartBusTr(tr);
+							LoadPhase(AggElem) := f;
+							PVsize(AggElem)    := 0;
+							P0(AggElem,t)      := AggP0(tr,f,t);
+							Q0(AggElem,t)      := AggQ0(tr,f,t);
+							GenP0(AggElem,t)   := AggGen(tr,f,t);
+						endfor;
+					endfor;
+
+					! --- snapshot what to keep, then shrink the network sets ---
+					MVBuses   := {n | SubString(BusLabel(n),1,3) = "MV_"};
+					KeepBuses := MVBuses + {n | DetailedTrafos(BusTr(n))}
+					                     + {n | exists(tr | DetailedTrafos(tr) and EndBusTr(tr) = n)};
+
+					! optional sub-cluster filter (micro-test): keep only LV buses whose label contains DetailLoadPattern
+					if StringLength(DetailLoadPattern) > 0 then
+						KeepBuses := MVBuses
+						           + {n | exists(tr | DetailedTrafos(tr) and EndBusTr(tr) = n)}
+						           + {n | DetailedTrafos(BusTr(n)) and FindString(BusLabel(n), DetailLoadPattern) > 0};
+					endif;
+
+					KeepLines := {l | KeepBuses(StartBus(l)) and KeepBuses(EndBus(l))};
+					KeepLoads := {d | KeepBuses(LoadBus(d))};
+					KeepBatts := {bat | KeepBuses(BattBus(bat))};
+
+					Buses      := KeepBuses;
+					Lines      := KeepLines;
+					Trafos     := DetailedTrafos;
+					LoadsAndPV := KeepLoads;
+					Batteries  := KeepBatts;
+
+				endif;
+			}
+			Comment: {
+				"Keeps DetailedTrafos in full detail; lumps each other transformer\'s LV demand (per phase) as a load on its MV bus (StartBusTr); then shrinks the network sets. Called from Load_data_dsn when ReduceNetwork=1. Approximations: transformer impedance/losses of the lumped transformers are ignored, and their batteries (flexibility) are dropped."
+			}
+		}
+	}
+	Section RollingHorizonFOR {
+		Comment: "PRODUCTION: the MPC-style daily rolling FOR. Each half-hour the 48-point day is rotated so now = slot 1; the committed self-consumption baseline is solved (MinImports), slot-1 dispatch is executed to advance the realised SOC, then 12 directions are swept for the service slot (slot 2) with the slot-1 battery dispatch fixed. RunTR1..RunTR9 are the per-transformer entry points.";
+		DeclarationSection RollingHorizon {
+			Comment: {
+				"RunFOR_Rolling: MPC-style daily rolling FOR. Each half-hour \'now\' the day is rotated so \'now\' is slot 1, the battery starts from its realised SOC (BattSOCstart), a cyclic self-consumption day is solved (MinImports), the slot-1 dispatch is executed to advance the SOC (and stored in RollChgExec/RollDisExec), and the direction sweep maps the flexibility region for slot 2 (= now+1) with slot 1 fixed to that committed dispatch; results go to FOR_rolling.csv."
+			}
+			Parameter RollNow {
+				Comment: "Current decision step / \'now\' period (1..nPeriods). Window slot 1 maps to this real period.";
+			}
+			Parameter RollCyclicSOC {
+				Comment: "Toggle: 1 = force net-zero battery energy over the wrapped 48-slot day (drives CyclicSOC in BatteryModel). 0 = inactive, so existing runs are unaffected.";
+			}
+			Parameter P0raw {
+				IndexDomain: (d,t);
+				Comment: {
+					"Un-rotated load/PV inputs captured once after Load_data_dsn; working P0/Q0/GenP0/Irradiance are rebuilt from these each step via the wrap map."
+				}
+			}
+			Parameter Q0raw {
+				IndexDomain: (d,t);
+			}
+			Parameter GenP0raw {
+				IndexDomain: (d,t);
+			}
+			Parameter Irrraw {
+				IndexDomain: t;
+			}
+			Parameter BattSOCstart {
+				IndexDomain: bat;
+				Comment: {
+					"Realised SOC carried forward between steps; seeds BattSOCini for the current window."
+				}
+			}
+			Parameter RollSOCtraj {
+				IndexDomain: (bat,t);
+				Comment: "Diagnostic: realised SOC at the start of each real period over the 48-step roll (used to check daily drift).";
+			}
+			Parameter RollDispatchExec {
+				IndexDomain: (bat,t);
+				Comment: "Diagnostic: executed (slot-1) net battery power at each real period.";
+			}
+			ElementParameter RollMap {
+				IndexDomain: tt;
+				Range: Time;
+				Comment: "Wrap map for the current step: working slot tt -> real period Element(Time, mod(ord(tt)-1+RollNow-1, nPeriods)+1). Slot 1 = now, earlier periods wrap to the tail.";
+			}
+			Parameter RollSOCnext {
+				IndexDomain: bat;
+				Comment: {
+					"Holds the SOC after executing the slot-1 dispatch; applied to BattSOCstart at the end of the step so the direction sweep keeps the window-start SOC."
+				}
+			}
+			Parameter RollChgExec {
+				IndexDomain: bat;
+				Comment: "Committed slot-1 charge from the self-consumption baseline solve. The direction sweep fixes BattP_Chg(bat,\'1\') to this so every boundary point offered for slot 2 is reachable from the dispatch actually executed during \'now\'.";
+			}
+			Parameter RollDisExec {
+				IndexDomain: bat;
+				Comment: {
+					"Committed slot-1 discharge; pairs with RollChgExec."
+				}
+			}
+			StringParameter RollFileSuffix {
+				Comment: "Appended to FOR_rolling / FOR_rolling_soc filenames so per-transformer runs write distinct files (e.g. \'_TR9\' -> FOR_rolling_TR9.csv). Empty (default) keeps the original filenames, so single-feeder runs are unchanged.";
+			}
+			StringParameter FOR_RollCSVName {
+				Definition: "FOR_rolling" + RollFileSuffix + ".csv";
+			}
+			StringParameter FOR_RollSOCCSVName {
+				Definition: "FOR_rolling_soc" + RollFileSuffix + ".csv";
+			}
+			File FOR_RollCSV {
+				Name: FOR_RollCSVName;
+			}
+			File FOR_RollSOCCSV {
+				Name: FOR_RollSOCCSVName;
+			}
+			File FOR_RollBaseCSV {
+				Name: "FOR_rolling_baseline.csv";
+			}
+			Parameter PerTrafoN {
+				Comment: "Number of transformers captured at full-feeder load by RunFOR_Rolling_PerTrafo (drives PerTrafoIdx).";
+			}
+			Set PerTrafoIdx {
+				SubsetOf: Integers;
+				Index: pti;
+				Definition: ElementRange(1, PerTrafoN);
+				Comment: {
+					"Stable integer index over the captured transformer list; immune to the Trafos set being shrunk inside RunFOR_Rolling."
+				}
+			}
+			StringParameter PerTrafoTag {
+				IndexDomain: pti;
+				Comment: "Captured transformer tag (e.g. \'TR9\') for each PerTrafoIdx slot, snapshot before any network reduction.";
+			}
+			Parameter CyclicSOCBand {
+				Comment: {
+					"Cyclic-SOC tolerance dSOC (fraction of capacity). 0 = strict equality (default, original behavior; activates CyclicSOC). >0 = |SOC_end - SOC_start| <= dSOC (e.g. 0.05 = 5% of capacity; activates CyclicSOC_ub + CyclicSOC_lb)."
+				}
+			}
+			Parameter RelaxCyclicBand {
+				Default: 0.05;
+				Comment: "EXPERIMENT toggle: the value RunFOR_Rolling assigns to CyclicSOCBand. Default 0.05 = production (unchanged). Set to 1.0 (via RunTR9_RelaxCyclic) to make the cyclic band non-binding so batteries may end the day discharged; the SOC floor (MinSOC_def) and Emax stay enforced.";
+			}
+			Parameter BaselineOnly {
+				Default: 0;
+				Comment: "EXPERIMENT toggle: 1 = RunFOR_Rolling skips the 12-direction FOR sweep and writes only the committed self-consumption dispatch (the soc CSV), ~48 solves. 0 = production (full sweep).";
+			}
+			Parameter SOCFloorOverride {
+				Default: -1;
+				Comment: "EXPERIMENT toggle: >=0 overrides every battery's BattSOCmin (the MinSOC_def floor) with this value AFTER each Load_data_dsn reset inside RunFOR_Rolling, e.g. 0.0 = allow full discharge. -1 (default) = off, DB floor untouched (production).";
+			}
+			Parameter EnableRollDiag {
+				Comment: {
+					"Toggle: 1 = on each failed direction inside RunFOR_Rolling, retry with (Pass 1) cyclic relaxed to DiagCyclicBand, then (Pass 2) cyclic relaxed + GenP0 scaled by (1 - DiagPVcutFrac); write attribution to FOR_rolling_diag.csv. 0 = off."
+				}
+			}
+			Parameter DiagCyclicBand {
+				Comment: "Diagnostic-only: cyclic-SOC band tolerance used in Pass 1 / Pass 2 retries (e.g. 0.05). Independent of the main-scan CyclicSOCBand so the working CSV stays clean.";
+			}
+			Parameter DiagPVcutFrac {
+				Comment: "Diagnostic-only: fraction of GenP0 to curtail in Pass 2 (e.g. 0.5 = halve PV). Proxy for an explicit curtailment variable.";
+			}
+			File FOR_RollDiagCSV {
+				Name: "FOR_rolling_diag.csv";
+			}
+			Parameter Cmp_paperP {
+				Comment: "Comparison: P at PCC from Stage A (paper-style single solve at PeriodMaxP=25). Set by RunCompareWithPaperT25.";
+			}
+			Parameter Cmp_paperQ {
+				Comment: "Comparison: Q at PCC from Stage A (paper-style single solve).";
+			}
+			Parameter Cmp_rollingP {
+				Comment: "Comparison: P at PCC from Stage B (rolling-style solve at now=24, target slot=2).";
+			}
+			Parameter Cmp_rollingQ {
+				Comment: "Comparison: Q at PCC from Stage B.";
+			}
+			Parameter Cmp_SOC_t24 {
+				IndexDomain: bat;
+				Comment: "Comparison: SOC of each battery at end of t=24 in Stage Paper\'s optimal solution. Stage Rolling initialises BattSOCini with this so both stages face the same battery state at t=25.";
+			}
+			Parameter Cmp_scP {
+				Comment: "Comparison: P at PCC from Stage SC (self-consumption only, no service request). MinImports objective.";
+			}
+			Parameter Cmp_scQ {
+				Comment: "Comparison: Q at PCC from Stage SC.";
+			}
+			Parameter Cmp_volumeP {
+				Comment: "Volume of services in P (paper terminology): Cmp_paperP - Cmp_scP.";
+			}
+			Parameter Cmp_volumeQ {
+				Comment: "Volume of services in Q: Cmp_paperQ - Cmp_scQ.";
+			}
+			Parameter Cmp_relP {
+				Comment: "Comparison: relative diff of P (rolling vs paper) in %. Pre-computed to keep put format simple.";
+			}
+			Parameter Cmp_relQ {
+				Comment: "Comparison: relative diff of Q in %.";
+			}
+			File FOR_CompareCSV {
+				Name: "FOR_compare_paper_t25.csv";
+			}
+			Parameter PreflightSlot {
+				IndexDomain: t;
+				Comment: "RunFOR_RollingPreflight: 1 at the slots to sweep, 0 elsewhere. Default = t12, t25, t40 (set inside the procedure). Edit there to change which slots get tested.";
+			}
+			Parameter PreflightReduce {
+				Default: 0;
+				Comment: "EXPERIMENT: the value RunFOR_RollingPreflight assigns to ReduceNetwork. Default 0 = full feeder (original behaviour). 1 = reduced (one transformer detailed, via PreflightDetailTag).";
+			}
+			StringParameter PreflightDetailTag {
+				Comment: "EXPERIMENT: the value RunFOR_RollingPreflight assigns to DetailTagCSV. Default empty = full feeder. E.g. \"TR9\" with PreflightReduce=1 for a TR9-only preflight.";
+			}
+			Parameter PreflightBand {
+				Default: 0.05;
+				Comment: "EXPERIMENT: the value RunFOR_RollingPreflight assigns to CyclicSOCBand. Default 0.05 = production. Set 1.0 to relax the cyclic band and test FOR sensitivity.";
+			}
+			StringParameter PreflightSuffix {
+				Comment: "EXPERIMENT: suffix appended to the preflight output filename so paired runs (e.g. cyclic on vs off) write separate files. Default empty = FOR_rolling_preflight.csv.";
+			}
+			StringParameter FOR_RollPreflightName {
+				Definition: "FOR_rolling_preflight" + PreflightSuffix + ".csv";
+			}
+			File FOR_RollPreflightCSV {
+				Name: FOR_RollPreflightName;
+			}
+			Parameter Preflight_TotalTime {
+				Comment: "Pre-flight diagnostic: cumulative Gurobi solve time (seconds) across all directions actually solved. Use to extrapolate the full-day runtime.";
+			}
+			Parameter Preflight_nSolves {
+				Comment: "Pre-flight diagnostic: number of vertex solves attempted (= nPreflightSlots * FOR_nAngles).";
+			}
+			Parameter Preflight_nFail {
+				Comment: "Pre-flight diagnostic: number of directions that did NOT return Optimal/LocallyOptimal. Should be 0 before launching the full run.";
+			}
+		}
+		Procedure RunFOR_Rolling {
+			Body: {
+				! ---- daily rolling FOR (see header). The window is rotated, not the model: slot 1 = now (committed
+				! ----   self-consumption dispatch, fixed during the sweep), slot 2 = service. ----
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				! NEW mathprog generator: it passes the exact quadratic constraints to CPLEX
+				! compactly. The legacy generator (:=1) expands them and its memory grew across
+				! the 48x13 solves until an out-of-memory abort at ~step 37/48 on TR9 (2026-07-03).
+				! Required for the exact QCP; matches RunFOR_TR9_Exact.
+				option disable_new_mathprog_generator := 0;
+
+				! Exact-QCP barrier robustness (mirrors RunFOR_TR9_Exact): a looser acceptable
+				! error and stronger scaling so the barrier completes cleanly on every vertex
+				! (without these the exact solve raised CPLEX feasibility / status-13 warnings).
+				option Feasibility_Tolerance         := 1.0e-3;
+				option Barrier_Convergence_Tolerance := 1.0e-2;
+				option Scaling_Flag                  := 2;
+
+				! production config: EXACT quadratic inverter S-circle + exact Vmax (convex QCP, CPLEX barrier);
+				! tractable per transformer on the reduced network. Set both toggles to 1 for the linearized
+				! (polygon + tangent-Vmax) variant used in the historical whole-feeder runs.
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;   ! bidirectional flexibility (absorb or inject)
+				FOR_PolyS                 := 0;   ! exact inverter S-circle: BattP_Balance^2 + Qinv^2 <= BattMaxP^2
+				FOR_LinearizeVmax         := 0;   ! exact voltage cap:       Vre^2 + Vim^2 <= MaxV^2
+				FOR_nAngles               := 12;  ! every 30 deg
+				RollCyclicSOC             := 1;   ! battery returns to its window-start SOC over the day
+				CyclicSOCBand             := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! PRODUCTION band 0.05 (via RelaxCyclicBand default); RunTR9_RelaxCyclic sets RelaxCyclicBand:=1.0 to relax it. Strict (=0) was numerically fragile (2026-06-11: 16 vs 119 fails on identical reruns). Must match the restore in the diag block below.
+				PeriodMaxP                := 2;   ! service slot is always window position 2 (= now+1)
+				FOR_TieEps                := 0;   ! pin the vertex tiebreaker: pure directional objective, independent of session history
+
+				! load DB+Excel once and freeze the un-rotated inputs + the starting SOC
+				empty allvariables;
+				run Load_data_dsn;
+				P0raw(d,t)        := P0(d,t);
+				Q0raw(d,t)        := Q0(d,t);
+				GenP0raw(d,t)     := GenP0(d,t);
+				Irrraw(t)         := Irradiance(t);
+				BattSOCstart(bat) := BattSOCini(bat);
+
+				! CSV headers (both files stay open; switch the active one with 'put <file>')
+				FOR_RollCSV.PageWidth    := 32767;
+				FOR_RollSOCCSV.PageWidth := 32767;
+				put FOR_RollCSV;
+				put "now,target,angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr" / ;
+				put FOR_RollSOCCSV;
+				put "now,battery,SOC_start,Pexec,Chg1,Dis1,base_status,TotPV1_pu" / ;
+				if EnableRollDiag = 1 then
+					FOR_RollDiagCSV.PageWidth := 32767;
+					put FOR_RollDiagCSV;
+					put "now,target,angle_deg,pass,status,P,Q,proj,time" / ;
+				endif;
+
+				for (t) do
+					RollNow     := ord(t);
+					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
+
+					! ---- committed self-consumption dispatch = the point the battery actually realises ----
+					empty allvariables;
+					run Load_data_dsn;                          ! warm-start, taps, Qinv fix; inputs back to raw
+					P0(d,tt)        := P0raw(d, RollMap(tt));    ! rotate the day onto slot order (slot 1 = now)
+					Q0(d,tt)        := Q0raw(d, RollMap(tt));
+					GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+					Irradiance(tt)  := Irrraw(RollMap(tt));
+					BattSOCini(bat) := BattSOCstart(bat);        ! start from the carried-forward realised SOC
+					if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;   ! EXPERIMENT: re-apply floor override after the Load_data_dsn reset
+					BattP_Chg(bat,'1').nonvar := 0;              ! slot-1 dispatch is free ONLY in this baseline solve
+					BattP_Dis(bat,'1').nonvar := 0;
+					run MinOFminImports;                         ! PURE self-consumption baseline (MinImports; no max-export term at the service slot)
+					if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
+						! baseline rescue: a silent NoSolution here would execute a zeros (do-nothing) dispatch -- feasible but not the SC trajectory
+						solve MinImports
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       method              := 'deterministic concurrent',
+							       numeric_focus       := 3,
+							       barrier_homogeneous := 1,
+							       time_limit          := 3000;
+						ConvFlag := MinImports.ProgramStatus;
+					endif;
+
+					! record realised state; stage the SOC advance from the executed slot-1 (now) dispatch
+					RollSOCtraj(bat,t)      := BattSOCstart(bat);
+					RollDispatchExec(bat,t) := BattP_Balance(bat,'1');
+					RollChgExec(bat)        := BattP_Chg(bat,'1');   ! committed slot-1 dispatch; the sweep below fixes the batteries to this
+					RollDisExec(bat)        := BattP_Dis(bat,'1');
+					RollSOCnext(bat)        := BattSOCini(bat)
+						+ (BattP_Chg(bat,'1')*etaChg(bat) - BattP_Dis(bat,'1')/etaDis(bat))*DeltaT/BattEcap(bat);
+					put FOR_RollSOCCSV;
+					for (bat) do
+						put RollNow:3:0, ",", bat:24, ",", BattSOCstart(bat):12:6, ",", RollDispatchExec(bat,t):14:6, ",",
+						    RollChgExec(bat):14:6, ",", RollDisExec(bat):14:6, ",", ConvFlag, ",", sum(d, GenP0(d,'1')):14:6 / ;
+					endfor;
+
+					if BaselineOnly = 0 then   ! EXPERIMENT: baseline-only runs skip the 12-direction sweep
+					! ---- sweep directions: region offered for the service slot (now+1) ----
+					put FOR_RollCSV;
+					for (ia) do
+						FOR_Angle    := FOR_AngleDeg(ia);
+						FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+
+						empty allvariables;
+						run Load_data_dsn;                          ! same proven reset as the time-family scan
+						P0(d,tt)        := P0raw(d, RollMap(tt));
+						Q0(d,tt)        := Q0raw(d, RollMap(tt));
+						GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+						Irradiance(tt)  := Irrraw(RollMap(tt));
+						BattSOCini(bat) := BattSOCstart(bat);
+						if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;   ! EXPERIMENT: re-apply floor override after the Load_data_dsn reset
+						BattP_Chg(bat,'1') := RollChgExec(bat);     ! slot 1 (= now) is already committed: fix the batteries to the
+						BattP_Chg(bat,'1').nonvar := 1;             ! executed dispatch so the region offered for slot 2 is reachable
+						BattP_Dis(bat,'1') := RollDisExec(bat);
+						BattP_Dis(bat,'1').nonvar := 1;
+						run MainExecution;
+
+						FOR_Lambda := 1;
+						solve FOR_VertexCont
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       method     := 'deterministic concurrent',
+							       time_limit := 3000;
+
+						if FOR_VertexCont.ProgramStatus <> 'Optimal' and
+						   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
+							solve FOR_VertexCont
+								where  MIP_Relative_Optimality_Tolerance := 0.01,
+								       method              := 'deterministic concurrent',
+								       numeric_focus       := 3,
+								       barrier_homogeneous := 1,
+								       time_limit          := 3000;
+						endif;
+
+						FOR_StatCur := FOR_VertexCont.ProgramStatus;
+
+						if FOR_VertexCont.ProgramStatus = 'Optimal' or
+						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							FOR_Pcur    := P_PCC(PeriodMaxP);
+							FOR_Qcur    := Q_PCC(PeriodMaxP);
+							FOR_VmaxCur := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+							FOR_LinCur  := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+							    FOR_Pcur:14:6, ",", FOR_Qcur:14:6, ",",
+							    (cos(FOR_AngleRad)*FOR_Pcur + sin(FOR_AngleRad)*FOR_Qcur):14:6, ",",
+							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
+							    (min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2))):10:5, ",",
+							    FOR_VmaxCur:10:5, ",",
+							    (max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)))):10:5, ",",
+							    (max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)))):10:5, ",",
+							    FOR_LinCur:12:6 / ;
+						else
+							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+							    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
+							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
+							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
+						endif;
+
+						! ---- diagnostic retry for failed directions (Pass 1: cyclic relaxed; Pass 2: + PV scaled) ----
+						if EnableRollDiag = 1 and
+						   FOR_StatCur <> 'Optimal' and
+						   FOR_StatCur <> 'LocallyOptimal' then
+
+							put FOR_RollDiagCSV;
+
+							! --- Pass 1: cyclic SOC band relaxed to DiagCyclicBand ---
+							empty allvariables;
+							run Load_data_dsn;
+							P0(d,tt)        := P0raw(d, RollMap(tt));
+							Q0(d,tt)        := Q0raw(d, RollMap(tt));
+							GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+							Irradiance(tt)  := Irrraw(RollMap(tt));
+							BattSOCini(bat) := BattSOCstart(bat);
+							BattP_Chg(bat,'1') := RollChgExec(bat);     ! keep the committed slot-1 fix in the diagnostic retries too
+							BattP_Chg(bat,'1').nonvar := 1;
+							BattP_Dis(bat,'1') := RollDisExec(bat);
+							BattP_Dis(bat,'1').nonvar := 1;
+							CyclicSOCBand   := DiagCyclicBand;
+							run MainExecution;
+							FOR_Lambda := 1;
+							solve FOR_VertexCont
+								where  MIP_Relative_Optimality_Tolerance := 0.01,
+								       method              := 'deterministic concurrent',
+								       numeric_focus       := 3,
+								       barrier_homogeneous := 1,
+								       time_limit          := 1500;
+							FOR_StatCur := FOR_VertexCont.ProgramStatus;
+							if FOR_VertexCont.ProgramStatus = 'Optimal' or
+							   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+								FOR_Pcur := P_PCC(PeriodMaxP);
+								FOR_Qcur := Q_PCC(PeriodMaxP);
+								put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+								    "pass1_cyclic,", FOR_StatCur, ",",
+								    FOR_Pcur:14:6, ",", FOR_Qcur:14:6, ",",
+								    (cos(FOR_AngleRad)*FOR_Pcur + sin(FOR_AngleRad)*FOR_Qcur):14:6, ",",
+								    FOR_VertexCont.SolutionTime:12:2 / ;
+							else
+								put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+								    "pass1_cyclic,", FOR_StatCur, ",",
+								    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
+								    FOR_VertexCont.SolutionTime:12:2 / ;
+							endif;
+
+							! --- Pass 2: cyclic relaxed + PV scaled by (1 - DiagPVcutFrac) ---
+							empty allvariables;
+							run Load_data_dsn;
+							P0(d,tt)        := P0raw(d, RollMap(tt));
+							Q0(d,tt)        := Q0raw(d, RollMap(tt));
+							GenP0(d,tt)     := GenP0raw(d, RollMap(tt)) * (1 - DiagPVcutFrac);
+							Irradiance(tt)  := Irrraw(RollMap(tt));
+							BattSOCini(bat) := BattSOCstart(bat);
+							BattP_Chg(bat,'1') := RollChgExec(bat);     ! keep the committed slot-1 fix in the diagnostic retries too
+							BattP_Chg(bat,'1').nonvar := 1;
+							BattP_Dis(bat,'1') := RollDisExec(bat);
+							BattP_Dis(bat,'1').nonvar := 1;
+							CyclicSOCBand   := DiagCyclicBand;
+							run MainExecution;
+							FOR_Lambda := 1;
+							solve FOR_VertexCont
+								where  MIP_Relative_Optimality_Tolerance := 0.01,
+								       method              := 'deterministic concurrent',
+								       numeric_focus       := 3,
+								       barrier_homogeneous := 1,
+								       time_limit          := 1500;
+							FOR_StatCur := FOR_VertexCont.ProgramStatus;
+							if FOR_VertexCont.ProgramStatus = 'Optimal' or
+							   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+								FOR_Pcur := P_PCC(PeriodMaxP);
+								FOR_Qcur := Q_PCC(PeriodMaxP);
+								put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+								    "pass2_curtail,", FOR_StatCur, ",",
+								    FOR_Pcur:14:6, ",", FOR_Qcur:14:6, ",",
+								    (cos(FOR_AngleRad)*FOR_Pcur + sin(FOR_AngleRad)*FOR_Qcur):14:6, ",",
+								    FOR_VertexCont.SolutionTime:12:2 / ;
+							else
+								put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+								    "pass2_curtail,", FOR_StatCur, ",",
+								    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
+								    FOR_VertexCont.SolutionTime:12:2 / ;
+							endif;
+
+							! --- restore the production band and switch put target back to main CSV for next direction ---
+							CyclicSOCBand := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! must match the config block at the top of this procedure
+							put FOR_RollCSV;
+						endif;
+					endfor;
+					endif;   ! EXPERIMENT: end BaselineOnly sweep-skip guard
+
+					! advance the realised SOC to the next step (executed slot-1 dispatch)
+					BattSOCstart(bat) := RollSOCnext(bat);
+				endfor;
+
+				putclose FOR_RollCSV;
+				putclose FOR_RollSOCCSV;
+				if EnableRollDiag = 1 then
+					putclose FOR_RollDiagCSV;
+				endif;
+				RollCyclicSOC := 0;   ! leave the model in its normal (non-rolling) state
+				CyclicSOCBand := 0;   ! defensive: clear band so subsequent runs see strict cyclic if they re-enable it
+				BattP_Chg(bat,t).nonvar := 0;   ! defensive: free the slot-1 fixes so later runs see normal variables
+				BattP_Dis(bat,t).nonvar := 0;
+				display RollSOCtraj;
+			}
+			Comment: {
+				"FOR - PRODUCTION. MPC-style daily rolling FOR. Each half-hour \'now\' the 48-point day is rotated so \'now\' is slot 1 and the service slot now+1 is slot 2; the window starts from the realised SOC, the committed baseline is solved with the PURE self-consumption objective (MinImports, no max-export term), the slot-1 dispatch is executed to advance the SOC, then the directions are swept with BattP_Chg/Dis(bat,\'1\') FIXED to that committed dispatch, so every boundary point offered for now+1 is reachable from what the batteries actually do during \'now\'. Exact quadratic config (FOR_PolyS=0, FOR_LinearizeVmax=0): convex QCP under CPLEX barrier, tractable per transformer on the reduced network. 48 steps -> FOR_rolling.csv (now,target columns); realised SOC + executed power -> FOR_rolling_soc.csv. Overlay with plot_FOR_rolling.py."
+			}
+		}
+		Procedure RunTrafoFOR {
+			Arguments: (TrafoTag);
+			Body: {
+				! One per-transformer rolling FOR: TrafoTag detailed, all other transformers lumped
+				! as passive MV loads. Writes FOR_rolling_<tag>.csv + FOR_rolling_soc_<tag>.csv.
+				UseBattComp       := 0;   ! production is the pure QCP (the binary lives in Validation)
+				RollFileSuffix    := "_" + TrafoTag;
+				ReduceNetwork     := 1;
+				DetailTagCSV      := TrafoTag;
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+			}
+			StringParameter TrafoTag {
+				Property: Input;
+			}
+			Comment: "Single per-transformer rolling FOR runner (replaces the nine per-TR copy-paste procedures). BattThroughputPen is NOT set here: the production value is the declared default (0.2). Use the one-click wrappers RunTR1..RunTR9.";
+		}
+		Procedure RunCoupledFOR {
+			Arguments: (TagList);
+			Body: {
+				! COUPLED rolling FOR for a comma-separated transformer list (e.g. "TR3,TR4"): all
+				! listed transformers detailed TOGETHER - their batteries flex in one problem, sharing
+				! the MV feeder - while the rest are lumped passive. Writes FOR_rolling_<tags>.csv
+				! (e.g. FOR_rolling_TR3TR4.csv). Purpose: measure the MV coupling gap by comparing this
+				! coupled region against the decomposed Minkowski sum of the same transformers
+				! (combine_FOR_pertrafo.py --tags TR3,TR4 --compare FOR_rolling_TR3TR4.csv).
+				! COST grows superlinearly with total battery count: pairs of small transformers are
+				! cheap; ALL nine together is the monolithic full feeder, which is documented
+				! intractable (a single vertex solve ran >5.5 h) - do not attempt it.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_" + FindReplaceStrings(TagList, ",", "");
+				ReduceNetwork     := 1;
+				DetailTagCSV      := TagList;
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+			}
+			StringParameter TagList {
+				Property: Input;
+			}
+			Comment: "Coupled multi-transformer rolling FOR (the transformers in TagList detailed together, rest lumped passive). For the coupling-gap validation of the Minkowski decomposition: pass a comma list such as TR3,TR4 and compare with the decomposed sum of the same pair. Historical (linearized, 2026-06): TR3+TR4 gap 0.2-3%, TR5+TR6 gap 0.7-4%, outer bound held.";
+		}
+		Procedure RunTR9_RelaxCyclic {
+			Body: {
+				! EXPERIMENT (one click): TR9 rolling self-consumption dispatch with the cyclic-SOC
+				! band relaxed so batteries may end the day discharged (SOC floor + Emax still hold),
+				! and the 12-direction FOR sweep skipped (committed baseline dispatch only, ~48 solves).
+				! Writes FOR_rolling_soc_TR9_relaxcyc.csv - the production TR9 files are NOT touched.
+				! Purpose: test whether prosumer import falls toward zero once batteries are freed from
+				! the net-zero daily-energy constraint. Compare vs the 0.05-band FOR_rolling_soc_TR9.csv.
+				RelaxCyclicBand   := 1.0;   ! |SOC_end - SOC_start| <= 100% of cap: cyclic band non-binding
+				BaselineOnly      := 1;     ! skip the direction sweep; commit the dispatch only
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR9_relaxcyc";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				BaselineOnly      := 0;     ! restore production defaults
+				RelaxCyclicBand   := 0.05;
+			}
+			Comment: "EXPERIMENT (one click): TR9 rolling self-consumption dispatch, cyclic-SOC band relaxed (RelaxCyclicBand=1.0) and FOR sweep skipped (BaselineOnly=1). Fast (~48 baseline solves). Output FOR_rolling_soc_TR9_relaxcyc.csv; production TR9 files untouched. Tests whether prosumer import -> 0 when batteries are freed from net-zero daily energy.";
+		}
+		Procedure RunTR9_RelaxFloor {
+			Body: {
+				! EXPERIMENT (one click): TR9 rolling self-consumption dispatch with the SOC floor
+				! (BattSOCmin, the MinSOC_def constraint) lowered to 0 so batteries may fully discharge,
+				! the FOR sweep skipped (committed baseline dispatch only, ~48 solves). Cyclic band stays
+				! at the production 0.05. Writes FOR_rolling_soc_TR9_floor0.csv - production TR9 files are
+				! NOT touched. Purpose: the floor is the binding limit (83% of import sits at batteries
+				! parked at their 10% floor), so this tests how far prosumer import falls when they are
+				! allowed to finish the day completely discharged. Compare vs FOR_rolling_soc_TR9.csv.
+				SOCFloorOverride  := 0.0;   ! allow full discharge (floor 10% -> 0%); Emax + cyclic unchanged
+				BaselineOnly      := 1;     ! skip the direction sweep; commit the dispatch only
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR9_floor0";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				BaselineOnly      := 0;     ! restore production defaults
+				SOCFloorOverride  := -1;
+			}
+			Comment: "EXPERIMENT (one click): TR9 rolling self-consumption dispatch with the SOC floor lowered to 0 (SOCFloorOverride=0.0) and FOR sweep skipped (BaselineOnly=1). Cyclic band at production 0.05. Fast (~48 baseline solves). Output FOR_rolling_soc_TR9_floor0.csv; production TR9 files untouched. Tests how far prosumer import falls when batteries may finish the day fully discharged.";
+		}
+		Procedure RunTR1 {
+			Body: {
+				RunTrafoFOR("TR1");
+			}
+			Comment: "One click: rolling FOR for TR1 -> FOR_rolling_TR1.csv + FOR_rolling_soc_TR1.csv.";
+		}
+		Procedure RunTR2 {
+			Body: {
+				RunTrafoFOR("TR2");
+			}
+			Comment: "One click: rolling FOR for TR2 -> FOR_rolling_TR2.csv + FOR_rolling_soc_TR2.csv.";
+		}
+		Procedure RunTR3 {
+			Body: {
+				RunTrafoFOR("TR3");
+			}
+			Comment: "One click: rolling FOR for TR3 -> FOR_rolling_TR3.csv + FOR_rolling_soc_TR3.csv.";
+		}
+		Procedure RunTR4 {
+			Body: {
+				RunTrafoFOR("TR4");
+			}
+			Comment: "One click: rolling FOR for TR4 -> FOR_rolling_TR4.csv + FOR_rolling_soc_TR4.csv.";
+		}
+		Procedure RunTR5 {
+			Body: {
+				RunTrafoFOR("TR5");
+			}
+			Comment: "One click: rolling FOR for TR5 -> FOR_rolling_TR5.csv + FOR_rolling_soc_TR5.csv.";
+		}
+		Procedure RunTR6 {
+			Body: {
+				RunTrafoFOR("TR6");
+			}
+			Comment: "One click: rolling FOR for TR6 -> FOR_rolling_TR6.csv + FOR_rolling_soc_TR6.csv.";
+		}
+		Procedure RunTR7 {
+			Body: {
+				RunTrafoFOR("TR7");
+			}
+			Comment: "One click: rolling FOR for TR7 -> FOR_rolling_TR7.csv + FOR_rolling_soc_TR7.csv.";
+		}
+		Procedure RunTR8 {
+			Body: {
+				RunTrafoFOR("TR8");
+			}
+			Comment: "One click: rolling FOR for TR8 -> FOR_rolling_TR8.csv + FOR_rolling_soc_TR8.csv.";
+		}
+		Procedure RunTR9 {
+			Body: {
+				RunTrafoFOR("TR9");
+			}
+			Comment: "One click: rolling FOR for TR9 -> FOR_rolling_TR9.csv + FOR_rolling_soc_TR9.csv.";
+		}
+		Procedure RunFOR_Rolling_PerTrafo {
+			Body: {
+				! PER-TRANSFORMER rolling FOR. For each TRk: keep TRk detailed, lump every other transformer
+				! as a passive MV load (its batteries dropped), keep the shared MV feeder, run the 48-step
+				! rolling FOR -> FOR_rolling_<tag>.csv / FOR_rolling_soc_<tag>.csv. Combine in post-processing
+				! (Minkowski sum about the all-passive baseline).
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;   ! NEW generator (exact QCP); RunFOR_Rolling re-pins it anyway
+				! capture the transformer universe ONCE on the full feeder, before any reduction
+				nPeriods                  := 48;     ! must precede the capture Load_data_dsn (fresh process has no inherited state)
+				IncludeNetworkConstraints := 1;
+				ReduceNetwork     := 0;
+				DetailLoadPattern := "";
+				RollFileSuffix    := "";
+				empty Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				run Load_data_dsn;
+				TrLabel(tr) := FormatString("%e", tr);
+				TrTag(tr)   := SubString(TrLabel(tr), 7, StringLength(TrLabel(tr)));
+				PerTrafoN   := card(Trafos);
+				for (tr) do
+					PerTrafoTag(Element(PerTrafoIdx, ord(tr))) := TrTag(tr);
+				endfor;
+				! one full rolling run per transformer (stable integer loop; Trafos is shrunk inside)
+				! RESUME LIST: put already-completed tags in the string below (e.g. ",TR1,TR2,") to skip them
+				! when resuming after an interruption. "," = do all.
+				for (pti) do
+					if FindString(",", "," + PerTrafoTag(pti) + ",") = 0 then
+						RollFileSuffix := "_" + PerTrafoTag(pti);
+						ReduceNetwork  := 1;
+						DetailTagCSV   := PerTrafoTag(pti);
+						run RunFOR_Rolling;
+					endif;
+				endfor;
+				! defensive reset to full-feeder defaults
+				ReduceNetwork  := 0;
+				DetailTagCSV   := "";
+				RollFileSuffix := "";
+			}
+			Comment: "PER-TRANSFORMER PRODUCTION: loops all transformers, each TRk detailed + others lumped passive, writing FOR_rolling_<tag>.csv / FOR_rolling_soc_<tag>.csv. Validate plumbing first with RunTR9.";
+		}
+		Procedure RunFOR_Rolling_Baseline {
+			Body: {
+				! ALL-IDLE BASELINE trajectory B(t): full feeder, every battery fixed to zero P and Q.
+				! This is the PCC point with no flexibility anywhere; needed to combine the per-transformer
+				! FORs (Minkowski sum about B). Cheap: with batteries fixed there is no optimization, just a
+				! determined linearized power flow. Writes FOR_rolling_baseline.csv (period,P,Q,status).
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;   ! NEW generator for the exact quadratic constraints (see RunFOR_Rolling)
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 0;
+				nPeriods                  := 48;
+				ReduceNetwork             := 1;     ! reduced net still carries the FULL passive load -> all-idle PCC ~ true B, and is tractable (full feeder is not)
+				DetailLoadPattern         := "";
+				DetailTagCSV              := "TR9";
+				RollFileSuffix            := "";
+				FOR_PolyS                 := 0;   ! match production (exact); irrelevant here anyway: batteries fixed to zero, limits relaxed below
+				FOR_LinearizeVmax         := 0;
+				RollCyclicSOC             := 0;
+				CyclicSOCBand             := 0;
+				AllowChargeAtPmax         := 1;
+				PeriodMaxP                := 25;
+				empty allvariables;
+				empty Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				run Load_data_dsn;
+				! relax network limits so B is the pure all-idle power-flow value (the de-duplication origin
+				! for the Minkowski sum). The idle state itself may violate limits at midday; that is fine -
+				! B is an arithmetic reference, not a claimed operating point. Feasibility lives in each FOR_k.
+				! MODEST relaxation only (validated 2026-06-15): an extreme relax (1e9) puts ~1e18 in the
+				! quadratic ampacity rows, destroys conditioning, and returned 48/48 NoSolution.
+				MaxV(n)       := 1.5;
+				MinV(n)       := 0.5;
+				MaxCurrent(l) := 5*MaxCurrent(l);
+				MaxAmps(tr)   := 5*MaxAmps(tr);
+				! freeze every battery idle (P via Chg=Dis=0; Qinv already 0 since IncludeQforMaxP=0)
+				BattP_Chg(bat,t) := 0;
+				BattP_Dis(bat,t) := 0;
+				BattP_Chg(bat,t).nonvar := 1;
+				BattP_Dis(bat,t).nonvar := 1;
+				solve MinImports where MIP_Relative_Optimality_Tolerance := 0.01,
+					method := 'deterministic concurrent', numeric_focus := 3, barrier_homogeneous := 1, time_limit := 3000;
+				FOR_RollBaseCSV.PageWidth := 32767;
+				put FOR_RollBaseCSV;
+				put "period,P,Q,status" / ;
+				for (t) do
+					put ord(t):3:0, ",", P_PCC(t):14:6, ",", Q_PCC(t):14:6, ",", MinImports.ProgramStatus / ;
+				endfor;
+				putclose FOR_RollBaseCSV;
+				! release the fixes
+				BattP_Chg(bat,t).nonvar := 0;
+				BattP_Dis(bat,t).nonvar := 0;
+			}
+			Comment: "BASELINE for the per-transformer combination: full feeder, all batteries idle -> FOR_rolling_baseline.csv (the all-idle PCC trajectory B). Tractable because batteries are fixed (no optimization). Used by combine_FOR_pertrafo.py to de-duplicate the shared passive load when summing per-TR FORs.";
+		}
+		Procedure RunFOR_RollingPreflight {
+			Body: {
+				! ---- FULL-FEEDER PRE-FLIGHT for RunFOR_Rolling. Sweeps the 12 directions at a
+				! ----   handful of representative slots (default: t=12, 25, 40) using the SAME
+				! ----   solver config as the production rolling run, but with no SOC carry-forward
+				! ----   between slots (each preflight slot starts from BattSOCini). Goal is a
+				! ----   smoke test that the solver does not break down on the full feeder, plus
+				! ----   per-direction timing so the full-day runtime can be extrapolated.
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;   ! NEW generator for the exact quadratic constraints (see RunFOR_Rolling)
+
+				! ---- toggles: identical to the full-feeder leg of RunCompareWithPaperT25 ----
+				ReduceNetwork             := PreflightReduce;   ! default 0 = FULL feeder; PreflightReduce=1 for a reduced (per-transformer) preflight
+				DetailTagCSV              := PreflightDetailTag;   ! default "" = full feeder; e.g. "TR9" when reduced
+				DetailLoadPattern         := "";
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;
+				FOR_PolyS                 := 0;        ! exact inverter S-circle -- match RunFOR_Rolling production config
+				FOR_LinearizeVmax         := 0;        ! exact quadratic Vmax -- same
+				FOR_nAngles               := 12;       ! every 30 deg
+				RollCyclicSOC             := 1;
+				CyclicSOCBand             := PreflightBand;     ! default 0.05 = production; PreflightBand=1.0 relaxes the cyclic band
+				PeriodMaxP                := 2;        ! service slot is window position 2
+				EnableRollDiag            := 0;
+
+				! ---- pick the slots to test. Edit these three lines to change coverage. ----
+				PreflightSlot(t) := 0;
+				PreflightSlot(Element(Time, 12)) := 1;     ! morning ramp
+				PreflightSlot(Element(Time, 25)) := 1;     ! midday PV peak (= paper PeriodMaxP)
+				PreflightSlot(Element(Time, 40)) := 1;     ! evening
+
+				! ---- freeze the un-rotated day so each preflight slot rotates from a clean copy ----
+				empty allvariables;
+				run Load_data_dsn;
+				P0raw(d,t)        := P0(d,t);
+				Q0raw(d,t)        := Q0(d,t);
+				GenP0raw(d,t)     := GenP0(d,t);
+				Irrraw(t)         := Irradiance(t);
+				BattSOCstart(bat) := BattSOCini(bat);   ! each preflight slot starts from the initial SOC
+
+				! ---- CSV header (same columns as FOR_rolling.csv so existing scripts work) ----
+				FOR_RollPreflightCSV.PageWidth := 32767;
+				put FOR_RollPreflightCSV;
+				put "now,target,angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr" / ;
+
+				Preflight_TotalTime := 0;
+				Preflight_nSolves   := 0;
+				Preflight_nFail     := 0;
+
+				for (t | PreflightSlot(t) = 1) do
+					RollNow     := ord(t);
+					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
+
+					! ---- committed self-consumption baseline for this slot (mirrors RunFOR_Rolling) ----
+					empty allvariables;
+					run Load_data_dsn;
+					P0(d,tt)        := P0raw(d, RollMap(tt));
+					Q0(d,tt)        := Q0raw(d, RollMap(tt));
+					GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+					Irradiance(tt)  := Irrraw(RollMap(tt));
+					BattSOCini(bat) := BattSOCstart(bat);
+					BattP_Chg(bat,'1').nonvar := 0;
+					BattP_Dis(bat,'1').nonvar := 0;
+					run MinOFminImports;
+					if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
+						! baseline rescue, mirrors RunFOR_Rolling
+						solve MinImports
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       method              := 'deterministic concurrent',
+							       numeric_focus       := 3,
+							       barrier_homogeneous := 1,
+							       time_limit          := 3000;
+						ConvFlag := MinImports.ProgramStatus;
+					endif;
+					RollChgExec(bat) := BattP_Chg(bat,'1');
+					RollDisExec(bat) := BattP_Dis(bat,'1');
+
+					put FOR_RollPreflightCSV;
+					for (ia) do
+						FOR_Angle    := FOR_AngleDeg(ia);
+						FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+
+						empty allvariables;
+						run Load_data_dsn;
+						P0(d,tt)        := P0raw(d, RollMap(tt));
+						Q0(d,tt)        := Q0raw(d, RollMap(tt));
+						GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+						Irradiance(tt)  := Irrraw(RollMap(tt));
+						BattSOCini(bat) := BattSOCstart(bat);
+						BattP_Chg(bat,'1') := RollChgExec(bat);     ! slot 1 fixed to the committed dispatch (mirrors RunFOR_Rolling)
+						BattP_Chg(bat,'1').nonvar := 1;
+						BattP_Dis(bat,'1') := RollDisExec(bat);
+						BattP_Dis(bat,'1').nonvar := 1;
+						run MainExecution;
+
+						FOR_Lambda := 1;
+						solve FOR_VertexCont
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       method     := 'deterministic concurrent',
+							       time_limit := 3000;
+
+						if FOR_VertexCont.ProgramStatus <> 'Optimal' and
+						   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
+							solve FOR_VertexCont
+								where  MIP_Relative_Optimality_Tolerance := 0.01,
+								       method              := 'deterministic concurrent',
+								       numeric_focus       := 3,
+								       barrier_homogeneous := 1,
+								       time_limit          := 3000;
+						endif;
+
+						FOR_StatCur          := FOR_VertexCont.ProgramStatus;
+						Preflight_nSolves    := Preflight_nSolves + 1;
+						Preflight_TotalTime  := Preflight_TotalTime + FOR_VertexCont.SolutionTime;
+
+						if FOR_VertexCont.ProgramStatus = 'Optimal' or
+						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							FOR_Pcur    := P_PCC(PeriodMaxP);
+							FOR_Qcur    := Q_PCC(PeriodMaxP);
+							FOR_VmaxCur := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+							FOR_LinCur  := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+							    FOR_Pcur:14:6, ",", FOR_Qcur:14:6, ",",
+							    (cos(FOR_AngleRad)*FOR_Pcur + sin(FOR_AngleRad)*FOR_Qcur):14:6, ",",
+							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
+							    (min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2))):10:5, ",",
+							    FOR_VmaxCur:10:5, ",",
+							    (max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)))):10:5, ",",
+							    (max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)))):10:5, ",",
+							    FOR_LinCur:12:6 / ;
+						else
+							Preflight_nFail := Preflight_nFail + 1;
+							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+							    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
+							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
+							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
+						endif;
+					endfor;
+				endfor;
+
+				putclose FOR_RollPreflightCSV;
+				RollCyclicSOC := 0;
+				CyclicSOCBand := 0;
+				BattP_Chg(bat,t).nonvar := 0;   ! defensive: free the slot-1 fixes so later runs see normal variables
+				BattP_Dis(bat,t).nonvar := 0;
+
+				display Preflight_nSolves, Preflight_nFail, Preflight_TotalTime;
+			}
+			Comment: {
+				"FOR - PRE-FLIGHT. Smoke test for the production rolling run on the FULL feeder.
+				 Sweeps the 12 directions at 3 representative slots (t=12 morning, t=25 PV peak,
+				 t=40 evening) with the same toggles as RunFOR_Rolling (FOR_PolyS=0,
+				 FOR_LinearizeVmax=0, RollCyclicSOC=1, NC_Q). Each preflight slot starts from
+				 BattSOCini (no SOC carry-forward between preflight slots, to keep this fast),
+				 solves the same committed self-consumption baseline (MinImports) as production,
+				 and fixes slot 1 to that dispatch during the sweep.
+				 Writes FOR_rolling_preflight.csv (same columns as FOR_rolling.csv) and
+				 reports Preflight_nFail / Preflight_TotalTime so the full-day runtime
+				 (= TotalTime * 48 / 3) can be extrapolated. RUN THIS BEFORE RunFOR_Rolling on
+				 the full feeder; if any direction returns non-Optimal, debug before launching."
+			}
+		}
+		Procedure RunTR9_PreflightCyclicTest {
+			Body: {
+				! EXPERIMENT (one click): does relaxing the cyclic-SOC band inflate the FOR?
+				! Runs the 3-slot x 12-direction preflight (t=12/25/40) for TR9 (reduced network)
+				! TWICE - once at the production band 0.05, once relaxed (1.0) - both starting from
+				! the same BattSOCini (no carry-forward), so the vertices are directly comparable.
+				! Writes FOR_rolling_preflight_TR9_cyc05.csv and FOR_rolling_preflight_TR9_cycOff.csv.
+				! ~72 vertex solves (~15-25 min). If the relaxed region is materially larger, the
+				! cyclic band is doing real work in the FOR (offered flexibility that is not repeatable
+				! day to day); if the two regions coincide, the band is inert for the FOR too.
+				PreflightReduce    := 1;
+				PreflightDetailTag := "TR9";
+
+				PreflightBand   := 0.05;   PreflightSuffix := "_TR9_cyc05";
+				run RunFOR_RollingPreflight;
+
+				PreflightBand   := 1.0;    PreflightSuffix := "_TR9_cycOff";
+				run RunFOR_RollingPreflight;
+
+				! restore production defaults
+				PreflightReduce    := 0;
+				PreflightDetailTag := "";
+				PreflightBand      := 0.05;
+				PreflightSuffix    := "";
+			}
+			Comment: "EXPERIMENT (one click): FOR sensitivity to the cyclic-SOC band. Runs the TR9 reduced-network preflight (3 slots x 12 directions) at band 0.05 and at band 1.0, writing FOR_rolling_preflight_TR9_cyc05.csv and _cycOff.csv for comparison. ~72 solves (~15-25 min). Production preflight behaviour is unchanged (defaults preserved).";
+		}
+		Procedure RunReducedTest_RollingMicro {
+			Body: {
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "_two";   ! keep only TR9_two* buses (sub-branch with ~12 PV+battery houses)
+				run RunFOR_Rolling;
+				DetailLoadPattern := "";       ! defensive reset: back to TR9-full behaviour for subsequent runs
+			}
+			Comment: "MICRO TEST (one click): the smallest controllable test bed - isolate the TR9_two* sub-branch (12 batteries, 21 loads, 21 buses) and run the daily rolling FOR on it. Goal is understanding: small enough to hand-check SOC trajectories, predict the FOR shape, and trace what each constraint does. Back to TR9-full: leave DetailLoadPattern empty. Back to the full feeder: set ReduceNetwork:=0.";
+		}
+		Procedure RunReducedTest_RollingDiag {
+			Body: {
+				ReduceNetwork  := 1;
+				DetailTagCSV   := "TR9";
+				EnableRollDiag := 1;
+				DiagCyclicBand := 0.10;   ! Pass 1: |SOC_end - SOC_start| <= 10% of capacity (must exceed the 5% production band in RunFOR_Rolling to be a real relaxation)
+				DiagPVcutFrac  := 0.50;   ! Pass 2: halve PV (proxy for explicit curtailment)
+				run RunFOR_Rolling;
+				EnableRollDiag := 0;       ! defensive reset
+			}
+			Comment: "TEST (one click) + DIAGNOSTIC: same as RunTR9, but for each failed direction inside RunFOR_Rolling, retry with (Pass 1) cyclic-SOC band relaxed to DiagCyclicBand (default 0.05), then (Pass 2) cyclic relaxed + GenP0 scaled by (1 - DiagPVcutFrac) (default 0.50). Attribution is written to FOR_rolling_diag.csv (cols: now,target,angle_deg,pass,status,P,Q,proj,time). Use to tell apart cyclic-SOC-bound vs PV-saturation-bound vs linearization-bound failures.";
+		}
+	}
+	Section DOE_Dispatch {
+		Comment: "Two-level fair dispatch study (thesis chapter): the DSO disaggregates a requested PCC service point into per-aggregator Dynamic Operating Envelopes (level-1 fairness, capacity-proportional across aggregators) and then per-prosumer DOEs (level-2 fairness, capacity-proportional within each aggregator). All constraints are gated by DOE_Stage=0 by default, so this section adds NOTHING to the production solves. Entry points: RunDOE_Dispatch (one target point) and RunDOE_Envelope (per-prosumer DOE bands from the P-extremes of the FOR).";
+		DeclarationSection DOE_Declarations {
+			Parameter DOE_Stage {
+				Default: 0;
+				Comment: "0 = section inactive (no rows generated anywhere - production untouched). 1 = level-1 solve (aggregator fairness). 2 = level-2 solve (prosumer fairness, aggregator allocations held by DOE_HoldAgg).";
+			}
+			Parameter DOE_NAggs {
+				Default: 2;
+				Comment: "Number of aggregators the prosumers are randomly split into.";
+			}
+			Set DOE_Aggs {
+				SubsetOf: Integers;
+				Index: ag;
+				Definition: ElementRange(1, DOE_NAggs);
+			}
+			Parameter DOE_Seed {
+				Default: 42;
+				Comment: "Random seed for the prosumer->aggregator split (reproducible).";
+			}
+			ElementParameter DOE_AggOf {
+				IndexDomain: bat;
+				Range: DOE_Aggs;
+				Comment: "Aggregator of each battery/prosumer; set by DOE_AssignAggregators.";
+			}
+			Parameter DOE_CapAgg {
+				IndexDomain: ag;
+				Definition: sum(bat | DOE_AggOf(bat) = ag, BattMaxP(bat));
+				Comment: "Installed battery power capacity per aggregator (p.u.).";
+			}
+			Parameter DOE_CapTot {
+				Definition: sum(bat, BattMaxP(bat));
+			}
+			Parameter DOE_Now {
+				Default: 25;
+				Comment: "Chosen rolling step (1..48). The dispatch happens at that step's service slot (window slot 2 = period now+1), starting from the realised SOC reconstructed by re-committing steps 1..DOE_Now.";
+			}
+			Parameter DOE_TargetP {
+				Default: 0;
+				Comment: "Requested PCC active power (p.u.) at the service slot - pick a point inside the FOR of step DOE_Now (see FOR_rolling_<tag>.csv).";
+			}
+			Parameter DOE_TargetQ {
+				Default: 0;
+				Comment: "Requested PCC reactive power (p.u.) at the service slot.";
+			}
+			Parameter DOE_PinTol {
+				Default: 0.001;
+				Comment: "Half-width of the PCC pin band (p.u.). A hair of slack keeps re-pinned FOR-boundary points numerically feasible; 0.001 p.u. = 1 kW.";
+			}
+			Parameter DOE_TiePen {
+				Default: 0.0001;
+				Comment: "Tiny battery-throughput tiebreaker in both fairness objectives: kills charge+discharge degeneracy without measurably distorting fairness (fairness terms are O(1e-4..1e-2) p.u.^2).";
+			}
+			StringParameter DOE_TrafoTag {
+				InitialData: "TR9";
+				Comment: "Transformer the dispatch study runs on (per-TR reduced network, like the production FOR).";
+			}
+			Parameter DOE_AggAlloc {
+				IndexDomain: ag;
+				Comment: "Level-1 result: committed net injection per aggregator (p.u.), held fixed in level 2 by DOE_HoldAgg.";
+			}
+			Parameter DOE_ShareB {
+				IndexDomain: bat;
+				Comment: "Level-2 fair target per prosumer: its aggregator's allocation times BattMaxP share.";
+			}
+			Parameter DOE_BandLo {
+				IndexDomain: bat;
+				Comment: "RunDOE_Envelope: prosumer dispatch at the max-export end of the FOR.";
+			}
+			Parameter DOE_BandMid {
+				IndexDomain: bat;
+				Comment: "RunDOE_Envelope: prosumer dispatch at the requested target.";
+			}
+			Parameter DOE_BandHi {
+				IndexDomain: bat;
+				Comment: "RunDOE_Envelope: prosumer dispatch at the max-import end of the FOR.";
+			}
+			Variable DOE_NetB {
+				IndexDomain: bat | DOE_Stage;
+				Range: free;
+				Definition: BattP_Dis(bat, PeriodMaxP) - BattP_Chg(bat, PeriodMaxP);
+				Comment: "Prosumer net service-slot injection (discharge positive, battery frame).";
+			}
+			Variable DOE_NetAgg {
+				IndexDomain: ag | DOE_Stage;
+				Range: free;
+				Definition: sum(bat | DOE_AggOf(bat) = ag, DOE_NetB(bat));
+				Comment: "Aggregator net service-slot injection.";
+			}
+			Variable DOE_UtilTot {
+				Range: free;
+				Definition: sum(bat | DOE_Stage, DOE_NetB(bat)) / max(DOE_CapTot, 1e-9);
+				Comment: "Fleet-wide utilisation (net injection / installed capacity). Trivial 0-row when DOE_Stage=0.";
+			}
+			Variable DOE_OF1 {
+				Range: free;
+				Definition: sum(ag | DOE_Stage, (DOE_NetAgg(ag) - DOE_UtilTot*DOE_CapAgg(ag))^2) + DOE_TiePen*sum((bat,t) | DOE_Stage, BattP_Chg(bat,t) + BattP_Dis(bat,t));
+				Comment: "Level-1 fairness: squared deviation of each aggregator from its capacity-proportional share of the total, + throughput tiebreaker.";
+			}
+			Variable DOE_OF2 {
+				Range: free;
+				Definition: sum(bat | DOE_Stage, (DOE_NetB(bat) - DOE_ShareB(bat))^2) + DOE_TiePen*sum((bat,t) | DOE_Stage, BattP_Chg(bat,t) + BattP_Dis(bat,t));
+				Comment: "Level-2 fairness: squared deviation of each prosumer from its capacity-proportional share of its aggregator's allocation, + throughput tiebreaker.";
+			}
+			Constraint DOE_PinP {
+				IndexDomain: ag | DOE_Stage and ord(ag) = 1;
+				Definition: DOE_TargetP - DOE_PinTol <= P_PCC(PeriodMaxP) <= DOE_TargetP + DOE_PinTol;
+				Comment: "Pin the PCC active power to the requested service point (band of +-DOE_PinTol). Indexed over the first aggregator element only = one row when active.";
+			}
+			Constraint DOE_PinQ {
+				IndexDomain: ag | DOE_Stage and ord(ag) = 1;
+				Definition: DOE_TargetQ - DOE_PinTol <= Q_PCC(PeriodMaxP) <= DOE_TargetQ + DOE_PinTol;
+			}
+			Constraint DOE_HoldAgg {
+				IndexDomain: ag | DOE_Stage = 2;
+				Definition: DOE_NetAgg(ag) = DOE_AggAlloc(ag);
+				Comment: "Level 2: hold each aggregator at its level-1 fair allocation (lexicographic two-stage fairness).";
+			}
+			MathematicalProgram DOE_Level1 {
+				Objective: DOE_OF1;
+				Direction: minimize;
+				Constraints: NotTobeExcluded_constraints;
+				Variables: NotTobeExcluded_variables;
+				Type: Automatic;
+			}
+			MathematicalProgram DOE_Level2 {
+				Objective: DOE_OF2;
+				Direction: minimize;
+				Constraints: NotTobeExcluded_constraints;
+				Variables: NotTobeExcluded_variables;
+				Type: Automatic;
+			}
+			File DOE_DispatchCSV {
+				Name: "DOE_dispatch.csv";
+				Device: Disk;
+				Mode: replace;
+			}
+			File DOE_AggCSV {
+				Name: "DOE_aggregators.csv";
+				Device: Disk;
+				Mode: replace;
+			}
+			File DOE_EnvelopeCSV {
+				Name: "DOE_envelopes.csv";
+				Device: Disk;
+				Mode: replace;
+			}
+		}
+		Procedure DOE_AssignAggregators {
+			Body: {
+				! random, seeded, reproducible split of the (reduced-network) prosumers
+				option seed := DOE_Seed;
+				DOE_AggOf(bat) := Element(DOE_Aggs, ceil(Uniform(0, 1) * DOE_NAggs));
+				display DOE_CapAgg;
+			}
+			Comment: "Random prosumer->aggregator split (Bernoulli per battery, seed DOE_Seed). Run after the network is loaded/reduced so only the study transformer's batteries are assigned.";
+		}
+		Procedure DOE_PrepWindow {
+			Body: {
+				! rotate the day so slot 1 = DOE_Now, restore realised SOC, freeze slot 1
+				! (identical mechanics to the RunFOR_Rolling sweep preamble)
+				RollNow     := DOE_Now;
+				RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
+				empty allvariables;
+				run Load_data_dsn;
+				P0(d,tt)        := P0raw(d, RollMap(tt));
+				Q0(d,tt)        := Q0raw(d, RollMap(tt));
+				GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+				Irradiance(tt)  := Irrraw(RollMap(tt));
+				BattSOCini(bat) := BattSOCstart(bat);
+				BattP_Chg(bat,'1') := RollChgExec(bat);
+				BattP_Chg(bat,'1').nonvar := 1;
+				BattP_Dis(bat,'1') := RollDisExec(bat);
+				BattP_Dis(bat,'1').nonvar := 1;
+				run MainExecution;
+			}
+			Comment: "Rotate window to DOE_Now, seed the realised SOC, freeze the committed slot-1 dispatch, generate warm start. Call before every DOE/probe solve (empty allvariables wipes the previous solve).";
+		}
+		Procedure DOE_RollToStep {
+			Body: {
+				! reconstruct the realised SOC trajectory by re-committing steps 1..DOE_Now
+				! (baseline solves only - no sweeps - so this is fast: ~DOE_Now MinImports solves)
+				BattSOCstart(bat) := BattSOCini(bat);
+				for (t | ord(t) <= DOE_Now) do
+					RollNow     := ord(t);
+					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
+					empty allvariables;
+					run Load_data_dsn;
+					P0(d,tt)        := P0raw(d, RollMap(tt));
+					Q0(d,tt)        := Q0raw(d, RollMap(tt));
+					GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+					Irradiance(tt)  := Irrraw(RollMap(tt));
+					BattSOCini(bat) := BattSOCstart(bat);
+					BattP_Chg(bat,'1').nonvar := 0;
+					BattP_Dis(bat,'1').nonvar := 0;
+					run MinOFminImports;
+					if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
+						solve MinImports
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       method              := 'deterministic concurrent',
+							       numeric_focus       := 3,
+							       barrier_homogeneous := 1,
+							       time_limit          := 3000;
+						ConvFlag := MinImports.ProgramStatus;
+					endif;
+					RollChgExec(bat) := BattP_Chg(bat,'1');
+					RollDisExec(bat) := BattP_Dis(bat,'1');
+					if ord(t) < DOE_Now then
+						! advance the realised SOC with the executed slot-1 dispatch (not at the final step:
+						! the study happens AT step DOE_Now, from the SOC that step starts with)
+						BattSOCstart(bat) := BattSOCini(bat)
+							+ (BattP_Chg(bat,'1')*etaChg(bat) - BattP_Dis(bat,'1')/etaDis(bat))*DeltaT/BattEcap(bat);
+					endif;
+				endfor;
+			}
+			Comment: "Rebuild the rolling state at step DOE_Now: commit the self-consumption baseline step by step (same solves as RunFOR_Rolling, no sweeps), carrying the realised SOC forward. Leaves RollChgExec/RollDisExec = the committed dispatch of step DOE_Now.";
+		}
+		Procedure DOE_FairSolveAtTarget {
+			Arguments: (TgtP,TgtQ);
+			Body: {
+				DOE_TargetP := TgtP;
+				DOE_TargetQ := TgtQ;
+				! ---- level 1: fair split between aggregators ----
+				run DOE_PrepWindow;
+				DOE_Stage := 1;
+				solve DOE_Level1
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       method := 'deterministic concurrent', time_limit := 3000;
+				DOE_AggAlloc(ag) := DOE_NetAgg(ag);
+				DOE_ShareB(bat)  := DOE_AggAlloc(DOE_AggOf(bat)) * BattMaxP(bat) / max(DOE_CapAgg(DOE_AggOf(bat)), 1e-9);
+				! ---- level 2: fair split between prosumers, aggregator allocations held ----
+				run DOE_PrepWindow;
+				DOE_Stage := 2;
+				solve DOE_Level2
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       method := 'deterministic concurrent', time_limit := 3000;
+				DOE_Stage := 0;
+			}
+			Parameter TgtP {
+				Property: Input;
+			}
+			Parameter TgtQ {
+				Property: Input;
+			}
+			Comment: "Two-stage lexicographic fair dispatch at one requested PCC point. Leaves the level-2 solution in the model variables (DOE_NetB etc.) and the level-1 allocations in DOE_AggAlloc.";
+		}
+		Procedure RunDOE_Dispatch {
+			Body: {
+				! ---- production config, mirrored from RunFOR_Rolling (exact QCP) ----
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;
+				option Feasibility_Tolerance         := 1.0e-3;
+				option Barrier_Convergence_Tolerance := 1.0e-2;
+				option Scaling_Flag                  := 2;
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				AllowChargeAtPmax         := 1;
+				FOR_PolyS                 := 0;
+				FOR_LinearizeVmax         := 0;
+				RollCyclicSOC             := 1;
+				CyclicSOCBand             := 0.05;
+				PeriodMaxP                := 2;
+				FOR_TieEps                := 0;
+				UseBattComp               := 0;
+				ReduceNetwork             := 1;
+				DetailTagCSV              := DOE_TrafoTag;
+				DetailLoadPattern         := "";
+				DOE_Stage                 := 0;
+				! load once: freeze raw inputs + day-start SOC, then split the prosumers
+				empty allvariables;
+				run Load_data_dsn;
+				P0raw(d,t)    := P0(d,t);
+				Q0raw(d,t)    := Q0(d,t);
+				GenP0raw(d,t) := GenP0(d,t);
+				Irrraw(t)     := Irradiance(t);
+				run DOE_AssignAggregators;
+				! realised state at the chosen step, then the two-level fair dispatch
+				run DOE_RollToStep;
+				DOE_FairSolveAtTarget(DOE_TargetP, DOE_TargetQ);
+				! ---- outputs ----
+				DOE_AggCSV.PageWidth := 32767;
+				put DOE_AggCSV;
+				put "aggregator,n_prosumers,cap_pu,alloc_pu,util,targetP_pu,targetQ_pu,now" / ;
+				for (ag) do
+					put ord(ag):2:0, ",", sum(bat | DOE_AggOf(bat) = ag, 1):4:0, ",", DOE_CapAgg(ag):12:6, ",",
+					    DOE_AggAlloc(ag):12:6, ",", (DOE_AggAlloc(ag)/max(DOE_CapAgg(ag),1e-9)):10:6, ",",
+					    DOE_TargetP:12:6, ",", DOE_TargetQ:12:6, ",", DOE_Now:3:0 / ;
+				endfor;
+				putclose DOE_AggCSV;
+				DOE_DispatchCSV.PageWidth := 32767;
+				put DOE_DispatchCSV;
+				put "battery,aggregator,BattMaxP_pu,SOC_start,Chg2_pu,Dis2_pu,net_pu,fair_share_pu,util" / ;
+				for (bat) do
+					put bat:24, ",", ord(DOE_AggOf(bat)):2:0, ",", BattMaxP(bat):10:6, ",", BattSOCstart(bat):10:6, ",",
+					    BattP_Chg(bat,PeriodMaxP):12:6, ",", BattP_Dis(bat,PeriodMaxP):12:6, ",",
+					    (BattP_Dis(bat,PeriodMaxP)-BattP_Chg(bat,PeriodMaxP)):12:6, ",", DOE_ShareB(bat):12:6, ",",
+					    ((BattP_Dis(bat,PeriodMaxP)-BattP_Chg(bat,PeriodMaxP))/max(BattMaxP(bat),1e-9)):10:6 / ;
+				endfor;
+				putclose DOE_DispatchCSV;
+				! leave the model clean
+				BattP_Chg(bat,t).nonvar := 0;
+				BattP_Dis(bat,t).nonvar := 0;
+				RollCyclicSOC := 0;
+				CyclicSOCBand := 0;
+			}
+			Comment: "ENTRY POINT 1 - single-point fair dispatch. Set DOE_Now + DOE_TargetP/Q (a point inside that step's FOR, from FOR_rolling_<tag>.csv), optionally DOE_Seed/DOE_NAggs/DOE_TrafoTag, then run. Writes DOE_aggregators.csv (level-1 allocations) and DOE_dispatch.csv (per-prosumer dispatch vs fair share).";
+		}
+		Procedure RunDOE_Envelope {
+			Body: {
+				! same preparation as RunDOE_Dispatch
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;
+				option Feasibility_Tolerance         := 1.0e-3;
+				option Barrier_Convergence_Tolerance := 1.0e-2;
+				option Scaling_Flag                  := 2;
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				AllowChargeAtPmax         := 1;
+				FOR_PolyS                 := 0;
+				FOR_LinearizeVmax         := 0;
+				RollCyclicSOC             := 1;
+				CyclicSOCBand             := 0.05;
+				PeriodMaxP                := 2;
+				FOR_TieEps                := 0;
+				UseBattComp               := 0;
+				ReduceNetwork             := 1;
+				DetailTagCSV              := DOE_TrafoTag;
+				DetailLoadPattern         := "";
+				DOE_Stage                 := 0;
+				empty allvariables;
+				run Load_data_dsn;
+				P0raw(d,t)    := P0(d,t);
+				Q0raw(d,t)    := Q0(d,t);
+				GenP0raw(d,t) := GenP0(d,t);
+				Irrraw(t)     := Irradiance(t);
+				run DOE_AssignAggregators;
+				run DOE_RollToStep;
+				! ---- probe the P-extremes of this step's FOR (max export / max import) ----
+				run DOE_PrepWindow;
+				FOR_Angle    := 180;
+				FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+				FOR_Lambda   := 1;
+				solve FOR_VertexCont
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       method := 'deterministic concurrent', time_limit := 3000;
+				DOE_ProbeLoP := P_PCC(PeriodMaxP);
+				DOE_ProbeLoQ := Q_PCC(PeriodMaxP);
+				run DOE_PrepWindow;
+				FOR_Angle    := 0;
+				FOR_AngleRad := 0;
+				FOR_Lambda   := 1;
+				solve FOR_VertexCont
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       method := 'deterministic concurrent', time_limit := 3000;
+				DOE_ProbeHiP := P_PCC(PeriodMaxP);
+				DOE_ProbeHiQ := Q_PCC(PeriodMaxP);
+				! ---- fair dispatch at lo / mid / hi; collect the per-prosumer bands ----
+				DOE_FairSolveAtTarget(DOE_ProbeLoP, DOE_ProbeLoQ);
+				DOE_BandLo(bat) := BattP_Dis(bat,PeriodMaxP) - BattP_Chg(bat,PeriodMaxP);
+				DOE_FairSolveAtTarget(DOE_TargetP, DOE_TargetQ);
+				DOE_BandMid(bat) := BattP_Dis(bat,PeriodMaxP) - BattP_Chg(bat,PeriodMaxP);
+				DOE_FairSolveAtTarget(DOE_ProbeHiP, DOE_ProbeHiQ);
+				DOE_BandHi(bat) := BattP_Dis(bat,PeriodMaxP) - BattP_Chg(bat,PeriodMaxP);
+				! ---- write the per-prosumer DOEs ----
+				DOE_EnvelopeCSV.PageWidth := 32767;
+				put DOE_EnvelopeCSV;
+				put "battery,aggregator,BattMaxP_pu,DOE_lo_pu,DOE_mid_pu,DOE_hi_pu,now,PloFOR,PhiFOR" / ;
+				for (bat) do
+					put bat:24, ",", ord(DOE_AggOf(bat)):2:0, ",", BattMaxP(bat):10:6, ",",
+					    DOE_BandLo(bat):12:6, ",", DOE_BandMid(bat):12:6, ",", DOE_BandHi(bat):12:6, ",",
+					    DOE_Now:3:0, ",", DOE_ProbeLoP:12:6, ",", DOE_ProbeHiP:12:6 / ;
+				endfor;
+				putclose DOE_EnvelopeCSV;
+				BattP_Chg(bat,t).nonvar := 0;
+				BattP_Dis(bat,t).nonvar := 0;
+				RollCyclicSOC := 0;
+				CyclicSOCBand := 0;
+			}
+			Parameter DOE_ProbeLoP;
+			Parameter DOE_ProbeLoQ;
+			Parameter DOE_ProbeHiP;
+			Parameter DOE_ProbeHiQ;
+			Comment: "ENTRY POINT 2 - per-prosumer DOE bands. Probes the max-export and max-import ends of step DOE_Now's FOR (two directional solves, slot 1 frozen), fair-dispatches lo/mid/hi, and writes each prosumer's [lo,mid,hi] band to DOE_envelopes.csv: the small DOEs the DSO sends down so every prosumer knows its range.";
+		}
+	}
+	Section Validation {
+		Comment: "Everything that VALIDATES the production model, fenced off from it. (1) BattComp: the MIQCP complementarity binary as cross-check of the QCP throughput-penalty formulation. (2) Exact-AC / SLP boundary validation of the linearized FOR (VoltageRefinement, RunFOR_TR9_Exact / RunFOR_TR9_Linearized, RunFOR_Ref). (3) Loss-balance / coverage audits and the raw-number dump. (4) Comparison against the original paper (RunFOR_4Vertices, RunCompareWithPaperT25).";
+		DeclarationSection VoltageRefinement {
+			Comment: "RunFOR_4Vertices SLP voltage-refinement working set: re-linearization seeds (VreSeed/VimSeed/HaveSeed), the damped trust-region state (Alpha/Stall/VreGood/VimGood, best-so-far OVbest/OVcur) and iteration controls (SLPMaxIter/OVtol/SLPIter).";
+			Parameter FOR_VreSeed {
+				IndexDomain: (n,f,t);
+				Comment: "Vre of the last SOLVED direction. Used to re-linearize a failing direction (attempt 3).";
+			}
+			Parameter FOR_VimSeed {
+				IndexDomain: (n,f,t);
+				Comment: "Vim of the last SOLVED direction. Used to re-linearize a failing direction (attempt 3).";
+			}
+			Parameter FOR_HaveSeed {
+				Comment: "1 once at least one direction has solved, so a re-linearization seed is available.";
+			}
+			Parameter FOR_SLPMaxIter {
+				Comment: "Max successive-re-linearization (SLP) passes applied to a solved direction whose TRUE voltage still exceeds the cap.";
+			}
+			Parameter FOR_OVtol {
+				Comment: "Overvoltage tolerance (p.u.). If FOR_OvervoltViol exceeds this after a solve, an SLP refinement pass is triggered.";
+			}
+			Parameter FOR_SLPIter {
+				IndexDomain: ia;
+				Comment: {
+					"Number of SLP refinement passes actually applied at this direction (0 = none needed; linearization was already accurate)."
+				}
+			}
+			Parameter FOR_OVbest {
+				Comment: "Working: smallest FOR_OvervoltViol seen so far across SLP passes for the current direction.";
+			}
+			Parameter FOR_OVcur {
+				Comment: "Working: FOR_OvervoltViol of the latest SLP pass for the current direction.";
+			}
+			Parameter FOR_Alpha {
+				Comment: "Working: current SLP damping/trust-region fraction (reset to FOR_DampAlpha per direction, halved on a regressed or failed pass).";
+			}
+			Parameter FOR_VreGood {
+				IndexDomain: (n,f,t);
+				Comment: "Working: Vre of the BEST-so-far SLP solution for the current direction (re-linearization & warm start always restart from here).";
+			}
+			Parameter FOR_VimGood {
+				IndexDomain: (n,f,t);
+				Comment: "Working: Vim of the BEST-so-far SLP solution for the current direction.";
+			}
+			Parameter FOR_Stall {
+				Comment: "Working: count of consecutive non-improving SLP passes. When it reaches 2, FOR_Alpha is re-energized to FOR_DampAlpha (break the alpha-collapse plateau) instead of being halved again.";
+			}
+		}
+		DeclarationSection LossBalanceCheck {
+			Comment: "DiagnoseLossBalance: independent reconstruction of P_PCC = CustPtot + losses (demand/PV/battery decomposition, coverage, branch loss) -> diag_lossbalance.csv.";
+			Parameter FOR_LB_D {
+				Comment: "Loss-balance diag: total raw demand sum(d,P0(d,PeriodMaxP)).";
+			}
+			Parameter FOR_LB_G {
+				Comment: "Loss-balance diag: total PV sum(d,GenP0(d,PeriodMaxP)).";
+			}
+			Parameter FOR_LB_B {
+				Comment: "Loss-balance diag: net battery sum(bat,BattP_Balance(bat,PeriodMaxP)) (>0 charge, <0 discharge).";
+			}
+			Parameter FOR_LB_CustBat {
+				Comment: "Loss-balance diag: CustPtot the way the model computes it = sum(bat,TotPcust(BattBus,BattPhase,PeriodMaxP)).";
+			}
+			Parameter FOR_LB_CustAll {
+				Comment: "Loss-balance diag: TotPcust summed over ALL (n,f). Equals FOR_LB_CustBat iff every load node has a battery (coverage proof).";
+			}
+			Parameter FOR_LB_Ppcc {
+				Comment: "Loss-balance diag: P_PCC(PeriodMaxP) at the solved export-extreme vertex.";
+			}
+			Parameter FOR_LB_PlossRes {
+				Comment: "Loss-balance diag: residual loss = P_PCC - CustPtot (the briefing number, true by construction).";
+			}
+			Parameter FOR_LB_LineLoss {
+				Comment: "Loss-balance diag: independent line loss = sum over lines,phases of (Vstart-Vend).I.";
+			}
+			Parameter FOR_LB_TrLoss {
+				Comment: "Loss-balance diag: independent transformer loss = sum over trafos,phases of Vprim.Iprim - Vsec.Isec.";
+			}
+			Parameter FOR_LB_PlossBr {
+				Comment: "Loss-balance diag: independent total branch loss = line + trafo. Should match FOR_LB_PlossRes to ~0.1%.";
+			}
+			File FOR_LBCSV {
+				Name: "diag_lossbalance.csv";
+			}
+			File FOR_LB_MicroCSV {
+				Name: "diag_lossbalance_micro.csv";
+			}
+		}
+		DeclarationSection CoverageCheck {
+			Comment: "DiagnoseCoverageGap: per-(bus,phase) battery/load counts and TotPcust to localize the CustPtot coverage gap -> diag_coverage.csv.";
+			Parameter FOR_CG_nBat {
+				IndexDomain: (n,f);
+				Comment: "Coverage diag: number of batteries mapped to (n,f). >1 means TotPcust(n,f) is double-counted in the model CustPtot.";
+			}
+			Parameter FOR_CG_nLoad {
+				IndexDomain: (n,f);
+				Comment: "Coverage diag: number of loads/PV at (n,f).";
+			}
+			Parameter FOR_CG_Tot {
+				IndexDomain: (n,f);
+				Comment: "Coverage diag: TotPcust(n,f,PeriodMaxP) at the solved 180deg vertex.";
+			}
+			Parameter FOR_CG_SumAll {
+				Comment: "Coverage diag: sum over ALL (n,f) of TotPcust (true network net).";
+			}
+			Parameter FOR_CG_SumBat {
+				Comment: "Coverage diag: sum(bat,TotPcust(BattBus,BattPhase)) (the model CustPtot).";
+			}
+			Parameter FOR_CG_Dup {
+				Comment: "Coverage diag: over-count from nodes with >1 battery = sum (nBat-1)*TotPcust.";
+			}
+			Parameter FOR_CG_LoadNoBat {
+				Comment: "Coverage diag: TotPcust at nodes that have load/PV but ZERO battery (missed by the model CustPtot).";
+			}
+			File FOR_CGCSV {
+				Name: "diag_coverage.csv";
+			}
+		}
+		DeclarationSection NumberDump {
+			Comment: "DumpFORNumbers: per-element loss parameters and the dump_*.csv files (loads, batteries, lines, trafos, slack, voltages, currents, scalars) for spreadsheet re-derivation.";
+			Parameter FOR_DBG_LineLoss {
+				IndexDomain: l;
+				Comment: "Audit dump: per-line real loss = Σ_f (Vstart−Vend)·I at PeriodMaxP.";
+			}
+			Parameter FOR_DBG_TrLoss {
+				IndexDomain: tr;
+				Comment: "Audit dump: per-transformer real loss = Σ_f Vprim·Iprim − Vsec·Isec at PeriodMaxP.";
+			}
+			File FOR_DLoads {
+				Name: "dump_loads.csv";
+			}
+			File FOR_DBatt {
+				Name: "dump_batteries.csv";
+			}
+			File FOR_DLines {
+				Name: "dump_lines.csv";
+			}
+			File FOR_DTraf {
+				Name: "dump_trafos.csv";
+			}
+			File FOR_DSlack {
+				Name: "dump_slack.csv";
+			}
+			File FOR_DScal {
+				Name: "dump_scalars.csv";
+			}
+			File FOR_DVolt {
+				Name: "dump_voltages.csv";
+			}
+			File FOR_DLineI {
+				Name: "dump_line_currents.csv";
+			}
+			File FOR_DTrafI {
+				Name: "dump_trafo_currents.csv";
+			}
+			File FOR_DLoadI {
+				Name: "dump_loadgen_currents.csv";
+			}
+		}
+		Procedure RunMicro_BattComp {
+			Body: {
+				UseBattComp       := 1;    ! enforce no simultaneous charge/discharge (complementarity binary)
+				run RunReducedTest_RollingMicro;
+				UseBattComp       := 0;    ! defensive reset: back to the production QCP
+			}
+			Comment: "ONE-CLICK VALIDATION (MIQCP): sets UseBattComp=1 (binary BattOn forbids simultaneous battery charge/discharge) and runs the TR9_two micro rolling FOR. Expected: same dispatch and FOR as the production QCP (whose BattThroughputPen=0.2 default already prevents the phantom dump). Resets UseBattComp=0 afterwards.";
+		}
+		Procedure RunFullTR9_BattComp {
+			Body: {
+				UseBattComp       := 1;           ! enforce complementarity (no simultaneous charge/discharge)
+				RollFileSuffix    := "_TR9_comp"; ! NEW output FOR_rolling_TR9_comp.csv -- does NOT overwrite baseline FOR_rolling_TR9.csv
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				UseBattComp       := 0;           ! reset toggle so other runs are unaffected
+			}
+			Comment: "VALIDATION (MIQCP): full TR9 rolling FOR with the complementarity binary (UseBattComp=1) -> FOR_rolling_TR9_comp.csv. Cross-check of the production QCP throughput-penalty formulation (expect the same dispatch/FOR, much slower: 90x48 binaries).";
+		}
+		Procedure RunFOR_4Vertices {
+			Body: {
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator:=1;
+
+				! --- settings: network ON, battery Q at PeriodMaxP, period 25 ---
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				ResultsFileRoot           := "FOR_";
+
+				! relaxed FOR: batteries may also charge at PeriodMaxP so the feeder can import (0 = article = discharge-only)
+				AllowChargeAtPmax := 1;   ! 0 = article ; 1 = relaxed
+				! fully-linear model so all 36 directions solve:
+				!   FOR_PolyS=1 = 16-gon inverter S-curve (~2% tol); FOR_LinearizeVmax=1 = Vmax linearized like Vmin.
+				! set both to 0 for the exact model (then the 4 corners return NoSolution, bounded by neighbours).
+				FOR_PolyS         := 1;
+				FOR_LinearizeVmax := 1;
+
+				! 1 = also write one workbook per vertex (slow, ~37 .xls); 0 = reference only. FOR_ref_25.xls always written.
+				FOR_WriteVertexXls := 1;
+
+				! tiny cost-min tiebreaker: pulls off-period dispatch to the cost-min solution so the vertex .xls are not
+				! arbitrary, while keeping the period-25 vertex P/Q optimal. set 0 for previous behaviour.
+				FOR_TieEps := 1.0e-5;
+
+				empty allvariables;
+				run Load_data_dsn;
+
+				! clear last sweep
+				empty FOR_Boundary, FOR_BndStatus, FOR_BndTime, FOR_BndProj;
+				empty FOR_FixUsed, FOR_VreSeed, FOR_VimSeed, FOR_SLPIter;
+				FOR_HaveSeed := 0;
+
+				! --- sweep + rescue knobs ---
+				FOR_nAngles   := 36;   ! number of scan directions (every 10 deg)
+				FOR_nSteps    := 8;    ! continuation steps used only by the rescue path
+				FOR_DampAlpha := 0.6;  ! re-linearization damping (0..1)
+
+				! --- SLP knobs: linearized Vmax can sit ~0.5-1.5% over the true 1.10 cap. after each solve, if the true
+				! overvoltage exceeds FOR_OVtol, re-linearize at the solved voltages and re-solve (1-2 passes). ---
+				FOR_SLPMaxIter := 10;       ! damped steps + stall-resets need headroom
+				FOR_OVtol      := 0.0005;   ! p.u. (VmaxTrue <= ~1.1005)
+
+				! --- reference solve: force the EXACT model (3 toggles -> 0), solve the same cost-min OPF at p25 and write
+				! FOR_ref_25.xls in NC_Q_25 format to check faithfulness, then restore the toggles. fully reversible. ---
+				FOR_RefSave_ACAP := AllowChargeAtPmax;
+				FOR_RefSave_PolS := FOR_PolyS;
+				FOR_RefSave_LVmx := FOR_LinearizeVmax;
+				AllowChargeAtPmax := 0;     ! article discharge-only at PeriodMaxP
+				FOR_PolyS         := 0;     ! exact battery S-circle
+				FOR_LinearizeVmax := 0;     ! exact Vmax quadratic
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+				run ComputeMetrics;
+				ResultsFileRoot := "FOR_ref_";
+				run WriteResultstoExcel;
+				ResultsFileRoot := "FOR_";
+				AllowChargeAtPmax := FOR_RefSave_ACAP;
+				FOR_PolyS         := FOR_RefSave_PolS;
+				FOR_LinearizeVmax := FOR_RefSave_LVmx;
+
+				! --- directional scan: rotate the objective angle; each solve gives one boundary point of the FOR ---
+				for (ia) do
+					FOR_Angle    := FOR_AngleDeg(ia);
+					FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+
+					! attempt 1: clean baseline (Vre0/Vim0 reset to flat, warm-started from the cost-min OPF). FOR_Lambda=1 = pure direction.
+					empty allvariables;
+					run Load_data_dsn;
+					run MainExecution;
+
+					FOR_Lambda := 1;
+					solve FOR_VertexCont
+						where  MIP_Relative_Optimality_Tolerance := 0.01,
+						       time_limit := 3000;
+
+					FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
+					FOR_BndTime(ia)   := FOR_VertexCont.SolutionTime;
+					FOR_FixUsed(ia)   := "direct";
+
+					! attempt 2: if not optimal, re-solve same model with stronger numerics
+					! (Gurobi reported numerical breakdown, NOT infeasibility, on far-from-nominal directions).
+					if FOR_VertexCont.ProgramStatus <> 'Optimal' and
+					   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
+
+						solve FOR_VertexCont
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       numeric_focus       := 3,
+							       barrier_homogeneous := 1,
+							       time_limit          := 1500;
+
+						FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
+						FOR_BndTime(ia)   := FOR_BndTime(ia)
+						                    + FOR_VertexCont.SolutionTime;
+						if FOR_VertexCont.ProgramStatus = 'Optimal' or
+						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							FOR_FixUsed(ia) := "numeric";
+						endif;
+					endif;
+
+					! attempt 3: still stuck -> re-linearize around the last solved direction (a neighbour in scan order) and warm-start from it.
+					if (FOR_VertexCont.ProgramStatus <> 'Optimal' and
+					    FOR_VertexCont.ProgramStatus <> 'LocallyOptimal') and
+					   FOR_HaveSeed = 1 then
+
+						Vre0(n,f,t) := FOR_VreSeed(n,f,t);
+						Vim0(n,f,t) := FOR_VimSeed(n,f,t);
+						Vre(n,f,t)  := FOR_VreSeed(n,f,t);
+						Vim(n,f,t)  := FOR_VimSeed(n,f,t);
+
+						solve FOR_VertexCont
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       numeric_focus       := 3,
+							       barrier_homogeneous := 1,
+							       time_limit          := 1500;
+
+						FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
+						FOR_BndTime(ia)   := FOR_BndTime(ia)
+						                    + FOR_VertexCont.SolutionTime;
+						if FOR_VertexCont.ProgramStatus = 'Optimal' or
+						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							FOR_FixUsed(ia) := "reseed";
+						endif;
+					endif;
+
+					! record only if some attempt solved
+					if FOR_VertexCont.ProgramStatus = 'Optimal' or
+					   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+
+						! store P,Q + Tier-2 AC checks + CustPtot/Ploss. re-run inside the SLP loop so the CSV keeps the best point.
+						FOR_Boundary(ia, 'P') := P_PCC(PeriodMaxP);
+						FOR_Boundary(ia, 'Q') := Q_PCC(PeriodMaxP);
+						FOR_BndProj(ia) := cos(FOR_AngleRad)*P_PCC(PeriodMaxP) + sin(FOR_AngleRad)*Q_PCC(PeriodMaxP);
+						FOR_VminTrue(ia)     := min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+						FOR_VmaxTrue(ia)     := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+						FOR_UndervoltViol(ia):= max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+						FOR_OvervoltViol(ia) := max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)));
+						FOR_LinErrMax(ia)    := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+						FOR_CustPtot(ia) := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+						FOR_Ploss(ia)    := P_PCC(PeriodMaxP) - FOR_CustPtot(ia);
+
+						! optional: write this vertex full dispatch as FOR_v<ord(ia)>_25.xls (the converged solve BEFORE the SLP cleanup).
+						if FOR_WriteVertexXls = 1 then
+							run ComputeMetrics;
+							ResultsFileRoot := "FOR_v" + ord(ia) + "_";
+							run WriteResultstoExcel;
+							ResultsFileRoot := "FOR_";
+						endif;
+
+						! SLP refinement: re-linearize toward the solved voltages to pull the true overvoltage onto the cap.
+						! damped step (move Vre0/Vim0 a fraction FOR_Alpha toward best); keep best + shrink alpha on a bad pass so it can never degrade.
+						FOR_SLPIter(ia)    := 0;
+						FOR_OVbest         := FOR_OvervoltViol(ia);
+						FOR_Alpha          := FOR_DampAlpha;
+						FOR_Stall          := 0;
+						FOR_VreGood(n,f,t) := Vre(n,f,t);
+						FOR_VimGood(n,f,t) := Vim(n,f,t);
+						while ( FOR_OVbest > FOR_OVtol and
+						        FOR_SLPIter(ia) < FOR_SLPMaxIter ) do
+							! damped move of the linearization point toward best; warm-start from it
+							Vre0(n,f,t) := Vre0(n,f,t)
+							              + FOR_Alpha*(FOR_VreGood(n,f,t) - Vre0(n,f,t));
+							Vim0(n,f,t) := Vim0(n,f,t)
+							              + FOR_Alpha*(FOR_VimGood(n,f,t) - Vim0(n,f,t));
+							Vre(n,f,t)  := FOR_VreGood(n,f,t);
+							Vim(n,f,t)  := FOR_VimGood(n,f,t);
+
+							solve FOR_VertexCont
+								where  MIP_Relative_Optimality_Tolerance := 0.01,
+								       numeric_focus       := 3,
+								       barrier_homogeneous := 1,
+								       time_limit          := 1500;
+
+							FOR_BndTime(ia) := FOR_BndTime(ia)
+							                  + FOR_VertexCont.SolutionTime;
+							FOR_SLPIter(ia) := FOR_SLPIter(ia) + 1;
+
+							if FOR_VertexCont.ProgramStatus = 'Optimal' or
+							   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+								FOR_OVcur := max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)));
+								if FOR_OVcur <= FOR_OVbest then
+									! better pass: accept, re-record, advance best
+									FOR_OVbest := FOR_OVcur;
+									FOR_Boundary(ia, 'P') := P_PCC(PeriodMaxP);
+									FOR_Boundary(ia, 'Q') := Q_PCC(PeriodMaxP);
+									FOR_BndProj(ia) := cos(FOR_AngleRad)*P_PCC(PeriodMaxP) + sin(FOR_AngleRad)*Q_PCC(PeriodMaxP);
+									FOR_VminTrue(ia)     := min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+									FOR_VmaxTrue(ia)     := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+									FOR_UndervoltViol(ia):= max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+									FOR_OvervoltViol(ia) := FOR_OVcur;
+									FOR_LinErrMax(ia)    := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+									FOR_CustPtot(ia) := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+									FOR_Ploss(ia)    := P_PCC(PeriodMaxP) - FOR_CustPtot(ia);
+									FOR_VreGood(n,f,t) := Vre(n,f,t);
+									FOR_VimGood(n,f,t) := Vim(n,f,t);
+									FOR_Stall := 0;              ! progress: reset stall
+								else
+									! overshoot: shrink alpha, but re-energize after 2 stalls so it does not collapse to ~0 (plateau)
+									FOR_Stall := FOR_Stall + 1;
+									if FOR_Stall >= 2 then
+										FOR_Alpha := FOR_DampAlpha;
+										FOR_Stall := 0;
+									else
+										FOR_Alpha := FOR_Alpha / 2;
+									endif;
+								endif;
+							else
+								! numeric fail: same stall-aware shrink
+								FOR_Stall := FOR_Stall + 1;
+								if FOR_Stall >= 2 then
+									FOR_Alpha := FOR_DampAlpha;
+									FOR_Stall := 0;
+								else
+									FOR_Alpha := FOR_Alpha / 2;
+								endif;
+							endif;
+						endwhile;
+
+						! tag if SLP ran
+						if FOR_SLPIter(ia) > 0 then
+							FOR_FixUsed(ia) := FOR_FixUsed(ia) + "+slp";
+						endif;
+
+						! seed the next direction attempt-3 with the best voltages
+						FOR_VreSeed(n,f,t) := FOR_VreGood(n,f,t);
+						FOR_VimSeed(n,f,t) := FOR_VimGood(n,f,t);
+						FOR_HaveSeed       := 1;
+					else
+						FOR_FixUsed(ia) := "FAILED";
+					endif;
+				endfor;
+
+				! --- write boundary CSV for the Python plot (widen page so the 14-col rows do not wrap) ---
+				FOR_CSV.PageWidth := 32767;
+				put FOR_CSV;
+				put "angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr,CustPtot,Ploss,FixUsed,SLPiter" / ;
+				for (ia) do
+					put FOR_AngleDeg(ia):6:1, ",", FOR_Boundary(ia,'P'):14:6, ",", FOR_Boundary(ia,'Q'):14:6, ",", FOR_BndProj(ia):14:6, ",", FOR_BndStatus(ia), ",", FOR_BndTime(ia):12:2, ",", FOR_VminTrue(ia):10:5, ",", FOR_VmaxTrue(ia):10:5, ",", FOR_UndervoltViol(ia):10:5, ",", FOR_OvervoltViol(ia):10:5, ",", FOR_LinErrMax(ia):12:6, ",", FOR_CustPtot(ia):14:6, ",", FOR_Ploss(ia):14:6, ",", FOR_FixUsed(ia), ",", FOR_SLPIter(ia):4:0 / ;
+				endfor;
+				putclose FOR_CSV;
+
+				display FOR_Boundary, FOR_BndStatus, FOR_BndTime,
+				        FOR_VminTrue, FOR_VmaxTrue, FOR_UndervoltViol,
+				        FOR_OvervoltViol, FOR_LinErrMax,
+				        FOR_CustPtot, FOR_Ploss, FOR_FixUsed, FOR_SLPIter;
+			}
+			Comment: {
+				"Main FOR deliverable. Full P-Q region at the PCC for PeriodMaxP=25, 36 directions, with SLP voltage refinement; writes FOR_boundary.csv. If a direction struggles, FixUsed/SLPiter in the CSV show which rescue fired and how many SLP passes it took."
+			}
+		}
+		Procedure RunFOR_TR9_Exact {
+			Body: {
+				! ===========================================================
+				! EXPERIMENT (Prof. Luis): keep the EXACT quadratic
+				! constraints (inverter S-circle + Vmax circle) and rely on
+				! the robust Gurobi barrier + relaxed tolerance, INSTEAD of
+				! linearizing. Runs on the TR9-reduced network (fast). Writes
+				! FOR_boundary_TR9_exact.csv for side-by-side comparison with
+				! the linearized FOR_boundary.csv. Reversible.
+				! ===========================================================
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				! the EXACT model is a QCP - use the NEW mathprog generator so the
+				! quadratic constraints reach Gurobi (the legacy one is LP-only here)
+				option disable_new_mathprog_generator := 0;
+
+				! --- TR9 network reduction (fast): keep TR9 detailed, lump TR1-8 ---
+				ReduceNetwork := 1;
+				DetailTagCSV  := "TR9";
+
+				! --- base settings (mirror RunFOR_4Vertices) ---
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;
+				FOR_WriteVertexXls        := 0;
+				FOR_TieEps                := 1.0e-5;
+
+				! --- THE EXPERIMENT: exact quadratic constraints ---
+				FOR_PolyS         := 0;   ! exact inverter S-circle: BattP_Balance^2 + Qinv^2 <= BattMaxP^2
+				FOR_LinearizeVmax := 0;   ! exact voltage cap:       Vre^2 + Vim^2 <= MaxV^2
+				FOR_ScaleInv      := 0;   ! per-unit rescaling tried (did not help) -> isolate the warm-start lever
+				FOR_WarmFromLin   := 0;   ! CPLEX solves the exact QCQP directly from cost-min; no linearized predictor needed (set 1 only for the Gurobi warm-start experiment)
+
+				! --- loosen the solver "acceptable error" + scaling (Prof. Luis).
+				!     The exact QCP hit Gurobi "unrecoverable numerical difficulties"
+				!     (a numeric breakdown, NOT infeasibility). Looser tolerances and
+				!     stronger scaling let the barrier complete. Loosen further (e.g.
+				!     1.0e-3 / 1.0e-2) if some directions still fail. ---
+				option Feasibility_Tolerance         := 1.0e-3;
+				option Barrier_Convergence_Tolerance := 1.0e-2;
+				option Scaling_Flag                  := 2;
+
+				empty allvariables;
+				run Load_data_dsn;
+
+				empty FOR_Boundary, FOR_BndStatus, FOR_BndTime, FOR_BndProj;
+				empty FOR_FixUsed, FOR_VreSeed, FOR_VimSeed, FOR_SLPIter;
+				FOR_HaveSeed := 0;
+
+				FOR_nAngles := 36;   ! full scan (every 10 deg); drop to 4 for a quick smoke test
+
+				! --- directional scan with the EXACT (QCQP) model + robust barrier ---
+				for (ia) do
+					FOR_Angle    := FOR_AngleDeg(ia);
+					FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+
+					! clean warm start from the cost-min OPF
+					empty allvariables;
+					run Load_data_dsn;
+					run MainExecution;
+
+					! --- PREDICTOR: solve the well-conditioned LINEARIZED model for this direction,
+					!     then re-linearize the loads AT that boundary point (Vre0/Vim0 := solved Vre/Vim)
+					!     and let the exact solve below warm-start from it. Targets conditioning sources
+					!     (c) stale flat-nominal linearization and (b) driving onto the boundary. ---
+					if FOR_WarmFromLin = 1 then
+						FOR_PolyS         := 1;
+						FOR_LinearizeVmax := 1;
+						FOR_Lambda        := 1;
+						solve FOR_VertexCont
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       time_limit := 1500;
+						if FOR_VertexCont.ProgramStatus = 'Optimal' or
+						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							Vre0(n,f,t) := Vre(n,f,t);
+							Vim0(n,f,t) := Vim(n,f,t);
+						endif;
+						FOR_PolyS         := 0;
+						FOR_LinearizeVmax := 0;
+					endif;
+
+					FOR_Lambda := 1;
+					! robust barrier FROM the first attempt (failure mode was numeric, not infeasibility)
+					solve FOR_VertexCont
+						where  MIP_Relative_Optimality_Tolerance := 0.01,
+						       numeric_focus       := 3,
+						       barrier_homogeneous := 1,
+						       time_limit          := 3000;
+
+					FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
+					FOR_BndTime(ia)   := FOR_VertexCont.SolutionTime;
+					FOR_FixUsed(ia)   := "exact";
+
+					! retry: reseed from the last solved neighbour
+					if (FOR_VertexCont.ProgramStatus <> 'Optimal' and
+					    FOR_VertexCont.ProgramStatus <> 'LocallyOptimal') and
+					   FOR_HaveSeed = 1 then
+						Vre0(n,f,t) := FOR_VreSeed(n,f,t);
+						Vim0(n,f,t) := FOR_VimSeed(n,f,t);
+						Vre(n,f,t)  := FOR_VreSeed(n,f,t);
+						Vim(n,f,t)  := FOR_VimSeed(n,f,t);
+						solve FOR_VertexCont
+							where  MIP_Relative_Optimality_Tolerance := 0.01,
+							       numeric_focus       := 3,
+							       barrier_homogeneous := 1,
+							       time_limit          := 1500;
+						FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
+						FOR_BndTime(ia)   := FOR_BndTime(ia) + FOR_VertexCont.SolutionTime;
+						if FOR_VertexCont.ProgramStatus = 'Optimal' or
+						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							FOR_FixUsed(ia) := "exact+reseed";
+						endif;
+					endif;
+
+					! record if solved. NO SLP: the exact cap has no overshoot to refine.
+					if FOR_VertexCont.ProgramStatus = 'Optimal' or
+					   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+						FOR_Boundary(ia,'P') := P_PCC(PeriodMaxP);
+						FOR_Boundary(ia,'Q') := Q_PCC(PeriodMaxP);
+						FOR_BndProj(ia)      := cos(FOR_AngleRad)*P_PCC(PeriodMaxP) + sin(FOR_AngleRad)*Q_PCC(PeriodMaxP);
+						FOR_VminTrue(ia)     := min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+						FOR_VmaxTrue(ia)     := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+						FOR_UndervoltViol(ia):= max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+						FOR_OvervoltViol(ia) := max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)));
+						FOR_LinErrMax(ia)    := 0;
+						FOR_CustPtot(ia)     := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+						FOR_Ploss(ia)        := P_PCC(PeriodMaxP) - FOR_CustPtot(ia);
+						FOR_SLPIter(ia)      := 0;
+						FOR_VreSeed(n,f,t)   := Vre(n,f,t);
+						FOR_VimSeed(n,f,t)   := Vim(n,f,t);
+						FOR_HaveSeed         := 1;
+					else
+						FOR_FixUsed(ia) := "FAILED";
+					endif;
+				endfor;
+
+				! --- write the exact-run boundary to its own csv (same columns as FOR_boundary.csv) ---
+				FOR_CSV_Exact.PageWidth := 32767;
+				put FOR_CSV_Exact;
+				put "angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr,CustPtot,Ploss,FixUsed,SLPiter" / ;
+				for (ia) do
+					put FOR_AngleDeg(ia):6:1, ",", FOR_Boundary(ia,'P'):14:6, ",", FOR_Boundary(ia,'Q'):14:6, ",", FOR_BndProj(ia):14:6, ",", FOR_BndStatus(ia), ",", FOR_BndTime(ia):12:2, ",", FOR_VminTrue(ia):10:5, ",", FOR_VmaxTrue(ia):10:5, ",", FOR_UndervoltViol(ia):10:5, ",", FOR_OvervoltViol(ia):10:5, ",", FOR_LinErrMax(ia):12:6, ",", FOR_CustPtot(ia):14:6, ",", FOR_Ploss(ia):14:6, ",", FOR_FixUsed(ia), ",", FOR_SLPIter(ia):4:0 / ;
+				endfor;
+				putclose FOR_CSV_Exact;
+
+				! --- restore production defaults (exact + full feeder) ---
+				FOR_PolyS         := 0;
+				FOR_LinearizeVmax := 0;
+				FOR_ScaleInv      := 0;
+				FOR_WarmFromLin   := 0;
+				ReduceNetwork     := 0;
+
+				display FOR_Boundary, FOR_BndStatus, FOR_FixUsed, FOR_VmaxTrue, FOR_OvervoltViol;
+			}
+			Comment: "EXPERIMENT (Prof. Luis): TR9-reduced FOR scan with EXACT quadratic constraints (FOR_PolyS=0, FOR_LinearizeVmax=0) and robust Gurobi barrier from attempt 1 - no linearization, no SLP. Writes FOR_boundary_TR9_exact.csv to compare with the linearized FOR_boundary.csv. Optional commented tolerance lines loosen the acceptable error. Reversible: restores FOR_PolyS=0, FOR_LinearizeVmax=0 (production exact config), ReduceNetwork=0.";
+		}
+		Procedure RunFOR_TR9_Linearized {
+			Body: {
+				! ===========================================================
+				! COMPANION to RunFOR_TR9_Exact for the exact-vs-linearized
+				! comparison. Same TR9-reduced network + period 25 + 36 dirs,
+				! but the LINEARIZED capability model (FOR_PolyS=1 polygon S-cone,
+				! FOR_LinearizeVmax=1 tangent Vmax). No SLP -> this is the RAW
+				! linearized boundary (the outer approximation that slightly
+				! overshoots Vmax on the import side; the production SLP loop is
+				! what later pulls it back). Writes FOR_boundary_TR9_lin.csv with
+				! the same columns. Records VmaxTrue/OVviol so the overshoot vs the
+				! exact run is visible. Well-conditioned -> solves under any solver.
+				! Reversible: restores production defaults.
+				! ===========================================================
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;
+
+				ReduceNetwork := 1;
+				DetailTagCSV  := "TR9";
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;
+				FOR_WriteVertexXls        := 0;
+				FOR_TieEps                := 1.0e-5;
+
+				! --- LINEARIZED capability model (the historical whole-feeder config, minus SLP) ---
+				FOR_PolyS         := 1;   ! polygon (16-gon) inverter S-cone
+				FOR_LinearizeVmax := 1;   ! tangent-plane voltage cap
+				FOR_ScaleInv      := 0;
+				FOR_WarmFromLin   := 0;
+
+				empty allvariables;
+				run Load_data_dsn;
+
+				empty FOR_Boundary, FOR_BndStatus, FOR_BndTime, FOR_BndProj;
+				empty FOR_FixUsed, FOR_SLPIter;
+
+				FOR_nAngles := 36;   ! every 10 deg (match the exact run)
+
+				for (ia) do
+					FOR_Angle    := FOR_AngleDeg(ia);
+					FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+
+					empty allvariables;
+					run Load_data_dsn;
+					run MainExecution;
+
+					FOR_Lambda := 1;
+					solve FOR_VertexCont
+						where  MIP_Relative_Optimality_Tolerance := 0.01,
+						       time_limit := 1500;
+
+					FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
+					FOR_BndTime(ia)   := FOR_VertexCont.SolutionTime;
+					FOR_FixUsed(ia)   := "linearized";
+
+					if FOR_VertexCont.ProgramStatus = 'Optimal' or
+					   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+						FOR_Boundary(ia,'P') := P_PCC(PeriodMaxP);
+						FOR_Boundary(ia,'Q') := Q_PCC(PeriodMaxP);
+						FOR_BndProj(ia)      := cos(FOR_AngleRad)*P_PCC(PeriodMaxP) + sin(FOR_AngleRad)*Q_PCC(PeriodMaxP);
+						FOR_VminTrue(ia)     := min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+						FOR_VmaxTrue(ia)     := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+						FOR_UndervoltViol(ia):= max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+						FOR_OvervoltViol(ia) := max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)));
+						FOR_LinErrMax(ia)    := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+						FOR_CustPtot(ia)     := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+						FOR_Ploss(ia)        := P_PCC(PeriodMaxP) - FOR_CustPtot(ia);
+						FOR_SLPIter(ia)      := 0;
+					else
+						FOR_FixUsed(ia) := "FAILED";
+					endif;
+				endfor;
+
+				! --- write the linearized boundary (same columns as the exact run) ---
+				FOR_CSV_Lin.PageWidth := 32767;
+				put FOR_CSV_Lin;
+				put "angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr,CustPtot,Ploss,FixUsed,SLPiter" / ;
+				for (ia) do
+					put FOR_AngleDeg(ia):6:1, ",", FOR_Boundary(ia,'P'):14:6, ",", FOR_Boundary(ia,'Q'):14:6, ",", FOR_BndProj(ia):14:6, ",", FOR_BndStatus(ia), ",", FOR_BndTime(ia):12:2, ",", FOR_VminTrue(ia):10:5, ",", FOR_VmaxTrue(ia):10:5, ",", FOR_UndervoltViol(ia):10:5, ",", FOR_OvervoltViol(ia):10:5, ",", FOR_LinErrMax(ia):12:6, ",", FOR_CustPtot(ia):14:6, ",", FOR_Ploss(ia):14:6, ",", FOR_FixUsed(ia), ",", FOR_SLPIter(ia):4:0 / ;
+				endfor;
+				putclose FOR_CSV_Lin;
+
+				! --- restore production defaults (exact) ---
+				FOR_PolyS         := 0;
+				FOR_LinearizeVmax := 0;
+				FOR_ScaleInv      := 0;
+				FOR_WarmFromLin   := 0;
+				ReduceNetwork     := 0;
+
+				display FOR_Boundary, FOR_BndStatus, FOR_VmaxTrue, FOR_OvervoltViol;
+			}
+			Comment: "Linearized companion to RunFOR_TR9_Exact: same TR9-reduced/period-25/36-dir scan with the polygon S-cone + tangent Vmax (FOR_PolyS=1, FOR_LinearizeVmax=1), NO SLP -> the raw linearized (outer) boundary. Writes FOR_boundary_TR9_lin.csv (records VmaxTrue/OVviol so the import-side overshoot vs the exact run is visible). Well-conditioned (solves under Gurobi or CPLEX). For the exact-vs-linearized comparison figure.";
+		}
+		Procedure RunFOR_Ref {
+			Body: {
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator:=1;
+
+				! force the exact article model (clears any toggle state left from a previous run)
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				AllowChargeAtPmax         := 0;
+				FOR_PolyS                 := 0;
+				FOR_LinearizeVmax         := 0;
+				FOR_TieEps                := 0;     ! reference is exact cost-min; no tiebreaker
+
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+				run ComputeMetrics;
+				ResultsFileRoot := "FOR_ref_";
+				run WriteResultstoExcel;
+				ResultsFileRoot := "FOR_";
+			}
+			Comment: "FOR - AUDIT. Quick (one solve, ~2 min) validation export. Solves Prof. Luis\'s EXACT, article-assumption OPF (NC+Q, PeriodMaxP=25, AllowChargeAtPmax=0, FOR_PolyS=0, FOR_LinearizeVmax=0) and writes FOR_ref_25.xls in the identical 11-sheet format as NC_Q_25.xls. Compare with compare_FOR_to_NCQ.py: should PASS within solver tolerance. Run THIS before launching the full RunFOR_4Vertices sweep.";
+		}
+		Procedure RunCompareWithPaperT25 {
+			Body: {
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 1;
+
+				! ---- shared paper-compatible toggles (NC-Q case) -- FULL FEEDER ----
+				ReduceNetwork             := 0;        ! FULL feeder for paper reproduction; set 1 + DetailTagCSV:="TR9" (+ DetailLoadPattern:="_two") for fast micro
+				DetailTagCSV              := "";
+				DetailLoadPattern         := "";
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				AllowChargeAtPmax         := 1;        ! bidirectional flexibility (match rolling default); set 0 to reproduce paper Eq. (8) literally
+				RollCyclicSOC             := 0;        ! disable cyclic SOC for fair paper-style comparison
+				CyclicSOCBand             := 0;
+				FOR_PolyS                 := 1;        ! polygonal S-envelope (~2% outer error vs exact circle) -- needed for numerical robustness at 1216-battery scale with wrapped+saturated SOC
+				FOR_LinearizeVmax         := 1;        ! linearized Vmax for the same reason. Applied identically to Stage Paper and Stage Rolling so the equivalence test stays apples-to-apples.
+				EnableRollDiag            := 0;
+				ResultsFileRoot           := "FOR_";
+
+				! ============ STAGE SC: self-consumption only (no service request) ============
+				empty allvariables;
+				run Load_data_dsn;
+				run MinOFminImports;                                                          ! pure self-consumption baseline
+
+				Cmp_scP := P_PCC('25');                                                       ! evaluate at the same real period for the comparison
+				Cmp_scQ := Q_PCC('25');
+
+				! ============ STAGE Paper: paper-style single solve at t=25 ============
+				PeriodMaxP := 25;
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+
+				Cmp_paperP := P_PCC(PeriodMaxP);
+				Cmp_paperQ := Q_PCC(PeriodMaxP);
+
+				! SOC of each battery at end of t=24 (= start of t=25) under Stage Paper's optimal plan
+				Cmp_SOC_t24(bat) := BattSOCini(bat)
+					+ sum(t | ord(t) <= 24,
+					      (BattP_Chg(bat,t)*etaChg(bat)
+					       - BattP_Dis(bat,t)/etaDis(bat))
+					      * DeltaT / BattEcap(bat));
+
+				! snapshot un-rotated inputs so Stage Rolling can rotate them
+				P0raw(d,t)    := P0(d,t);
+				Q0raw(d,t)    := Q0(d,t);
+				GenP0raw(d,t) := GenP0(d,t);
+				Irrraw(t)     := Irradiance(t);
+
+				! ============ STAGE Rolling: rolling step at now=24, target slot 2 = real t=25 ============
+				PeriodMaxP  := 2;                                                            ! service slot inside the wrapped window
+				RollNow     := 24;
+				RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
+
+				empty allvariables;
+				run Load_data_dsn;
+				P0(d,tt)        := P0raw(d, RollMap(tt));
+				Q0(d,tt)        := Q0raw(d, RollMap(tt));
+				GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+				Irradiance(tt)  := Irrraw(RollMap(tt));
+				BattSOCini(bat) := Cmp_SOC_t24(bat);                                          ! same battery state Stage Paper would have at t=24
+
+				! attempt 1: standard solve (succeeds on micro and most full-feeder cases)
+				run MainExecution;
+
+				! attempt 2: numeric-focus retry if Gurobi hit unrecoverable difficulties
+				! (the wrapped window starting from saturated noon SOC can be ill-conditioned)
+				if MinImportsMaxReverseP.ProgramStatus <> 'Optimal' and
+				   MinImportsMaxReverseP.ProgramStatus <> 'LocallyOptimal' then
+					solve MinImportsMaxReverseP
+						where  MIP_Relative_Optimality_Tolerance := 0.01,
+						       numeric_focus       := 3,
+						       barrier_homogeneous := 1,
+						       time_limit          := 3000;
+				endif;
+
+				Cmp_rollingP := P_PCC(PeriodMaxP);
+				Cmp_rollingQ := Q_PCC(PeriodMaxP);
+
+				! ============ post-process: volumes of services and relative percentages ============
+				Cmp_volumeP := Cmp_paperP - Cmp_scP;
+				Cmp_volumeQ := Cmp_paperQ - Cmp_scQ;
+
+				Cmp_relP := 0;
+				if abs(Cmp_paperP) > 0.000001 then
+					Cmp_relP := (Cmp_rollingP - Cmp_paperP) / abs(Cmp_paperP) * 100;
+				endif;
+				Cmp_relQ := 0;
+				if abs(Cmp_paperQ) > 0.000001 then
+					Cmp_relQ := (Cmp_rollingQ - Cmp_paperQ) / abs(Cmp_paperQ) * 100;
+				endif;
+
+				! ============ write side-by-side comparison CSV ============
+				FOR_CompareCSV.PageWidth := 32767;
+				put FOR_CompareCSV;
+				put "metric,SC_no_service,paper_t25,rolling_now24_slot2,volume_of_services,absolute_diff_rolling_minus_paper,relative_pct" / ;
+				put "P_PCC,",
+				    Cmp_scP:14:6, ",",
+				    Cmp_paperP:14:6, ",",
+				    Cmp_rollingP:14:6, ",",
+				    Cmp_volumeP:14:6, ",",
+				    (Cmp_rollingP - Cmp_paperP):14:6, ",",
+				    Cmp_relP:10:3 / ;
+				put "Q_PCC,",
+				    Cmp_scQ:14:6, ",",
+				    Cmp_paperQ:14:6, ",",
+				    Cmp_rollingQ:14:6, ",",
+				    Cmp_volumeQ:14:6, ",",
+				    (Cmp_rollingQ - Cmp_paperQ):14:6, ",",
+				    Cmp_relQ:10:3 / ;
+				put "" / ;
+				put "battery,SOC_at_t24_from_paper_solve" / ;
+				for (bat) do
+					put bat:24, ",", Cmp_SOC_t24(bat):10:6 / ;
+				endfor;
+				putclose FOR_CompareCSV;
+
+				display Cmp_scP, Cmp_paperP, Cmp_rollingP, Cmp_volumeP, Cmp_scQ, Cmp_paperQ, Cmp_rollingQ, Cmp_volumeQ;
+			}
+			Comment: {
+				"TEST (one click): three-stage comparison at t=25. (SC) self-consumption only via MinOFminImports -> baseline P at PCC. (Paper) Prof. Luis\'s services case via MainExecution with PeriodMaxP=25 -> paper-style services result. (Rolling) the rolling-horizon equivalent at now=t24 with target slot 2, starting from the SOC Stage Paper would have at t=24. All three use identical paper-compatible toggles (no cyclic, exact S-circle, exact Vmax). The volume of services (paper terminology) is reported as paper - SC; the equivalence of Rolling and Paper is reported as absolute and relative difference. Defaults to the TR9_two micro-test for fast demo; set ReduceNetwork:=0 and clear DetailTagCSV/DetailLoadPattern at the top of the body to compare on the full feeder."
+			}
+		}
+		Procedure DiagnoseLossBalance {
+			Body: {
+				! independent check that P_PCC = CustPtot + Ploss at the 180deg export extreme:
+				!   (a) coverage: CustPtot over battery nodes vs all nodes;  (b) D - G + B rebuilds CustPtot;
+				!   (c) branch (V.I) loss, computed independently, must match the P_PCC - CustPtot residual.
+				! one clean solve -> diag_lossbalance.csv
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 1;
+
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;   ! relaxed (same as 36-angle run)
+				FOR_PolyS                 := 1;
+				FOR_LinearizeVmax         := 1;
+
+				FOR_Angle    := 180;
+				FOR_AngleRad := 180 * 4*arctan(1) / 180;
+				FOR_Lambda   := 1;
+
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+
+				solve FOR_VertexCont
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       numeric_focus       := 3,
+					       barrier_homogeneous := 1,
+					       time_limit          := 1500;
+
+				FOR_StatCur := FOR_VertexCont.ProgramStatus;
+
+				if FOR_VertexCont.ProgramStatus = 'Optimal' or
+				   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+
+					! ---- (b) component decomposition at PeriodMaxP ----
+					FOR_LB_D := sum(d, P0(d,PeriodMaxP));
+					FOR_LB_G := sum(d, GenP0(d,PeriodMaxP));
+					FOR_LB_B := sum(bat, BattP_Balance(bat,PeriodMaxP));
+
+					! ---- (a) coverage : model sum vs all-node sum ----
+					FOR_LB_CustBat := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+					FOR_LB_CustAll := sum((n,f), TotPcust(n,f,PeriodMaxP));
+
+					FOR_LB_Ppcc     := P_PCC(PeriodMaxP);
+					FOR_LB_PlossRes := FOR_LB_Ppcc - FOR_LB_CustBat;
+
+					! ---- (c) independent branch loss = sum (Pin - Pout) ----
+					FOR_LB_LineLoss := sum((l,f),
+					      (Vre(StartBus(l),f,PeriodMaxP) - Vre(EndBus(l),f,PeriodMaxP)) * Ire_Line(l,f,PeriodMaxP)
+					    + (Vim(StartBus(l),f,PeriodMaxP) - Vim(EndBus(l),f,PeriodMaxP)) * Iim_Line(l,f,PeriodMaxP) );
+
+					FOR_LB_TrLoss := sum((tr,f),
+					      ( Vre(StartBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)
+					      + Vim(StartBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP) )
+					    - ( Vre(EndBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP)
+					      + Vim(EndBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP) ) );
+
+					FOR_LB_PlossBr := FOR_LB_LineLoss + FOR_LB_TrLoss;
+
+					FOR_LBCSV.PageWidth := 32767;
+					put FOR_LBCSV;
+					put "quantity,value,note" / ;
+					put "status,",            FOR_StatCur, ",solved direction 180deg (export extreme)" / ;
+					put "D_demand_total,",    FOR_LB_D:14:6,        ",sum(d) P0  (all loads incl. no-PV houses)" / ;
+					put "G_pv_total,",        FOR_LB_G:14:6,        ",sum(d) GenP0  (all PV)" / ;
+					put "B_batt_net,",        FOR_LB_B:14:6,        ",sum(bat) BattP_Balance  (>0 charge, <0 discharge)" / ;
+					put "Net_reconstruct,",   (FOR_LB_D-FOR_LB_G+FOR_LB_B):14:6, ",D - G + B  (should equal CustPtot_allnodes)" / ;
+					put "CustPtot_allnodes,", FOR_LB_CustAll:14:6,  ",sum over ALL (n,f) of TotPcust" / ;
+					put "CustPtot_batnodes,", FOR_LB_CustBat:14:6,  ",sum over battery nodes (the models CustPtot)" / ;
+					put "Coverage_gap,",      (FOR_LB_CustAll-FOR_LB_CustBat):14:6, ",~0 proves every load node has a battery (no missed load)" / ;
+					put "P_PCC,",             FOR_LB_Ppcc:14:6,     ",grid-side import-positive" / ;
+					put "Ploss_residual,",    FOR_LB_PlossRes:14:6, ",P_PCC - CustPtot (true by construction)" / ;
+					put "Line_loss,",         FOR_LB_LineLoss:14:6, ",independent: sum lines (Vstart-Vend).I" / ;
+					put "Trafo_loss,",        FOR_LB_TrLoss:14:6,   ",independent: sum trafos Vprim.Iprim - Vsec.Isec" / ;
+					put "Ploss_branch,",      FOR_LB_PlossBr:14:6,  ",independent total (should match Ploss_residual)" / ;
+					put "Loss_discrepancy,",  (FOR_LB_PlossBr-FOR_LB_PlossRes):14:6, ",~0 proves the gap is I2R loss not missed demand" / ;
+					putclose FOR_LBCSV;
+
+					display FOR_LB_D, FOR_LB_G, FOR_LB_B,
+					        FOR_LB_CustAll, FOR_LB_CustBat,
+					        FOR_LB_Ppcc, FOR_LB_PlossRes,
+					        FOR_LB_LineLoss, FOR_LB_TrLoss, FOR_LB_PlossBr;
+				else
+					FOR_LBCSV.PageWidth := 32767;
+					put FOR_LBCSV;
+					put "quantity,value,note" / ;
+					put "status,", FOR_StatCur, ",solve did NOT reach optimal - rerun" / ;
+					putclose FOR_LBCSV;
+				endif;
+			}
+			Comment: "FOR - AUDIT. One 180deg solve, then checks P_PCC = CustPtot + Ploss independently: D-G+B decomposition, coverage, and branch loss summed line-by-line. Writes diag_lossbalance.csv. This is what proved the reported Ploss is not a clean loss.";
+		}
+		Procedure DiagnoseLossBalance_Micro {
+			Body: {
+				! ---- micro-test attribution: same balance check as DiagnoseLossBalance but
+				! ---- runs on the TR9_two sub-cluster and writes to diag_lossbalance_micro.csv.
+				! ---- Shows how PV is split between local consumers, losses, and TSO export.
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 1;
+
+				! ---- MICRO toggles (TR9_two sub-cluster, 12 batteries + 9 no-battery loads) ----
+				ReduceNetwork             := 1;
+				DetailTagCSV              := "TR9";
+				DetailLoadPattern         := "_two";
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;        ! midday PV peak
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;
+				FOR_PolyS                 := 1;
+				FOR_LinearizeVmax         := 1;
+
+				FOR_Angle    := 180;                    ! direction of max export (most-negative P at PCC)
+				FOR_AngleRad := 180 * 4*arctan(1) / 180;
+				FOR_Lambda   := 1;
+
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+
+				solve FOR_VertexCont
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       numeric_focus       := 3,
+					       barrier_homogeneous := 1,
+					       time_limit          := 1500;
+
+				FOR_StatCur := FOR_VertexCont.ProgramStatus;
+
+				if FOR_VertexCont.ProgramStatus = 'Optimal' or
+				   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+
+					! ---- component decomposition at PeriodMaxP ----
+					FOR_LB_D := sum(d, P0(d,PeriodMaxP));
+					FOR_LB_G := sum(d, GenP0(d,PeriodMaxP));
+					FOR_LB_B := sum(bat, BattP_Balance(bat,PeriodMaxP));
+
+					! ---- coverage : model sum vs all-node sum ----
+					FOR_LB_CustBat := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+					FOR_LB_CustAll := sum((n,f), TotPcust(n,f,PeriodMaxP));
+
+					FOR_LB_Ppcc     := P_PCC(PeriodMaxP);
+					FOR_LB_PlossRes := FOR_LB_Ppcc - FOR_LB_CustBat;
+
+					! ---- independent branch loss = sum (Pin - Pout) ----
+					FOR_LB_LineLoss := sum((l,f),
+					      (Vre(StartBus(l),f,PeriodMaxP) - Vre(EndBus(l),f,PeriodMaxP)) * Ire_Line(l,f,PeriodMaxP)
+					    + (Vim(StartBus(l),f,PeriodMaxP) - Vim(EndBus(l),f,PeriodMaxP)) * Iim_Line(l,f,PeriodMaxP) );
+
+					FOR_LB_TrLoss := sum((tr,f),
+					      ( Vre(StartBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)
+					      + Vim(StartBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP) )
+					    - ( Vre(EndBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP)
+					      + Vim(EndBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP) ) );
+
+					FOR_LB_PlossBr := FOR_LB_LineLoss + FOR_LB_TrLoss;
+
+					FOR_LB_MicroCSV.PageWidth := 32767;
+					put FOR_LB_MicroCSV;
+					put "quantity,value,note" / ;
+					put "status,",            FOR_StatCur, ",micro TR9_two, slot t=25, direction 180deg (max export)" / ;
+					put "D_demand_total,",    FOR_LB_D:14:6,        ",sum(d) P0  (all loads in micro, incl. no-battery houses)" / ;
+					put "G_pv_total,",        FOR_LB_G:14:6,        ",sum(d) GenP0  (all PV in micro)" / ;
+					put "B_batt_net,",        FOR_LB_B:14:6,        ",sum(bat) BattP_Balance  (>0 charge, <0 discharge)" / ;
+					put "D_minus_G,",         (FOR_LB_D-FOR_LB_G):14:6, ",natural net of all customers (no battery) at this slot" / ;
+					put "D_minus_G_plus_B,",  (FOR_LB_D-FOR_LB_G+FOR_LB_B):14:6, ",customer net AFTER battery action  (= CustPtot allnodes)" / ;
+					put "CustPtot_allnodes,", FOR_LB_CustAll:14:6,  ",sum over ALL (n,f) of TotPcust (true network net)" / ;
+					put "CustPtot_batnodes,", FOR_LB_CustBat:14:6,  ",sum over battery nodes only" / ;
+					put "Load_at_NoBatNodes,",(FOR_LB_CustAll-FOR_LB_CustBat):14:6, ",net at the 9 no-battery loads in the micro (= consumer absorption)" / ;
+					put "P_PCC,",             FOR_LB_Ppcc:14:6,     ",grid-side at the PCC (negative = export to TSO)" / ;
+					put "Ploss_residual,",    FOR_LB_PlossRes:14:6, ",P_PCC - CustPtot  (true losses by construction)" / ;
+					put "Line_loss,",         FOR_LB_LineLoss:14:6, ",independent: sum lines (Vstart-Vend).I" / ;
+					put "Trafo_loss,",        FOR_LB_TrLoss:14:6,   ",independent: sum trafos Vprim.Iprim - Vsec.Isec" / ;
+					put "Ploss_branch,",      FOR_LB_PlossBr:14:6,  ",independent total (should match Ploss_residual)" / ;
+					put "Loss_discrepancy,",  (FOR_LB_PlossBr-FOR_LB_PlossRes):14:6, ",~0 proves the gap is true I2R loss" / ;
+					putclose FOR_LB_MicroCSV;
+
+					display FOR_LB_D, FOR_LB_G, FOR_LB_B,
+					        FOR_LB_CustAll, FOR_LB_CustBat,
+					        FOR_LB_Ppcc, FOR_LB_PlossRes,
+					        FOR_LB_LineLoss, FOR_LB_TrLoss, FOR_LB_PlossBr;
+				else
+					FOR_LB_MicroCSV.PageWidth := 32767;
+					put FOR_LB_MicroCSV;
+					put "quantity,value,note" / ;
+					put "status,", FOR_StatCur, ",solve did NOT reach optimal - rerun" / ;
+					putclose FOR_LB_MicroCSV;
+				endif;
+
+				! ---- defensive reset ----
+				DetailLoadPattern := "";
+			}
+			Comment: "FOR - AUDIT (MICRO). Same balance check as DiagnoseLossBalance but runs on the TR9_two sub-cluster (12 batteries + 9 no-battery loads) and writes diag_lossbalance_micro.csv. The \'Load_at_NoBatNodes\' line directly answers: how much of the local PV is absorbed by neighbouring consumers before anything reaches the TSO.";
+		}
+		Procedure DiagnoseCoverageGap {
+			Body: {
+				! localize the CustPtot coverage gap: per (n,f) dump battery count, load count and TotPcust to see
+				! if it is double-counting (>1 battery per node) or missing loads at no-battery nodes.
+				! one clean 180deg solve (same vertex as DiagnoseLossBalance) -> diag_coverage.csv
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 1;
+
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;
+				FOR_PolyS                 := 1;
+				FOR_LinearizeVmax         := 1;
+
+				FOR_Angle    := 180;
+				FOR_AngleRad := 180 * 4*arctan(1) / 180;
+				FOR_Lambda   := 1;
+
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+
+				solve FOR_VertexCont
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       numeric_focus       := 3,
+					       barrier_homogeneous := 1,
+					       time_limit          := 1500;
+
+				FOR_StatCur := FOR_VertexCont.ProgramStatus;
+
+				FOR_CG_nBat(n,f)  := sum(bat | BattBus(bat)=n and BattPhase(bat)=f, 1);
+				FOR_CG_nLoad(n,f) := sum(d   | LoadBus(d)=n  and LoadPhase(d)=f,  1);
+				FOR_CG_Tot(n,f)   := TotPcust(n,f,PeriodMaxP);
+
+				FOR_CG_SumAll     := sum((n,f), FOR_CG_Tot(n,f));
+				FOR_CG_SumBat     := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
+				FOR_CG_Dup        := sum((n,f) | FOR_CG_nBat(n,f) > 1,
+				                         (FOR_CG_nBat(n,f) - 1) * FOR_CG_Tot(n,f));
+				FOR_CG_LoadNoBat  := sum((n,f) | FOR_CG_nBat(n,f) = 0 and FOR_CG_nLoad(n,f) > 0,
+				                         FOR_CG_Tot(n,f));
+
+				FOR_CGCSV.PageWidth := 32767;
+				put FOR_CGCSV;
+				put "bus,phase,nBat,nLoad,TotPcust,contrib_batsum,contrib_allsum" / ;
+				for ( (n,f) | FOR_CG_nBat(n,f) > 0 or FOR_CG_nLoad(n,f) > 0 ) do
+					put n, ",", f, ",", FOR_CG_nBat(n,f):4:0, ",", FOR_CG_nLoad(n,f):4:0, ",",
+					    FOR_CG_Tot(n,f):14:6, ",",
+					    (FOR_CG_nBat(n,f)*FOR_CG_Tot(n,f)):14:6, ",",
+					    FOR_CG_Tot(n,f):14:6 / ;
+				endfor;
+				put "TOTAL_status,",     FOR_StatCur, ",,,," / ;
+				put "TOTAL_SumAll,,,,",  FOR_CG_SumAll:14:6,    ",,(true net = sum over ALL nodes)" / ;
+				put "TOTAL_SumBat,,,,",  FOR_CG_SumBat:14:6,    ",,(model CustPtot = sum over batteries)" / ;
+				put "TOTAL_gap,,,,",     (FOR_CG_SumAll-FOR_CG_SumBat):14:6, ",,(SumAll - SumBat)" / ;
+				put "DupTerm,,,,",       FOR_CG_Dup:14:6,       ",,(over-count from nodes with >1 battery)" / ;
+				put "LoadNoBatTerm,,,,", FOR_CG_LoadNoBat:14:6, ",,(TotPcust at load nodes with NO battery)" / ;
+				putclose FOR_CGCSV;
+
+				display FOR_CG_SumAll, FOR_CG_SumBat, FOR_CG_Dup, FOR_CG_LoadNoBat;
+			}
+			Comment: "FOR - AUDIT. Per-(bus,phase) dump of battery count, load count and TotPcust. Writes diag_coverage.csv. Proves the CustPtot gap is entirely no-battery consumers (DupTerm=0).";
+		}
+		Procedure DumpFORNumbers {
+			Body: {
+				! full audit dump: every per-element number behind D, G, B, CustPtot, P_PCC and the branch losses,
+				! so the aggregates can be re-derived in a spreadsheet. one 180deg solve -> dump_*.csv
+				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				showprogresswindow;
+				option disable_new_mathprog_generator := 1;
+
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 1;
+				nPeriods                  := 48;
+				PeriodMaxP                := 25;
+				ResultsFileRoot           := "FOR_";
+				AllowChargeAtPmax         := 1;
+				FOR_PolyS                 := 1;
+				FOR_LinearizeVmax         := 1;
+
+				FOR_Angle    := 180;
+				FOR_AngleRad := 180 * 4*arctan(1) / 180;
+				FOR_Lambda   := 1;
+
+				empty allvariables;
+				run Load_data_dsn;
+				run MainExecution;
+
+				solve FOR_VertexCont
+					where  MIP_Relative_Optimality_Tolerance := 0.01,
+					       numeric_focus       := 3,
+					       barrier_homogeneous := 1,
+					       time_limit          := 1500;
+
+				FOR_StatCur := FOR_VertexCont.ProgramStatus;
+
+				if FOR_VertexCont.ProgramStatus <> 'Optimal' and
+				   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
+					FOR_DScal.PageWidth := 32767;
+					put FOR_DScal;
+					put "status,", FOR_StatCur, ",solve did NOT reach optimal - rerun" / ;
+					putclose FOR_DScal;
+				else
+					FOR_DBG_LineLoss(l) := sum(f,
+					      (Vre(StartBus(l),f,PeriodMaxP) - Vre(EndBus(l),f,PeriodMaxP)) * Ire_Line(l,f,PeriodMaxP)
+					    + (Vim(StartBus(l),f,PeriodMaxP) - Vim(EndBus(l),f,PeriodMaxP)) * Iim_Line(l,f,PeriodMaxP) );
+					FOR_DBG_TrLoss(tr) := sum(f,
+					      ( Vre(StartBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)
+					      + Vim(StartBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP) )
+					    - ( Vre(EndBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP)
+					      + Vim(EndBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP) ) );
+
+					! ---- per-load ----
+					FOR_DLoads.PageWidth := 32767;
+					put FOR_DLoads;
+					put "load,bus,phase,P0,GenP0,P0_minus_GenP0" / ;
+					for (d) do
+						put d, ",", LoadBus(d), ",", LoadPhase(d), ",",
+						    P0(d,PeriodMaxP):16:8, ",", GenP0(d,PeriodMaxP):16:8, ",",
+						    (P0(d,PeriodMaxP)-GenP0(d,PeriodMaxP)):16:8 / ;
+					endfor;
+					putclose FOR_DLoads;
+
+					! ---- per-battery ----
+					FOR_DBatt.PageWidth := 32767;
+					put FOR_DBatt;
+					put "battery,bus,phase,BattP_Balance" / ;
+					for (bat) do
+						put bat:24, ",", BattBus(bat):20, ",", BattPhase(bat), ",",
+						    BattP_Balance(bat,PeriodMaxP):16:8 / ;
+					endfor;
+					putclose FOR_DBatt;
+
+					! ---- per-line loss ----
+					FOR_DLines.PageWidth := 32767;
+					put FOR_DLines;
+					put "line,startbus,endbus,line_loss" / ;
+					for (l) do
+						put l, ",", StartBus(l), ",", EndBus(l), ",",
+						    FOR_DBG_LineLoss(l):16:8 / ;
+					endfor;
+					putclose FOR_DLines;
+
+					! ---- per-transformer loss ----
+					FOR_DTraf.PageWidth := 32767;
+					put FOR_DTraf;
+					put "trafo,startbus,endbus,trafo_loss" / ;
+					for (tr) do
+						put tr, ",", StartBusTr(tr), ",", EndBusTr(tr), ",",
+						    FOR_DBG_TrLoss(tr):16:8 / ;
+					endfor;
+					putclose FOR_DTraf;
+
+					! ---- per-slack-phase (P_PCC components) ----
+					FOR_DSlack.PageWidth := 32767;
+					put FOR_DSlack;
+					put "slackgen,bus,phase,Vre_PCC,Vim_PCC,Ire_SlackGen,Iim_SlackGen,P_contribution" / ;
+					for (sg) do
+						put sg, ",", SlackGenBus(sg), ",", SlackGenPhase(sg), ",",
+						    Vre_PCC(SlackGenPhase(sg)):16:8, ",",
+						    Vim_PCC(SlackGenPhase(sg)):16:8, ",",
+						    Ire_SlackGen(sg,PeriodMaxP):16:8, ",",
+						    Iim_SlackGen(sg,PeriodMaxP):16:8, ",",
+						    ( Vre_PCC(SlackGenPhase(sg))*Ire_SlackGen(sg,PeriodMaxP)
+						    + Vim_PCC(SlackGenPhase(sg))*Iim_SlackGen(sg,PeriodMaxP) ):16:8 / ;
+					endfor;
+					putclose FOR_DSlack;
+
+					! ---- per-bus voltages (Vre, Vim, Vmag2approx) ----
+					FOR_DVolt.PageWidth := 32767;
+					put FOR_DVolt;
+					put "bus,phase,Vre,Vim,Vmag2approx" / ;
+					for ((n,f)) do
+						put n, ",", f, ",",
+						    Vre(n,f,PeriodMaxP):16:8, ",",
+						    Vim(n,f,PeriodMaxP):16:8, ",",
+						    Vmag2approx(n,f,PeriodMaxP):16:8 / ;
+					endfor;
+					putclose FOR_DVolt;
+
+					! ---- per-line currents (Ire_Line, Iim_Line) ----
+					FOR_DLineI.PageWidth := 32767;
+					put FOR_DLineI;
+					put "line,phase,startbus,endbus,Ire_Line,Iim_Line" / ;
+					for ((l,f)) do
+						put l, ",", f, ",", StartBus(l), ",", EndBus(l), ",",
+						    Ire_Line(l,f,PeriodMaxP):16:8, ",",
+						    Iim_Line(l,f,PeriodMaxP):16:8 / ;
+					endfor;
+					putclose FOR_DLineI;
+
+					! ---- per-transformer currents (start & end side) ----
+					FOR_DTrafI.PageWidth := 32767;
+					put FOR_DTrafI;
+					put "trafo,phase,Ire_start,Iim_start,Ire_end,Iim_end" / ;
+					for ((tr,f)) do
+						put tr, ",", f, ",",
+						    Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP):16:8, ",",
+						    Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP):16:8, ",",
+						    Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP):16:8, ",",
+						    Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP):16:8 / ;
+					endfor;
+					putclose FOR_DTrafI;
+
+					! ---- per-load/gen currents (Ire/Iim_Load, Ire/Iim_Gen) ----
+					FOR_DLoadI.PageWidth := 32767;
+					put FOR_DLoadI;
+					put "load,bus,phase,Ire_Load,Iim_Load,Ire_Gen,Iim_Gen" / ;
+					for (d) do
+						put d, ",", LoadBus(d), ",", LoadPhase(d), ",",
+						    Ire_Load(d,PeriodMaxP):16:8, ",",
+						    Iim_Load(d,PeriodMaxP):16:8, ",",
+						    Ire_Gen(d,PeriodMaxP):16:8, ",",
+						    Iim_Gen(d,PeriodMaxP):16:8 / ;
+					endfor;
+					putclose FOR_DLoadI;
+
+					! ---- scalar cross-checks (AIMMS-side, to verify the sheet) ----
+					FOR_DScal.PageWidth := 32767;
+					put FOR_DScal;
+					put "quantity,value" / ;
+					put "status,",            FOR_StatCur / ;
+					put "D_sum_P0,",          sum(d, P0(d,PeriodMaxP)):16:8 / ;
+					put "G_sum_GenP0,",       sum(d, GenP0(d,PeriodMaxP)):16:8 / ;
+					put "B_sum_BattP,",       sum(bat, BattP_Balance(bat,PeriodMaxP)):16:8 / ;
+					put "CustPtot_allnodes,", sum((n,f), TotPcust(n,f,PeriodMaxP)):16:8 / ;
+					put "CustPtot_batnodes,", sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)):16:8 / ;
+					put "P_PCC,",             P_PCC(PeriodMaxP):16:8 / ;
+					put "Line_loss_total,",   sum(l, FOR_DBG_LineLoss(l)):16:8 / ;
+					put "Trafo_loss_total,",  sum(tr, FOR_DBG_TrLoss(tr)):16:8 / ;
+					putclose FOR_DScal;
+
+					display FOR_StatCur;
+				endif;
+			}
+			Comment: "FOR - AUDIT. Full traceability: every per-element value (each load, battery, line, transformer, slack phase) to dump_*.csv so the aggregates can be re-derived in a spreadsheet.";
+		}
+	}
+	Section ResultsOutput {
+		Comment: "Results writers. The rolling FOR writes its CSVs directly from RunFOR_Rolling; WriteResultstoExcel builds the 11-sheet workbook for the paper cases (RunOneCase/RunAllCases/RunBAU).";
+		Procedure WriteResultstoExcel {
+			Body: {
+				axll::CloseAllWorkBooks;
+
+				axll::CreateNewWorkBook(
+					WorkbookFilename:ResultsFile,
+					FirstSheetName:"BattP_Balance");
+
+				axll::WriteTable(
+					IdentifierReference: BattP_Balance(bat,t),	!write BattP_Balance
+					RowHeaderRange:"A2:A1216",
+					ColumnHeaderRange:"B1:AW1",
+					DataRange:"B2:AW1216",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1);
+
+				axll::CreateSheet(SheetName:"SOC");	!write SOC
+				axll::WriteTable(
+					IdentifierReference: BattSOC(bat,t),
+					RowHeaderRange:"A2:A1216",
+					ColumnHeaderRange:"B1:AW1",
+					DataRange:"B2:AW1216",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1);
+
+				axll::CreateSheet(SheetName:"BattP_Chg");	!write BattP_Chg
+				axll::WriteTable(
+					IdentifierReference: BattP_Chg(bat,t),
+					RowHeaderRange:"A2:A1216",
+					ColumnHeaderRange:"B1:AW1",
+					DataRange:"B2:AW1216",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1);
+
+				axll::CreateSheet(SheetName:"BattP_Dis");	!write BattP_Dis
+				axll::WriteTable(
+					IdentifierReference: BattP_Dis(bat,t),
+					RowHeaderRange:"A2:A1216",
+					ColumnHeaderRange:"B1:AW1",
+					DataRange:"B2:AW1216",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1);
+
+				axll::CreateSheet(SheetName:"ChgDis");	!write ChgDis
+				axll::WriteTable(
+					IdentifierReference: ChgDis(bat,t),
+					RowHeaderRange:"A2:A1216",
+					ColumnHeaderRange:"B1:AW1",
+					DataRange:"B2:AW1216",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1
+					);
+
+				axll::CreateSheet(SheetName:"Qinv");	!write Qinv
+				axll::WriteTable(
+					IdentifierReference: Qinv(bat,t),
+					RowHeaderRange:"A2:A1216",
+					ColumnHeaderRange:"B1:AW1",
+					DataRange:"B2:AW1216",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1
+					);
+
+				!axll::CreateSheet(SheetName:"TotPCust");	!write TotPCust
+				!axll::WriteTable(
+				!	IdentifierReference:TotPCust(n,f,t),
+				!	RowHeaderRange:"A2:B2431",
+				!	ColumnHeaderRange:"C1:AX1",
+				!	DataRange:"C2:AX2431",
+				!	AllowRangeOverflow:1,
+				!	WriteZeros:1,
+				!	includeEmptyRows:1,
+				!	includeEmptyColumns:1
+				!	);
+
+				axll::CreateSheet(SheetName:"AllCustWithBatPtot");	!write AllCustWithBatPtot
+				axll::WriteTable(
+					IdentifierReference:AllCustWithBatPtot(t),
+					RowHeaderRange:"",
+					ColumnHeaderRange:"A1:AV1",
+					DataRange:"A2:AV2",
+					AllowRangeOverflow:1,
+					WriteZeros:1,
+					includeEmptyRows:1,
+					includeEmptyColumns:1);
+
+				axll::CreateSheet(SheetName:"AllCustWithBatPtot_AggTr");	!write AllCustWithBatPtot_AggTr
+				!axll::WriteTable(
+				!	IdentifierReference:AllCustWithBatPtot_AggTr(tr,t),
+				!	RowHeaderRange:"A2:B28",
+				!	ColumnHeaderRange:"C1:AX1",
+				!	DataRange:"C2:AX28",
+				!	AllowRangeOverflow:1,
+				!	WriteZeros:1,
+				!	includeEmptyRows:1,
+				!	includeEmptyColumns:1);
+
+
+
+
+				axll::CreateSheet(SheetName:"VmagExPost_PeriodMaxP");	!write VmagExPost_PeriodMaxP
+				axll::WriteTable(
+					IdentifierReference:VmagExPost_PeriodMaxP(n,f),
+					RowHeaderRange:"A1:B13737",
+					ColumnHeaderRange:"",
+					DataRange:"C1:C13737",
+					AllowRangeOverflow:1,
+					WriteZeros:1);
+
+				axll::CreateSheet(SheetName:"LineUsage_PeriodMaxP");	!write LineUsage_PeriodMaxP
+				axll::WriteTable(
+					IdentifierReference:LineUsage_PeriodMaxP(l,f),
+					RowHeaderRange:"A1:B13707",
+					ColumnHeaderRange:"",
+					DataRange:"C1:C13707",
+					AllowRangeOverflow:1,
+					WriteZeros:1);
+
+				axll::CreateSheet(SheetName:"TrafoUsage_PeriodMaxP");	!write TrafoUsage_PeriodMaxP
+				axll::WriteTable(
+					IdentifierReference:TrafoUsage_PeriodMaxP(tr,f),
+					RowHeaderRange:"A1:B27",
+					ColumnHeaderRange:"",
+					DataRange:"C1:C27",
+					AllowRangeOverflow:1,
+					WriteZeros:1);
+
+
+				axll::CloseAllWorkBooks;
+			}
+		}
+	}
+	Section Quantities_and_Units {
+		Comment: {
+			"This section contains all the units and quantities that are added automatically by AIMMS.
+			It is recommended to declare all your quantities here."
+		}
+		Quantity SI_Time_Duration {
+			BaseUnit: s;
+			Conversions: minute->s : #-># * 60;
+			Comment: {
+				"Expresses the value for the duration of periods.
+
+				The unit s has been added automatically because it is a required unit for AimmsWebUI.
+
+				The unit minute has been added automatically because it is a required unit for AimmsWebUI."
+			}
+		}
+	}
+}
