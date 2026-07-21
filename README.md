@@ -5,6 +5,12 @@ customer PV and battery energy storage. The model computes a **rolling-horizon
 Feasible Operating Region (FOR)** at the point of common coupling, per transformer
 and for the whole feeder.
 
+> **Working on this repository?** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. It
+> sets out the git workflow we follow, how we split work across the model sections,
+> and how input data is versioned as study cases. `MainProject/OPF.ams` is a single
+> ~4,200-line file that AIMMS rewrites on save, so the process there is what keeps
+> parallel work mergeable.
+
 ---
 
 ## 1. Requirements
@@ -57,6 +63,7 @@ Results are written as `FOR_rolling*.csv` in the repo root. These are **git-igno
 │   ├── User Files/        # UI bitmaps
 │   └── WebUI/             # WebUI resources
 ├── .gitignore
+├── CONTRIBUTING.md        # collaboration workflow — read before contributing
 └── README.md
 ```
 
