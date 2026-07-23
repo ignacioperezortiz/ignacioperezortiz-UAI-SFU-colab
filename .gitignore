@@ -24,6 +24,13 @@ PROTemp/
 # ---------------------------------------------------------------------------
 FOR_rolling*.csv
 /*.png
+*_analysis_data.xlsx
+
+# ---------------------------------------------------------------------------
+# Post-processing validation inputs (per-customer load+PV reference tables).
+# Shared separately via cloud (like the model input data), NOT through GitHub.
+# ---------------------------------------------------------------------------
+results/tables/
 
 # ---------------------------------------------------------------------------
 # OS junk

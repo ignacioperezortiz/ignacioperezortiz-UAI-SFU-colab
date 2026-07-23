@@ -15,12 +15,16 @@ Usage (from a normal terminal):
 Reference must match within solver tolerance. Vertex files are for
 inspection: the report just shows how far each vertex moves from the base.
 """
+import os
 import sys
 from pathlib import Path
 
 import xlrd
 
-DESK = Path(r"C:\Users\LAPTOP-01\Desktop")
+ROOT = Path(__file__).resolve().parents[1]
+# Where the AIMMS .xls workbooks live. Defaults to the repo root; override with
+# FOR_NCQ_DIR for a machine-specific export folder (e.g. a Desktop directory).
+DESK = Path(os.environ.get("FOR_NCQ_DIR", ROOT))
 
 
 def _resolve(p):

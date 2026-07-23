@@ -22,21 +22,24 @@ doubles as a plumbing test. The output keeps the FOR_rolling column convention, 
 plot_FOR_dailywalk.py renders it directly.
 """
 import argparse, os, sys
+from pathlib import Path
 import numpy as np
 import pandas as pd
+
+ROOT = str(Path(__file__).resolve().parents[1])
 
 def load(path):
     d = pd.read_csv(path, skipinitialspace=True)
     d.columns = [c.strip() for c in d.columns]
     for c in d.columns:
-        if d[c].dtype == object:
+        if d[c].dtype == object or pd.api.types.is_string_dtype(d[c]):
             d[c] = d[c].astype(str).str.strip()
     return d
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tags", required=True, help="comma list, e.g. TR1,TR2,TR9")
-    ap.add_argument("--dir", default=r"C:\Users\thc22\projects\UAI-SFU-colab\model_clean")
+    ap.add_argument("--dir", default=ROOT)
     ap.add_argument("--baseline", default=None, help="FOR_rolling_baseline.csv (needed for >1 tag)")
     ap.add_argument("--out", default=None)
     ap.add_argument("--compare", default=None, help="coupled-run CSV to validate against")

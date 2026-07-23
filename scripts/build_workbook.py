@@ -15,18 +15,19 @@ Usage:
 The output <TAG>_analysis_data.xlsx is NOT overwritten unless --force is given.
 """
 import argparse, os, sys
+from pathlib import Path
 import numpy as np
 import pandas as pd
 
-ROOT = r"C:\Users\thc22\projects\UAI-SFU-colab"
+ROOT = str(Path(__file__).resolve().parents[1])
 SB_KW, NPER, DT = 1000.0, 48, 0.5
 
 ap = argparse.ArgumentParser()
-ap.add_argument("--soc", default=os.path.join(ROOT, "model_clean", "FOR_rolling_soc_TR9.csv"))
+ap.add_argument("--soc", default=os.path.join(ROOT, "FOR_rolling_soc_TR9.csv"))
 ap.add_argument("--loadpv", default=os.path.join(ROOT, "results", "tables", "TR9_load_PV_48periods.xlsx"),
                 help="per-customer load+PV workbook (currently exists for TR9 only)")
 ap.add_argument("--tag", default="TR9")
-ap.add_argument("--outdir", default=os.path.join(ROOT, "results", "TR9_analysis"))
+ap.add_argument("--outdir", default=ROOT)
 ap.add_argument("--force", action="store_true", help="allow overwriting an existing workbook")
 a = ap.parse_args()
 
@@ -38,7 +39,7 @@ if os.path.exists(out) and not a.force:
 s = pd.read_csv(a.soc, skipinitialspace=True)
 s.columns = [c.strip() for c in s.columns]
 for c in s.columns:
-    if s[c].dtype == object:
+    if s[c].dtype == object or pd.api.types.is_string_dtype(s[c]):
         s[c] = s[c].astype(str).str.strip()
 bat = pd.read_excel(a.loadpv, "Batteries").sort_values("ID").reset_index(drop=True)
 cust = pd.read_excel(a.loadpv, "Customers")

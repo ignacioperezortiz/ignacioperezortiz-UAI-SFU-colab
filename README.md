@@ -80,3 +80,18 @@ To keep the repo focused on the runnable model, the following are intentionally
 left out: experiment outputs (`FOR_rolling*.csv`, `Results/`, plots), AIMMS
 auto-backups and logs, and standalone experiment snippets. The input data is
 distributed via cloud (section 2).
+
+## 6. Documentation
+
+This repository holds only **general, reproducible** documentation — the kind that
+works for anyone who clones it:
+
+- **Root:** `README.md`, `CONTRIBUTING.md`.
+- **`docs/`:** longer guides (setup, reproducibility, validation procedures).
+- **`scripts/README.md`, `results/README.md`:** next to what they document.
+
+Personal, machine-specific, or session-specific notes (local setup, per-run
+runbooks, working logs) are intentionally kept **outside** this repo and are not
+committed here. That includes any local `CLAUDE.md` a contributor keeps at the repo
+root to guide their own AI agent: it is personal, stays out of version control, and
+each contributor is free to document their own way.
