@@ -25,10 +25,10 @@ For each transformer (`TR1`–`TR9`) there are two files:
 
 ## Flexibility operating regions
 
-- **`TR9_FOR_rolling.xlsx`** — the rolling FOR workbook for TR9: one region per
-  half-hour (48 rolling steps × 12 boundary directions = 576 solves), with the
-  batteries-off baseline, the absolute region and the deviation region, and a chart
-  pair per period.
+- **`TR9_FOR_rolling.xlsx`** — the rolling FOR workbook: one region per half-hour
+  (48 rolling steps × 12 boundary directions = 576 solves), measured at the feeder
+  PCC with TR9's batteries as the flexible resource, with the batteries-off baseline,
+  the absolute region and the deviation region, and a chart pair per period.
 - **`TR9_FOR_rolling.md`** — how to read it, and which of the two regions to use for
   fairness and dispatch.
 
