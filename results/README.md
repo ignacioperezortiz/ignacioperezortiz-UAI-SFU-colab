@@ -22,3 +22,16 @@ For each transformer (`TR1`–`TR9`) there are two files:
 
 > These are static snapshots for review. GitHub does not preview `.xlsx` inline —
 > download a file to open it in Excel.
+
+## Flexibility operating regions
+
+- **`TR9_FOR_rolling.xlsx`** — the rolling FOR workbook for TR9: one region per
+  half-hour (48 rolling steps × 12 boundary directions = 576 solves), with the
+  batteries-off baseline, the absolute region and the deviation region, and a chart
+  pair per period.
+- **`TR9_FOR_rolling.md`** — how to read it, and which of the two regions to use for
+  fairness and dispatch.
+
+Start with the `.md`. The short version: the **absolute** region says where the feeder
+is, the **deviation** region says what the batteries can do about it, and the
+deviation is the one to allocate and dispatch on.
