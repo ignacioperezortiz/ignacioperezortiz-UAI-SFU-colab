@@ -1935,31 +1935,49 @@ Model Main_OPF_VI_LG {
 				Comment: "EXPERIMENT toggle: >=0 overrides every battery's BattSOCmin (the MinSOC_def floor) with this value AFTER each Load_data_dsn reset inside RunFOR_Rolling, e.g. 0.0 = allow full discharge. -1 (default) = off, DB floor untouched (production).";
 			}
 			Parameter FOR_SweepWarmStart {
-				Default: 1;
+				Default: 0;
 				Comment: {
-					"PERFORMANCE toggle for the direction sweep in RunFOR_Rolling. 1 = production (unchanged): each
-					direction runs MainExecution (a full solve of MinImportsMaxReverseP) before solve FOR_VertexCont,
-					leaving the cost-min optimum as the starting point. 0 = skip it and solve the vertex directly
-					from the flat start left by Load_data_reset.
+					"PERFORMANCE toggle for the direction sweep in RunFOR_Rolling. 0 = production (DEFAULT since
+					2026-07-29, measured): solve FOR_VertexCont directly from the flat start left by Load_data_reset.
+					1 = legacy: first run MainExecution (a full solve of MinImportsMaxReverseP), leaving the cost-min
+					optimum as the starting point. Kept as the way back, and it is also forced ON whenever
+					UseBattComp=1 (see below).
 
-					Why it exists: MinImportsMaxReverseP and FOR_VertexCont declare the SAME constraint and variable
-					sets (NotTobeExcluded_*), so the two solves generate a row-for-row identical matrix and differ
-					only in the objective column. The first solve's objective value and status go to ConvFlag/ConvTime,
-					which the sweep never reads or writes to CSV - only its variable levels survive, as an initial
-					point. In production config (UseBattComp=0, FOR_PolyS=0, FOR_LinearizeVmax=0) the program is a
-					continuous convex QCP, which CPLEX solves with barrier: AIMMS passes variable levels as a start
-					only on the MIP path, and the first solve is itself barrier so it leaves no basis either. So the
-					warm start is very likely inert, while costing one extra full solve per direction - measured at
-					~30% of the run's wall-clock (629 s of the ~2100 s per period on TR9).
+					MEASURED on the TR9_two micro test bed, 48 periods x 12 directions, 2026-07-29:
 
-					Setting it to 0 cannot change the optimum (convex QCP, linear objective: the optimal VALUE is
-					unique), but where the boundary has a flat face perpendicular to the sweep direction the argmax
-					is a segment and the returned point may slide along it. Measured on the committed TR9 run:
-					median 0.65 kW, worst ~15 kW, with one genuine flat face of 179 kW at period 36 / 0 deg. The
-					day-aggregated validation metrics are NOT affected - they are rebuilt from the baseline solve
-					(FOR_rolling_soc_<tag>.csv), which is written before the sweep block.
+					                         warm start ON     warm start OFF
+					  wall-clock                41m 22s           10m 12s      -> 4.06x faster
+					  vertex solve time         731.0 s           358.7 s      -> 2.05x faster per solve
+					  max |delta proj|                  0.000e+00 (bit-identical)
+					  solve status              576/576 Optimal   576/576 Optimal
 
-					Acceptance test for a 0-vs-1 A/B: 'proj' must reproduce to ~2e-6 p.u. Do NOT require P/Q equality."
+					Every recorded column is IDENTICAL, and FOR_rolling_soc is byte-identical, so this is a pure
+					runtime change. Three effects compound: 12 solves per period removed, their 12 math-program
+					generations removed, and - the surprise - the 12 remaining vertex solves run 2.05x faster.
+					That last one means MainExecution was actively HARMFUL: the cost-min optimum is an extreme
+					point of the feasible set, hugging the boundary and poorly centred, which is the opposite of
+					what an interior-point method wants. A badly centred primal point can be worse than a cold
+					start, and here it was, by about double.
+
+					Why it was inert as a warm start: the two programs declare the SAME constraint and variable sets
+					(NotTobeExcluded_*), so they generate a row-for-row identical matrix and differ only in the
+					objective column. The first solve's objective value and status go to ConvFlag/ConvTime, which the
+					sweep never reads nor writes to CSV - only its variable levels survive. But AIMMS passes variable
+					levels to CPLEX as a start only on the MIP path, and in production config (UseBattComp=0,
+					FOR_PolyS=0, FOR_LinearizeVmax=0) the program is a continuous convex QCP solved by barrier, which
+					takes no advanced basis - and the first solve, being barrier too, produces no basis to hand over.
+
+					EXCEPTION - the MIQCP validations. With UseBattComp=1 (RunMicro_BattComp, RunFullTR9_BattComp)
+					the program IS a MIP, where variable levels are a genuine start channel. The guards therefore
+					read 'FOR_SweepWarmStart = 1 or UseBattComp = 1', so those cross-checks keep MainExecution
+					automatically and nobody has to remember to flip this back. That path is UNMEASURED; leaving it
+					as it was is the conservative choice.
+
+					Acceptance test for any future A/B: 'proj' must reproduce to ~2e-6 p.u. Do NOT require P/Q
+					equality - a flat face perpendicular to the sweep direction makes the argmax a segment, so the
+					returned point may legitimately slide (measured exposure on TR9: median 0.65 kW, worst ~15 kW,
+					with one real 179 kW face at period 36 / 0 deg). Use scripts/compare_FOR_runs.py, which checks
+					proj and status and reports P/Q movement as informational."
 				}
 			}
 			Parameter EnableRollDiag {
@@ -2081,7 +2099,10 @@ Model Main_OPF_VI_LG {
 				CyclicSOCBand             := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! PRODUCTION band 0.05 (via RelaxCyclicBand default); RunTR9_RelaxCyclic sets RelaxCyclicBand:=1.0 to relax it. Strict (=0) was numerically fragile (2026-06-11: 16 vs 119 fails on identical reruns). Must match the restore in the diag block below.
 				PeriodMaxP                := 2;   ! service slot is always window position 2 (= now+1)
 				FOR_TieEps                := 0;   ! pin the vertex tiebreaker: pure directional objective, independent of session history
-				UseBattComp               := 0;   ! pin the production pure QCP, independent of session history: RunTR9_BattComp/RunMicro_BattComp set this to 1, and a leftover 1 would silently turn the whole sweep into an MIQCP. RunTrafoFOR already pins it, so this only guards direct calls to RunFOR_Rolling.
+				! UseBattComp is deliberately NOT pinned here. Every production wrapper (RunTrafoFOR, RunCoupledFOR,
+				! RunTR9_RelaxCyclic, RunTR9_RelaxFloor) already sets it to 0, and RunMicro_BattComp /
+				! RunFullTR9_BattComp set it to 1 on purpose before calling in - pinning it here would silently
+				! downgrade those MIQCP validations to the production QCP while still writing *_comp.csv.
 
 				! load DB+Excel once and freeze the un-rotated inputs + the starting SOC
 				empty allvariables;
@@ -2164,7 +2185,7 @@ Model Main_OPF_VI_LG {
 						BattP_Chg(bat,'1').nonvar := 1;             ! executed dispatch so the region offered for slot 2 is reachable
 						BattP_Dis(bat,'1') := RollDisExec(bat);
 						BattP_Dis(bat,'1').nonvar := 1;
-						if FOR_SweepWarmStart = 1 then
+						if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
 							run MainExecution;                      ! cost-min start point; ~30% of wall-clock. See FOR_SweepWarmStart
 						endif;
 
@@ -2229,7 +2250,7 @@ Model Main_OPF_VI_LG {
 							BattP_Dis(bat,'1') := RollDisExec(bat);
 							BattP_Dis(bat,'1').nonvar := 1;
 							CyclicSOCBand   := DiagCyclicBand;
-							if FOR_SweepWarmStart = 1 then
+							if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
 								run MainExecution;                  ! keep the diagnostic retries on the same footing as the direction that failed
 							endif;
 							FOR_Lambda := 1;
@@ -2270,7 +2291,7 @@ Model Main_OPF_VI_LG {
 							BattP_Dis(bat,'1') := RollDisExec(bat);
 							BattP_Dis(bat,'1').nonvar := 1;
 							CyclicSOCBand   := DiagCyclicBand;
-							if FOR_SweepWarmStart = 1 then
+							if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
 								run MainExecution;                  ! keep the diagnostic retries on the same footing as the direction that failed
 							endif;
 							FOR_Lambda := 1;
@@ -2761,19 +2782,22 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "MICRO TEST (one click): the smallest controllable test bed - isolate the TR9_two* sub-branch (12 batteries, 21 loads, 21 buses) and run the daily rolling FOR on it. Goal is understanding: small enough to hand-check SOC trajectories, predict the FOR shape, and trace what each constraint does. Back to TR9-full: leave DetailLoadPattern empty. Back to the full feeder: set ReduceNetwork:=0.";
 		}
-		Procedure RunReducedTest_RollingMicro_NoWarm {
+		Procedure RunReducedTest_RollingMicro_LegacyWarm {
 			Body: {
-				FOR_SweepWarmStart := 0;   ! skip the per-direction MainExecution solve
+				FOR_SweepWarmStart := 1;   ! legacy: run MainExecution before every vertex solve
 				run RunReducedTest_RollingMicro;
-				FOR_SweepWarmStart := 1;   ! defensive reset: back to production behaviour for subsequent runs
+				FOR_SweepWarmStart := 0;   ! defensive reset: back to the production default
 			}
 			Comment: {
-				"A/B PARTNER of RunReducedTest_RollingMicro (one click): the same micro test with the per-direction
-				MainExecution solve skipped. Run this straight after the normal micro test and compare the two
-				FOR_rolling.csv files with scripts/compare_FOR_runs.py. Time the RUNS with a clock, not with the
-				CSV 'time' column - that column is FOR_VertexCont.SolutionTime only and does not see the solve
-				this toggle removes. Acceptance: 'proj' must reproduce within ~2e-6 p.u. and no direction may
-				change solve status; P/Q are allowed to slide along a flat face. See FOR_SweepWarmStart for why."
+				"A/B PARTNER of RunReducedTest_RollingMicro (one click): the same micro test with the legacy
+				per-direction MainExecution solve switched back ON. Since 2026-07-29 the default is OFF, so this
+				is the procedure that reproduces the OLD behaviour - use it to re-run the A/B after any change to
+				the sweep or after a solver/AIMMS upgrade. Compare the two FOR_rolling.csv files with
+				scripts/compare_FOR_runs.py. Time the RUNS with a clock, not with the CSV 'time' column - that
+				column is FOR_VertexCont.SolutionTime only and does not see the solve this toggle adds.
+				Acceptance: 'proj' must reproduce within ~2e-6 p.u. and no direction may change solve status;
+				P/Q are allowed to slide along a flat face. Measured 2026-07-29 on TR9_two: legacy 41m22s vs
+				default 10m12s, outputs bit-identical. See FOR_SweepWarmStart."
 			}
 		}
 		Procedure RunReducedTest_RollingDiag {
