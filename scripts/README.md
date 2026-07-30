@@ -5,11 +5,10 @@ reports, and the per-transformer analysis workbooks in `results/`.
 
 Requires Python 3 with `numpy`, `pandas`, `xlrd`, and `openpyxl`.
 
-> **Heads-up on paths.** These scripts were written with hard-coded default paths
-> pointing at the author's machine (e.g. `...\UAI-SFU-colab\model_clean`, and a
-> `C:\Users\LAPTOP-01\Desktop` default in `compare_FOR_to_NCQ.py`). They are all
-> overridable from the command line — pass the flags below to point them at your
-> own repo. Making the defaults portable is a good early cleanup task.
+Paths are portable: every script resolves its defaults from the repo root
+(`Path(__file__).parents[1]`), so bare file names are looked up there and the flags
+below only need overriding for files kept elsewhere. `compare_FOR_to_NCQ.py` also
+honours `FOR_NCQ_DIR` for a machine-specific export folder.
 
 ---
 
@@ -36,6 +35,25 @@ the validation proof against Prof. Luis's base case.
   ```bash
   python compare_FOR_to_NCQ.py [vertex_file.xls]
   ```
+
+## `compare_FOR_runs.py`
+Compares two rolling-FOR runs row by row, to check that a change to the sweep left
+the results untouched. Aligns on `(now, angle_deg)`.
+
+- **Inputs:** two `FOR_rolling*.csv` files (model outputs, git-ignored). Bare names
+  are looked up in the repo root.
+- **Output:** a report on stdout; exit code 0 on pass, 1 on fail.
+- **Run:**
+  ```bash
+  python compare_FOR_runs.py OLD.csv NEW.csv [--tol 2e-6]
+  ```
+
+The acceptance criterion is **`proj`, not P/Q equality**. The sweep maximises a linear
+objective over a convex feasible set, so the optimal *value* is unique but the argmax
+need not be: on a flat face perpendicular to the sweep direction the optimum is a
+segment, and a different starting point may legitimately return a different point on
+it. The script fails only on `proj` outside tolerance or on a changed solve status,
+and reports P/Q movement as informational. See `docs/rolling-for-performance.md` §4.
 
 ## `build_workbook.py`
 Builds a `TR<n>_analysis_data.xlsx` workbook (the source of the `results/*.xlsx`
