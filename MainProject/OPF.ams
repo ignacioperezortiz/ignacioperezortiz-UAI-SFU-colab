@@ -1160,6 +1160,132 @@ Model Main_OPF_VI_LG {
 				IndexDomain: bat;
 			}
 		}
+		DeclarationSection Fairness {
+			Comment: {
+				"Stage 0 fairness: criterion C1, proportional to installed capacity, applied to the ACTIVE-POWER
+				scalar at the service slot. FairMode picks the level, FairActive gates it to the directional
+				sweep, FairCap is the capacity s_i. Declared here (BatteryModel) and NOT inside NetworkModel so
+				it survives IncludeNetworkConstraints=0: fairness is an allocation rule, not a network law.
+				With FairMode=0 both constraints have an empty IndexDomain -> zero rows, and Zeta is a free
+				column with no coefficients that presolve removes. That is the mechanism by which case A must
+				reproduce the pre-fairness baseline bit-identically."
+			}
+			Parameter FairMode {
+				Default: 0;
+				Comment: {
+					"Fairness level. Mutually exclusive, NOT cumulative - level 2 does not imply level 1.
+					0 = off (production, case A).
+					1 = proportional between PROSUMERS:   x_i = Zeta*FairCap(i) for every battery.
+					2 = proportional between AGGREGATORS: sum_{i in a} x_i = Zeta*sum_{i in a} FairCap(i),
+					    with the split among an aggregator\'s own prosumers left free."
+				}
+			}
+			Parameter FairActive {
+				Default: 0;
+				Comment: {
+					"Runtime gate, set by RunFOR_Rolling: 0 around the committed self-consumption baseline,
+					1 around the 12 directional solves.
+
+					WHY THE GATE EXISTS. PeriodMaxP=2 in BOTH solves and MinImports uses the same constraint
+					set (AllConstraints), so an ungated fairness row would also bind in the committed baseline,
+					shift the slot-1 dispatch that is actually executed, and make the realised SOC trajectory of
+					case B diverge from case A. The A/B difference would then mix \'fairness contracts the offered
+					region\' (what the deliverable measures) with \'fairness moved the batteries somewhere else\',
+					and per-period comparison would stop being legitimate because the starting SOCs no longer
+					match. It would also violate the w2(PeriodMaxP)=0 design rule - the baseline must not
+					pre-commit value at the service slot, because that exchange IS the flexibility being offered.
+
+					Modelling reading: the committed baseline is a pure self-consumption agent (OFminImports has
+					no w1 service term at all), i.e. a prosumer who prioritises self-consumption and provides
+					what it happens to have available when service is called - not one who spends every half hour
+					positioning for a market it might be asked to serve. See FairBaseline for the alternative."
+				}
+			}
+			Parameter FairBaseline {
+				Default: 0;
+				Comment: {
+					"EXPERIMENT toggle: 1 = impose fairness in the committed baseline solve as well (the
+					\'prosumers anticipate a fair market\' variant). 0 = production.
+
+					Read this before using it. The baseline objective OFminImports carries NO service term (w1
+					appears only in OFminImportsmaxReverseP, which the rolling baseline does not use) and
+					w2(PeriodMaxP)=0, so switching this on constrains an agent that derives no value whatsoever
+					from market participation. Only slot 1 is carried forward (RollChgExec/RollDisExec/
+					RollSOCnext all read BattP_Balance(bat,\'1\')), so the baseline\'s slot-2 decision is discarded
+					and the effect on the executed dispatch is indirect, via the SOC coupling. Modelling genuine
+					anticipation would additionally need a service-value term in the baseline objective and a
+					model of WHICH direction the aggregator will call - both out of scope for Stage 0.
+
+					Kept because the size of the divergence is worth measuring on the micro bed (~10 min per
+					run), not because it is the modelled default."
+				}
+			}
+			Parameter FairCap {
+				IndexDomain: bat;
+				Definition: BattMaxP(bat);
+				Comment: {
+					"s_i - the capacity each prosumer\'s contribution is made proportional to, in p.u. Deliberate
+					indirection: the source of s_i changes in ONE line here, and every run should record which.
+
+					WHY BattMaxP. It is the battery rating and simultaneously the inverter S-circle radius
+					(MaxBattS_def / MaxBattS_poly), so \'kW of battery\' and \'kVA of inverter\' are the same number
+					in this model. NOT PVsize: PV is a parameter driven by irradiance
+					(GenP0 := PVsize*Irradiance/1000), not a decision variable and not curtailable, so rationing
+					battery dispatch by PV size would allocate on an attribute that is not the resource shared.
+
+					NOTE for the paper: this fleet is homogeneous (BattMaxP = 0.0036 p.u. = 3.6 kW on all 1216
+					batteries), so here \'proportional to capacity\' coincides numerically with \'equal absolute\'.
+					That does NOT make the constraint slack: the network is radial, so two prosumers with equal
+					batteries at different feeder positions cannot inject equally without different voltage rise.
+					Measured on the TR9 case-A run, dispatch spread across the 90 identical batteries averages
+					46% of BattMaxP (peak 85%), and the fleet reaches only 33% of its nameplate aggregate. The
+					heterogeneity that makes C1 bind is LOCATIONAL, not equipment."
+				}
+			}
+			Variable Zeta {
+				Range: free;
+				Comment: {
+					"The SINGLE free scalar of criterion C1 - the fleet utilisation factor, dimensionless.
+					One Zeta per solve: each of the 12 directions gets its own, which is what makes C1 a
+					one-pass criterion (max-min would instead need one Zeta* per time step, held fixed across
+					the 12 angles).
+
+					It removes exactly ONE degree of freedom. Deliberately NOT written as n-1 pairwise
+					equalities, which would remove n-1 and overstate the cost of fairness by a factor near 2.
+					With FairCap=BattMaxP the implied bound is |Zeta|<=1. Zeta=0 (everyone idle) is always
+					feasible, so C1 contracts the FOR and can never render it infeasible."
+				}
+			}
+			Constraint FairProportional_Prosumer {
+				IndexDomain: bat | FairMode = 1 and (FairActive or FairBaseline);
+				Definition: BattP_Balance(bat,PeriodMaxP) = Zeta*FairCap(bat);
+				Comment: {
+					"C1 at PROSUMER level: every prosumer runs at the same utilisation Zeta of its own capacity.
+					Since BattP_Balance = BattP_Chg - BattP_Dis (>0 charge, <0 discharge), a single Zeta also
+					forbids one battery charging while another discharges - it removes all internal arbitrage
+					between prosumers. That is the strictest reading of the criterion and is precisely why C1
+					delivers the UPPER bound on the cost of fairness. It is not hypothetical: in the case-A run
+					the batteries do split signs (period 16: some charging at -0.99 kW while others discharge at
+					+1.91 kW), so this row binds hard."
+				}
+			}
+			Constraint FairProportional_Aggregator {
+				IndexDomain: a | FairMode = 2 and (FairActive or FairBaseline);
+				Definition: {
+					sum(bat | BattAgg(bat) = a, BattP_Balance(bat,PeriodMaxP))
+					= Zeta*sum(bat | BattAgg(bat) = a, FairCap(bat))
+				}
+				Comment: {
+					"C1 at AGGREGATOR level: each aggregator\'s total tracks the same utilisation Zeta of its own
+					installed capacity, while the split among its prosumers stays free. Uses BattAgg, the
+					database column, as the single source of truth for the aggregator index (the synthetic
+					DOE_AggOf mapping stays confined to the frozen DOE_Dispatch section).
+
+					An aggregator left with no batteries after ApplyNetworkReduction yields 0 = Zeta*0, which is
+					trivially satisfied - there is no division here, so no epsilon guard is needed."
+				}
+			}
+		}
 	}
 	Section SelfConsumptionOPF {
 		Comment: "The self-consumption OPF: node import/export decomposition at battery nodes, the two cost-min objectives (OFminImports = pure self-consumption, used by the rolling baseline; OFminImportsmaxReverseP = paper objective with the w1 max-reverse-flow term at PeriodMaxP), their mathematical programs and solve wrappers, and the paper case runners.";
@@ -1887,17 +2013,40 @@ Model Main_OPF_VI_LG {
 			StringParameter RollFileSuffix {
 				Comment: "Appended to FOR_rolling / FOR_rolling_soc filenames so per-transformer runs write distinct files (e.g. \'_TR9\' -> FOR_rolling_TR9.csv). Empty (default) keeps the original filenames, so single-feeder runs are unchanged.";
 			}
+			StringParameter FairFileTag {
+				Comment: {
+					"Appended AFTER RollFileSuffix so the case tag and the transformer tag compose:
+					RollFileSuffix=\'_TR9\' + FairFileTag=\'_fairL2\' -> FOR_rolling_TR9_fairL2.csv. Kept as a
+					SEPARATE string on purpose: RunTrafoFOR overwrites RollFileSuffix with \'_\'+TrafoTag on
+					every call, so a fairness wrapper that set RollFileSuffix itself would lose its tag the
+					moment it called RunTR9. Empty (default) reproduces the original filenames exactly."
+				}
+			}
 			StringParameter FOR_RollCSVName {
-				Definition: "FOR_rolling" + RollFileSuffix + ".csv";
+				Definition: "FOR_rolling" + RollFileSuffix + FairFileTag + ".csv";
 			}
 			StringParameter FOR_RollSOCCSVName {
-				Definition: "FOR_rolling_soc" + RollFileSuffix + ".csv";
+				Definition: "FOR_rolling_soc" + RollFileSuffix + FairFileTag + ".csv";
+			}
+			StringParameter FOR_RollFairCSVName {
+				Definition: "FOR_rolling_fair" + RollFileSuffix + FairFileTag + ".csv";
 			}
 			File FOR_RollCSV {
 				Name: FOR_RollCSVName;
 			}
 			File FOR_RollSOCCSV {
 				Name: FOR_RollSOCCSVName;
+			}
+			File FOR_RollFairCSV {
+				Name: FOR_RollFairCSVName;
+				Comment: {
+					"Stage 0 fairness log, written by RunFOR_Rolling: one row per (period, direction,
+					aggregator). A THIRD file on purpose - the schemas of FOR_rolling.csv and
+					FOR_rolling_soc.csv must not change, because compare_FOR_runs.py and build_workbook.py
+					parse them and the case-A no-regression test compares them byte-for-byte against the
+					pre-fairness baseline. Written for every FairMode including 0, so case A supplies the
+					reference split against which the contraction and dispersion metrics are computed."
+				}
 			}
 			File FOR_RollBaseCSV {
 				Name: "FOR_rolling_baseline.csv";
@@ -2113,13 +2262,20 @@ Model Main_OPF_VI_LG {
 				Irrraw(t)         := Irradiance(t);
 				BattSOCstart(bat) := BattSOCini(bat);
 
-				! CSV headers (both files stay open; switch the active one with 'put <file>')
-				FOR_RollCSV.PageWidth    := 32767;
-				FOR_RollSOCCSV.PageWidth := 32767;
+				! CSV headers (all files stay open; switch the active one with 'put <file>')
+				FOR_RollCSV.PageWidth     := 32767;
+				FOR_RollSOCCSV.PageWidth  := 32767;
+				FOR_RollFairCSV.PageWidth := 32767;
 				put FOR_RollCSV;
 				put "now,target,angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr" / ;
 				put FOR_RollSOCCSV;
 				put "now,battery,SOC_start,Pexec,Chg1,Dis1,base_status,TotPV1_pu" / ;
+				! Stage 0 fairness log: one row per (period, direction, aggregator). Written for EVERY
+				! FairMode including 0, so case A provides the reference split for the contraction and
+				! dispersion metrics. util = realised utilisation of the aggregator's installed capacity;
+				! under FairMode=1 or 2 every aggregator's util must equal Zeta, which is the check.
+				put FOR_RollFairCSV;
+				put "now,target,angle_deg,FairMode,zeta,status,aggregator,n_batt,cap_pu,sumP_pu,util,util_min,util_max" / ;
 				if EnableRollDiag = 1 then
 					FOR_RollDiagCSV.PageWidth := 32767;
 					put FOR_RollDiagCSV;
@@ -2141,6 +2297,9 @@ Model Main_OPF_VI_LG {
 					if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;   ! EXPERIMENT: re-apply floor override after the Load_data_dsn reset
 					BattP_Chg(bat,'1').nonvar := 0;              ! slot-1 dispatch is free ONLY in this baseline solve
 					BattP_Dis(bat,'1').nonvar := 0;
+					FairActive := 0;                             ! fairness OFF in the committed baseline: it must not pre-commit
+					                                             ! the service slot, and case B must inherit case A's SOC path.
+					                                             ! FairBaseline=1 overrides this (see FairActive's comment).
 					run MinOFminImports;                         ! PURE self-consumption baseline (MinImports; no max-export term at the service slot)
 					if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
 						! baseline rescue: a silent NoSolution here would execute a zeros (do-nothing) dispatch -- feasible but not the SC trajectory
@@ -2168,6 +2327,7 @@ Model Main_OPF_VI_LG {
 
 					if BaselineOnly = 0 then   ! EXPERIMENT: baseline-only runs skip the 12-direction sweep
 					! ---- sweep directions: region offered for the service slot (now+1) ----
+					FairActive := 1;           ! fairness ON for every directional solve (incl. the diagnostic retries below)
 					put FOR_RollCSV;
 					for (ia) do
 						FOR_Angle    := FOR_AngleDeg(ia);
@@ -2228,6 +2388,25 @@ Model Main_OPF_VI_LG {
 							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
 							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
 						endif;
+
+						! ---- fairness log: one row per aggregator for this direction ----
+						! Reported for every FairMode, so case A (FairMode=0) supplies the unconstrained split
+						! that the contraction and dispersion metrics are measured against. util_min/util_max
+						! are the extreme per-prosumer utilisations inside the aggregator: under FairMode=1 they
+						! collapse onto util, under FairMode=2 they are free to spread while the total tracks Zeta.
+						put FOR_RollFairCSV;
+						for (a) do
+							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+							    FairMode:2:0, ",", Zeta:14:6, ",", FOR_StatCur, ",",
+							    a:8, ",", (sum(bat | BattAgg(bat) = a, 1)):4:0, ",",
+							    (sum(bat | BattAgg(bat) = a, FairCap(bat))):14:6, ",",
+							    (sum(bat | BattAgg(bat) = a, BattP_Balance(bat,PeriodMaxP))):14:6, ",",
+							    (sum(bat | BattAgg(bat) = a, BattP_Balance(bat,PeriodMaxP))
+							        / max(sum(bat | BattAgg(bat) = a, FairCap(bat)), 1e-9)):14:6, ",",
+							    (min(bat | BattAgg(bat) = a, BattP_Balance(bat,PeriodMaxP)/max(FairCap(bat),1e-9))):14:6, ",",
+							    (max(bat | BattAgg(bat) = a, BattP_Balance(bat,PeriodMaxP)/max(FairCap(bat),1e-9))):14:6 / ;
+						endfor;
+						put FOR_RollCSV;   ! restore the active file for the next direction
 
 						! ---- diagnostic retry for failed directions (Pass 1: cyclic relaxed; Pass 2: + PV scaled) ----
 						if EnableRollDiag = 1 and
@@ -2331,11 +2510,13 @@ Model Main_OPF_VI_LG {
 
 				putclose FOR_RollCSV;
 				putclose FOR_RollSOCCSV;
+				putclose FOR_RollFairCSV;
 				if EnableRollDiag = 1 then
 					putclose FOR_RollDiagCSV;
 				endif;
 				RollCyclicSOC := 0;   ! leave the model in its normal (non-rolling) state
 				CyclicSOCBand := 0;   ! defensive: clear band so subsequent runs see strict cyclic if they re-enable it
+				FairActive    := 0;   ! defensive: leave the fairness gate closed so a later non-fairness run is unaffected
 				BattP_Chg(bat,t).nonvar := 0;   ! defensive: free the slot-1 fixes so later runs see normal variables
 				BattP_Dis(bat,t).nonvar := 0;
 				display RollSOCtraj;
@@ -2811,6 +2992,46 @@ Model Main_OPF_VI_LG {
 				EnableRollDiag := 0;       ! defensive reset
 			}
 			Comment: "TEST (one click) + DIAGNOSTIC: same as RunTR9, but for each failed direction inside RunFOR_Rolling, retry with (Pass 1) cyclic-SOC band relaxed to DiagCyclicBand (default 0.05), then (Pass 2) cyclic relaxed + GenP0 scaled by (1 - DiagPVcutFrac) (default 0.50). Attribution is written to FOR_rolling_diag.csv (cols: now,target,angle_deg,pass,status,P,Q,proj,time). Use to tell apart cyclic-SOC-bound vs PV-saturation-bound vs linearization-bound failures.";
+		}
+		Procedure RunMicro_FairL1 {
+			Body: {
+				FairMode    := 1;          ! C1 between PROSUMERS
+				FairFileTag := "_fairL1";
+				run RunReducedTest_RollingMicro;
+				FairMode    := 0;          ! defensive reset: back to case A
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between PROSUMERS. Writes FOR_rolling_fairL1.csv (+ _soc_, + the fairness log). ~10 min. Validate case A (RunReducedTest_RollingMicro, FairMode=0) FIRST and confirm it still reproduces the baseline exactly before trusting any fairness number.";
+		}
+		Procedure RunMicro_FairL2 {
+			Body: {
+				FairMode    := 2;          ! C1 between AGGREGATORS
+				FairFileTag := "_fairL2";
+				run RunReducedTest_RollingMicro;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between AGGREGATORS. ~10 min. The micro bed carries all three aggregators with a 1/7/4 battery split (3.6 / 25.2 / 14.4 kW), which is far more unbalanced than TR9\'s 28/32/30 - so this is the SHARPER test of level 2, not a weaker one.";
+		}
+		Procedure RunTR9_FairL1 {
+			Body: {
+				FairMode    := 1;
+				FairFileTag := "_fairL1";
+				run RunTR9;                ! sets RollFileSuffix := '_TR9'; FairFileTag composes -> FOR_rolling_TR9_fairL1.csv
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between PROSUMERS. ~3h40. Run only after the micro bed passes.";
+		}
+		Procedure RunTR9_FairL2 {
+			Body: {
+				FairMode    := 2;
+				FairFileTag := "_fairL2";
+				run RunTR9;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between AGGREGATORS. ~3h40. Expect a SMALL contraction: TR9\'s three aggregators hold 28/32/30 prosumers by design, so their capacities are nearly equal and the level-2 constraint has little to bite on. That is a finding of the deliverable, not a defect - the micro bed\'s 1/7/4 split is where level 2 shows its teeth.";
 		}
 	}
 	Section DOE_Dispatch {
