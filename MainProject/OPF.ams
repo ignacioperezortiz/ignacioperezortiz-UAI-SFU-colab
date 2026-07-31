@@ -2048,8 +2048,24 @@ Model Main_OPF_VI_LG {
 					reference split against which the contraction and dispersion metrics are computed."
 				}
 			}
+			StringParameter BaseDetailPattern {
+				Comment: {
+					"Sub-cluster filter that RunFOR_Rolling_Baseline passes to DetailLoadPattern. Empty
+					(default) = the original full-TR9 reduction, so the produced baseline is unchanged.
+					Set to \'_two\' to compute the all-idle trajectory on the SAME reduced network as the
+					micro test bed - necessary because with \'_two\' the TR9 buses outside the sub-cluster are
+					DROPPED rather than lumped, so the micro network carries less passive load and its
+					all-idle PCC is genuinely a different point."
+				}
+			}
+			StringParameter BaseFileTag {
+				Comment: "Appended to the baseline filename so a micro-consistent baseline does not overwrite the feeder one that combine_FOR_pertrafo.py consumes. Empty (default) keeps FOR_rolling_baseline.csv exactly as before.";
+			}
+			StringParameter FOR_RollBaseCSVName {
+				Definition: "FOR_rolling_baseline" + BaseFileTag + ".csv";
+			}
 			File FOR_RollBaseCSV {
-				Name: "FOR_rolling_baseline.csv";
+				Name: FOR_RollBaseCSVName;
 			}
 			Parameter PerTrafoN {
 				Comment: "Number of transformers captured at full-feeder load by RunFOR_Rolling_PerTrafo (drives PerTrafoIdx).";
@@ -2719,7 +2735,7 @@ Model Main_OPF_VI_LG {
 				IncludeQforMaxP           := 0;
 				nPeriods                  := 48;
 				ReduceNetwork             := 1;     ! reduced net still carries the FULL passive load -> all-idle PCC ~ true B, and is tractable (full feeder is not)
-				DetailLoadPattern         := "";
+				DetailLoadPattern         := BaseDetailPattern;   ! "" = original full-TR9 reduction; "_two" = match the micro bed
 				DetailTagCSV              := "TR9";
 				RollFileSuffix            := "";
 				FOR_PolyS                 := 0;   ! match production (exact); irrelevant here anyway: batteries fixed to zero, limits relaxed below
@@ -2992,6 +3008,31 @@ Model Main_OPF_VI_LG {
 				EnableRollDiag := 0;       ! defensive reset
 			}
 			Comment: "TEST (one click) + DIAGNOSTIC: same as RunTR9, but for each failed direction inside RunFOR_Rolling, retry with (Pass 1) cyclic-SOC band relaxed to DiagCyclicBand (default 0.05), then (Pass 2) cyclic relaxed + GenP0 scaled by (1 - DiagPVcutFrac) (default 0.50). Attribution is written to FOR_rolling_diag.csv (cols: now,target,angle_deg,pass,status,P,Q,proj,time). Use to tell apart cyclic-SOC-bound vs PV-saturation-bound vs linearization-bound failures.";
+		}
+		Procedure RunMicro_Baseline {
+			Body: {
+				BaseDetailPattern := "_two";       ! same reduced network as the micro test bed
+				BaseFileTag       := "_micro";     ! -> FOR_rolling_baseline_micro.csv
+				run RunFOR_Rolling_Baseline;
+				BaseDetailPattern := "";           ! defensive reset: back to the feeder-wide baseline
+				BaseFileTag       := "";
+			}
+			Comment: {
+				"STAGE 0 (one click): the ALL-IDLE trajectory B(t) for the MICRO test bed ->
+				FOR_rolling_baseline_micro.csv. Needed to express the FOR as a DEVIATION region
+				(dP = P - B_P, dQ = Q - B_Q), which is the view to use for fairness and dispatch: the
+				absolute region is dominated by the feeder\'s passive imbalance, which swings ~3.3 MW
+				across the day and which nobody controls inside the service slot.
+
+				Why a separate baseline instead of reusing FOR_rolling_baseline.csv: that one is computed
+				with DetailLoadPattern empty, i.e. TR9 in full. Under the micro filter \'_two\' the TR9 buses
+				outside the sub-cluster are DROPPED rather than lumped (ApplyNetworkReduction only lumps
+				EXCLUDED transformers), so the micro network carries less passive load and its all-idle PCC
+				is a genuinely different point. Mixing the two would compare regions against the wrong origin.
+
+				CHEAP: every battery is fixed to zero, so there is no optimisation left - one determined
+				power flow over the 48-period window, not a 12-direction sweep."
+			}
 		}
 		Procedure RunMicro_FairL1 {
 			Body: {
