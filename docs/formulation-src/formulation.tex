@@ -1,0 +1,546 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\frenchspacing                     % spanish babel set this implicitly; keeps the original spacing
+\usepackage{amsmath}
+\usepackage{newtxtext,newtxmath}   % provides \mathbb; amssymb would clash with \Bbbk
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[a4paper,top=26mm,bottom=24mm,left=25mm,right=25mm,headsep=9mm]{geometry}
+\usepackage{array}
+
+% ---------------------------------------------------------------- UAI / SFU palette
+\definecolor{uaired}{HTML}{A6192E}   % UAI institutional red (accent and marks of what is new)
+\definecolor{sfuslate}{HTML}{54585A} % SFU grey
+\definecolor{ink}{HTML}{1A1A1C}
+\definecolor{muted}{HTML}{585C60}
+\definecolor{faint}{HTML}{8B8F93}
+\definecolor{rule}{HTML}{E4E2E2}
+\definecolor{soft}{HTML}{F4E2E5}
+\definecolor{paper}{HTML}{F7F6F6}
+
+\color{ink}
+
+% ---------------------------------------------------------------- mark of what is new
+\newcommand{\nw}[1]{\textcolor{uaired}{#1}}
+\newtcolorbox{nuevo}{
+  enhanced, breakable, colback=white, colframe=uaired,
+  boxrule=0pt, leftrule=1.6pt, arc=0pt, outer arc=0pt,
+  left=9pt, right=4pt, top=5pt, bottom=5pt, boxsep=0pt
+}
+\newtcolorbox{keybox}{
+  enhanced, breakable, colback=paper, colframe=rule,
+  boxrule=0.5pt, arc=1.5pt, left=10pt, right=10pt, top=7pt, bottom=7pt, boxsep=0pt
+}
+
+% ---------------------------------------------------------------- headings
+\titleformat{\section}{\normalfont\large\bfseries\color{ink}}{\textcolor{uaired}{\thesection}}{0.7em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{sfuslate}}{\textcolor{sfuslate}{\thesubsection}}{0.6em}{}
+\titlespacing*{\section}{0pt}{13pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt}{3pt}
+
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{rule}\leaders\hrule height \headrulewidth\hfill}}
+\fancyhead[L]{\footnotesize\color{faint}\textsc{FOR with multiple aggregators and fairness}}
+\fancyhead[R]{\footnotesize\color{faint}UAI\,--\,SFU}
+\fancyfoot[C]{\footnotesize\color{faint}\thepage}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\renewcommand{\arraystretch}{1.12}
+\setlength{\abovedisplayskip}{6pt}\setlength{\belowdisplayskip}{6pt}
+\setlength{\abovedisplayshortskip}{3pt}\setlength{\belowdisplayshortskip}{3pt}
+
+% ---------------------------------------------------------------- notation
+\newcommand{\Nset}{\mathcal{N}}   \newcommand{\Lset}{\mathcal{L}}
+\newcommand{\Tset}{\mathcal{K}}   \newcommand{\Dset}{\mathcal{D}}
+\newcommand{\Bset}{\mathcal{B}}   \newcommand{\Fset}{\mathcal{F}}
+\newcommand{\Hset}{\mathcal{H}}   \newcommand{\Aset}{\mathcal{A}}
+\newcommand{\vre}{v^{\mathrm{re}}} \newcommand{\vim}{v^{\mathrm{im}}}
+\newcommand{\ire}{i^{\mathrm{re}}} \newcommand{\iim}{i^{\mathrm{im}}}
+\newcommand{\tstar}{t^{\star}}
+\newcommand{\pch}{p^{\mathrm{ch}}} \newcommand{\pdis}{p^{\mathrm{dis}}}
+\newcommand{\ireL}{i^{\mathrm{re,L}}} \newcommand{\ireG}{i^{\mathrm{re,G}}}
+
+\begin{document}
+
+% ================================================================= COVER
+\thispagestyle{empty}
+\vspace*{4mm}
+\noindent
+\begin{minipage}[c]{0.46\textwidth}\raggedright
+  \includegraphics[height=13mm]{logo-uai.png}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.46\textwidth}\raggedleft
+  \includegraphics[height=13mm]{logo-sfu.png}
+\end{minipage}
+
+\vspace{26mm}
+
+{\color{uaired}\rule{34mm}{2.2pt}}
+
+\vspace{7mm}
+
+{\fontsize{15}{18}\selectfont\color{muted}\textsc{Feasible operating region}\par}
+
+\vspace{4mm}
+
+{\hyphenpenalty=10000\exhyphenpenalty=10000\raggedright
+\fontsize{26}{31}\selectfont\bfseries
+Multiple aggregators\\ and fairness criteria\\ in the rolling-horizon OPF\par}
+
+\vspace{6mm}
+
+{\fontsize{13}{18}\selectfont\color{muted}
+Orchestration of the directional sweep, reduction of the computation time\\
+and the resulting mathematical formulation\par}
+
+\vspace{20mm}
+
+{\large\bfseries Ignacio Pérez Ortiz\par}
+\vspace{1.5mm}
+{\color{muted}Master of Science in Engineering\\
+Universidad Adolfo Ibáñez \quad\textbf{\textcolor{rule}{|}}\quad Collaboration with Simon Fraser University\par}
+
+\vspace{4mm}
+{\color{faint}30 July 2026\par}
+
+\vfill
+
+\begin{keybox}
+\textbf{Reading convention.} Everything that appears \nw{in red} is \nw{new}: it did not exist in the
+inherited formulation. The rest is reproduced unchanged and is included so that the model is
+explicit from beginning to end. Part~1 does not alter any equation --- it is exclusively
+orchestration and performance, and its output is bit-identical to that of the previous model.
+\end{keybox}
+
+\vspace{3mm}
+{\footnotesize\color{faint}
+Unbalanced three-phase current-injection OPF model, in AIMMS with CPLEX.
+Case study: low-voltage feeder, transformer TR9.\par}
+
+\newpage
+
+% ================================================================= PART 1
+\section{Rolling-horizon orchestration and computation time}
+
+The rolling horizon runs through 48 half-hour periods. At each ``now'' period the day is rotated so
+that \emph{now} is slot~1 and the \textbf{service block} $\tstar$ is slot~2; a committed dispatch is
+solved, it is executed, and 12 directions are swept to trace the region offered at $\tstar$. The
+formulation did not change: what changed is \emph{what is solved and how many times}.
+
+Both changes were found by profiling the existing sweep, and both are safe only because of how that
+sweep was already built: the 12 directions genuinely share one feasible region, and the un-rotated
+inputs are already frozen once per run. What changed is the placement of work that was reasonable
+when the sweep was written and no longer pays off in the configuration now used in production, a
+continuous QCP solved by barrier. Reviewed and agreed before pushing.
+
+\subsection{The loop, before and after}
+
+\begin{minipage}[t]{0.475\textwidth}
+{\small\textbf{Before} --- 25 solves and 13 loads per period}
+\vspace{2pt}\hrule height 0.4pt
+\vspace{4pt}
+{\footnotesize\ttfamily
+for each period $t$:\\
+\hspace*{2mm}load DB + Excel\\
+\hspace*{2mm}solve MinImports \hfill(1)\\
+\hspace*{2mm}execute slot 1, advance SOC\\
+\hspace*{2mm}for each direction $\theta_k$, $k=1..12$:\\
+\hspace*{6mm}\textcolor{uaired}{load DB + Excel}\\
+\hspace*{6mm}\textcolor{uaired}{solve MinImportsMaxReverseP}\\
+\hspace*{6mm}solve FOR\_Vertex($\theta_k$)\\
+}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.475\textwidth}
+{\small\textbf{Now} --- 13 solves and 1 load per period}
+\vspace{2pt}\hrule height 0.4pt
+\vspace{4pt}
+{\footnotesize\ttfamily
+load DB + Excel \textcolor{uaired}{(once per run)}\\
+for each period $t$:\\
+\hspace*{2mm}\textcolor{uaired}{light reset}\\
+\hspace*{2mm}solve MinImports \hfill(1)\\
+\hspace*{2mm}execute slot 1, advance SOC\\
+\hspace*{2mm}for each direction $\theta_k$, $k=1..12$:\\
+\hspace*{6mm}\textcolor{uaired}{light reset}\\
+\hspace*{6mm}solve FOR\_Vertex($\theta_k$)\\
+}
+\end{minipage}
+
+\vspace{6pt}
+
+From one period to the next \textbf{one single thing} is carried over: the realised state of charge
+$e_{b}^{0}$, which advances with the executed dispatch of slot~1 and comes out of the
+\emph{baseline}, not out of the sweep. The sweep is handed two: that $e_b^0$ and the dispatch of
+slot~1 \emph{fixed}, which guarantees that the offered region is reachable from what the batteries
+actually do.
+
+\subsection{Where the time went}
+
+The removed solve, $\min\ \mathrm{OF}^{\text{imp}+\text{rev}}$, ran once per direction.
+Its objective \textbf{does not contain the angle}, and within a period the 12 directions share
+exactly the same feasible region: same reset, same data rotation, same $e_b^0$ and the same fixed
+slot~1. Therefore
+
+\begin{keybox}
+The 12 solves of a period were \textbf{the same optimization problem} --- same matrix, same
+objective, same solution --- solved 12 times. Its purpose was to seed the vertex solve: the answer
+was kept only as the starting point (\emph{warm start}), and nothing else downstream read it.
+\end{keybox}
+
+\subsection{The interventions}
+
+\begin{description}[leftmargin=1.6em,itemsep=3pt,topsep=3pt]
+  \item[\nw{(E)} Splitting the loader.] The reading of the database and Excel was split into a
+  \emph{static} half, which runs once per run, and a per-solve \emph{reset} that restores only the
+  variables that the emptying destroys: the fixing of $q_{b,t}$, the flat voltage seed and the
+  linearization point. Data loads per period: $13 \rightarrow 1$.
+  \item[\nw{(A)} Removal of the per-direction warm-start solve.] It was suppressed. Solves per
+  period: $25 \rightarrow 13$. It remains behind a switch that restores the previous behaviour, and
+  it is kept \emph{active} in the MIQCP validations, where the start channel is real.
+  \item[\nw{(C)} Fix in the diagnostic passes.] On splitting the loader, the retries of failed
+  directions stopped inheriting the experimental SOC floor; it is re-applied explicitly so that the
+  retry runs under the same condition as the direction that failed.
+\end{description}
+
+\subsection{Interior point: why the warm start did not help here}
+
+\textbf{What a \emph{warm start} is.} Handing the solver a starting point already close to the
+answer, so that less ground is left for it to cover. It is standard practice and it usually helps.
+
+\textbf{Why it did not help here.} It depends on the method, and the two available ones look for the
+optimum in opposite ways:
+
+\begin{center}\small
+\begin{tabular}{@{}p{0.20\textwidth} p{0.36\textwidth} p{0.36\textwidth}@{}}
+\toprule
+& \textbf{Simplex} & \textbf{Barrier (interior point)}\\
+\midrule
+Where it advances & along the \textbf{edge}, jumping from vertex to vertex & through the
+\textbf{interior}, following the central path\\
+\addlinespace[2pt]
+Ideal starting point & a vertex close to the optimum --- a basis & a \textbf{well-centred} point,
+far from every active constraint\\
+\addlinespace[2pt]
+Effect of starting on the boundary & it brings it closer: few jumps are missing & it
+\textbf{penalises} it: it must first re-centre\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The point that the code handed over was the optimum of \emph{another} problem, the minimum-cost one.
+And the optimum of a convex program with a linear objective is, by construction, an \textbf{extreme
+point}: stuck against the boundary, with several active constraints. It is exactly what an
+interior-point method does not want --- hence the name of the method: there is a barrier term that
+pushes it \emph{away} from the constraints, and starting on one of them forces that work to be
+undone before it can advance. In the corridor image: barrier walks down the middle, and it was being
+handed the point flattened against the wall.
+
+\textbf{The change.} Suppress that solve. \emph{No equation was touched.} The vertex solve now
+starts from the flat point that the reset leaves --- all voltages at their balanced nominal value
+---, comfortably interior and with no active constraints, which is just what barrier needs.
+
+\textbf{Measured result:} $1.27$ s $\rightarrow$ $0.62$ s per vertex solve. \emph{Half, from no
+longer helping it.}
+
+\begin{keybox}
+\textbf{An honest nuance about the mechanism.} What is verified is the \emph{measurement}:
+2.05$\times$ per solve, with bit-identical output. The explanation of the badly centred point is the
+best supported one, but it has a known tension: on the continuous path the solver does not receive a
+basis --- that channel exists only on the integer path --- and the first solve, also a barrier one,
+does not produce one to hand over either. That the difference is measured all the same indicates
+that something of the previous state has an influence through a route that was not identified. The
+\emph{what} is proven; the \emph{why} is a supported hypothesis, not a verified fact.
+\end{keybox}
+
+Note that, even accepting the warm-start theory, \textbf{11 of the 12 solves were redundant
+anyway}: it was enough to solve it once per period and reuse the point. Both programs declare the
+same sets of constraints and variables, so that they generate a row-for-row identical matrix and
+differ only in the objective column --- which is why removing one does not alter the other.
+
+Numerical options kept: feasibility tolerance $10^{-3}$, barrier convergence tolerance
+$10^{-2}$, aggressive scaling, and the compact generator of quadratic programs --- needed because
+the inherited generator expanded the quadratics and exhausted the memory towards period
+37 of 48.
+
+\subsection{Measured results}
+
+\begin{center}\small
+\begin{tabular}{l r r r}
+\toprule
+& \textbf{Before} & \textbf{Now} & \textbf{Factor} \\
+\midrule
+\multicolumn{4}{l}{\itshape Micro network --- TR9\_two, 12 batteries, 48 periods $\times$ 12 directions}\\
+Total time & 41\,m\,22\,s & 10\,m\,12\,s & $4.06\times$ \\
+Vertex solves & 731.0 s & 358.7 s & $2.05\times$ \\
+Per solve & 1.27 s & 0.62 s & \\
+\addlinespace
+\multicolumn{4}{l}{\itshape Production --- TR9, 90 prosumers}\\
+Total time & $\sim$28 h & \textbf{3 h 40 m} & $\mathbf{\sim7.6\times}$ \\
+Vertex solves & 30\,213.4 s & 8\,440.7 s & $3.58\times$ \\
+Per solve & 52.45 s & 14.65 s & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{keybox}
+\textbf{Equivalence verified.} $\max|\Delta\,\mathrm{proj}| = 0.000\mathrm{e}{+}00$ in all four
+runs; 576/576 optimal vertices; byte-identical state-of-charge file; the six metrics of the
+deliverable reproduced exactly. The acceptance criterion is the \textbf{projection}
+$\theta^\top(P,Q)$, not the equality of $(P,Q)$: a flat face perpendicular to the sweep direction
+turns the argument of the maximum into a segment, and the returned point may legitimately slide along it.
+\end{keybox}
+
+\vspace{2pt}
+The real bottleneck was not the data reading but the \textbf{generation of the mathematical
+program}: on TR9 each generation of a QCP with 90 batteries and 341 buses costs of the order of
+30\,s, and \nw{(A)} removes 12 generations per period on top of 12 solves.
+
+\newpage
+
+% ================================================================= PART 2
+\section{Formulation: multiple aggregators and fairness at two levels}
+
+Unbalanced three-phase current-injection model, with linearization of the load and generation
+injections around a point $(\vre_0,\vim_0)$ and exact quadratic constraints for maximum voltage and
+inverter capacity. Everything in \nw{red} is new.
+
+\subsection{Sets and indices}
+
+\begin{center}\small
+\begin{tabular}{@{}l l@{\hspace{2.2em}} l l@{}}
+$\Nset$ & buses $n$ & $\Bset$ & batteries / prosumers $b$\\
+$\Lset$ & lines $\ell$ & $\Fset=\{1,2,3\}$ & phases $f,h$\\
+$\Tset$ & transformers $k$ & $\Hset=\{1,\dots,48\}$ & periods $t$\\
+$\Dset$ & loads with PV $d$ & \nw{$\Aset$} & \nw{aggregators $\alpha$}\\
+\end{tabular}
+\end{center}
+
+$\tstar$ denotes the service block; in the rolling horizon $\tstar = 2$ after the rotation.
+\nw{$a(b)\in\Aset$} is \nw{the aggregator of prosumer $b$}, an input datum.
+
+\subsection{Objective function of the directional sweep}
+
+For each direction $\theta_k = 30^\circ(k-1)$, $k=1,\dots,12$:
+
+\begin{equation}
+\min\ \ -\bigl(\cos\theta_k\, P_{\tstar} + \sin\theta_k\, Q_{\tstar}\bigr)
+\end{equation}
+
+with the power at the connection point, positive from grid towards feeder,
+
+\begin{align}
+P_t &= \sum_{g}\ \vre_{\mathrm{pcc},f(g)}\, \ire_{g,t} + \vim_{\mathrm{pcc},f(g)}\, \iim_{g,t}\\
+Q_t &= \sum_{g}\ \vim_{\mathrm{pcc},f(g)}\, \ire_{g,t} - \vre_{\mathrm{pcc},f(g)}\, \iim_{g,t}
+\end{align}
+
+Minimising $-\theta_k^\top(P,Q)$ evaluates the \emph{support function} of the feasible set in the
+direction $\theta_k$; by rotating $\theta$ the boundary of the region is traced.
+
+\subsection{Network}
+
+The voltage is anchored at the reference bus $r$, fixed and balanced, and it is what sets the origin
+of the whole system:
+\begin{equation}
+\vre_{r,f,t} = \begin{cases}1 & f=1\\ -\tfrac12 & f\in\{2,3\}\end{cases}
+\qquad
+\vim_{r,f,t} = \begin{cases}0 & f=1\\ -\tfrac{\sqrt3}{2} & f=2\\ +\tfrac{\sqrt3}{2} & f=3\end{cases}
+\end{equation}
+
+Current balance at each bus and phase:
+\begin{equation}
+\sum_{g\in n,f}\!\ire_{g,t} + \!\!\sum_{\ell:\,\mathrm{to}(\ell)=n}\!\!\ire_{\ell,f,t}
++ \!\!\sum_{k:\,\mathrm{to}(k)=n}\!\!\ire_{k,f,n,t}
+- \!\!\sum_{\ell:\,\mathrm{from}(\ell)=n}\!\!\ire_{\ell,f,t}
+- \!\!\sum_{k:\,\mathrm{from}(k)=n}\!\!\ire_{k,f,n,t}
+= \!\!\sum_{d\in n,f}\!\!\bigl(\ireL_{d,t}-\ireG_{d,t}\bigr) + \!\!\sum_{b\in n,f}\!\!\ire_{b,t}
+\end{equation}
+and its analogue in the imaginary part. Voltage drop on lines, with mutual coupling:
+\begin{align}
+\vre_{\mathrm{from}(\ell),f,t}-\vre_{\mathrm{to}(\ell),f,t}
+&= \sum_{h\neq f}\!\bigl(R^{m}_{\ell}\ire_{\ell,h,t}-X^{m}_{\ell}\iim_{\ell,h,t}\bigr)
+ + R^{s}_{\ell}\ire_{\ell,f,t}-X^{s}_{\ell}\iim_{\ell,f,t}\\
+\vim_{\mathrm{from}(\ell),f,t}-\vim_{\mathrm{to}(\ell),f,t}
+&= \sum_{h\neq f}\!\bigl(X^{m}_{\ell}\ire_{\ell,h,t}+R^{m}_{\ell}\iim_{\ell,h,t}\bigr)
+ + X^{s}_{\ell}\ire_{\ell,f,t}+R^{s}_{\ell}\iim_{\ell,f,t}
+\end{align}
+
+Dy transformers with tap ratio $\tau_{k,t}$, coupling phase $f$ with the next two:
+\begin{equation}
+\vre_{\mathrm{from}(k),f,t} = -\tfrac{\nu_k \tau_{k,t}}{3}\Bigl(2\vre_{\mathrm{to}(k),f\oplus1,t}+\vre_{\mathrm{to}(k),f\oplus2,t}
++ R_k\bigl(2\ire_{k,f\oplus1,\cdot,t}+\ire_{k,f\oplus2,\cdot,t}\bigr) - X_k\bigl(2\iim_{k,f\oplus1,\cdot,t}+\iim_{k,f\oplus2,\cdot,t}\bigr)\Bigr)
+\end{equation}
+The $\vim$ equation is the same with $R_k$ acting on the imaginary currents and $+X_k$ on the real
+ones. The primary--secondary current relation is
+$\ire_{k,f,\mathrm{from},t}\,\nu_k\tau_{k,t} = \ire_{k,f,\mathrm{to},t}-\ire_{k,f\oplus1,\mathrm{to},t}$,
+and analogous in $\iim$. In transformers without on-load tap changing the tap is fixed,
+$\tau_{k,t}=\tau_k^{\mathrm{fix}}$, so that the product $\tau_{k,t}\,v$ introduces no
+nonlinearity: the model remains affine in the injections.
+
+Voltage limits --- upper exact, lower on the first-order approximation
+$\widehat{V^2}$ --- and thermal limits:
+\begin{align}
+(\vre_{n,f,t})^2+(\vim_{n,f,t})^2 &\le \overline{V}_n^{\,2},
+&\widehat{V^2}_{n,f,t} &\ge \underline{V}_n^{\,2}\\
+(\ire_{\ell,f,t})^2+(\iim_{\ell,f,t})^2 &\le \overline{I}_\ell^{\,2},
+&(\ire_{k,f,\mathrm{from},t})^2+(\iim_{k,f,\mathrm{from},t})^2 &\le \overline{I}_k^{\,2}
+\end{align}
+where $\widehat{V^2}_{n,f,t} = (\vre_0)^2+(\vim_0)^2+2\vre_0(\vre-\vre_0)+2\vim_0(\vim-\vim_0)$.
+The load and PV injections are linearized in the same way, around $(\vre_0,\vim_0)$:
+\begin{equation}
+\ireL_{d,t} = \frac{P^0_{d,t}\vre_0 + Q^0_{d,t}\vim_0}{(\vre_0)^2+(\vim_0)^2}
++ \frac{\partial \ireL}{\partial \vre}\bigl(\vre-\vre_0\bigr)
++ \frac{\partial \ireL}{\partial \vim}\bigl(\vim-\vim_0\bigr)
+\end{equation}
+
+\subsection{Batteries}
+
+With $p_{b,t}$ the net active power of prosumer $b$ ($p_{b,t}>0$ charging, $p_{b,t}<0$ discharging)
+and $q_{b,t}$ the reactive power of the inverter:
+\begin{align}
+p_{b,t} &= \pch_{b,t}-\pdis_{b,t}, &\pch_{b,t},\ \pdis_{b,t} &\in[0,\overline{P}_b]\\
+p_{b,t} &= \vre_{0,b,t}\,\ire_{b,t}+\vim_{0,b,t}\,\iim_{b,t},
+&q_{b,t} &= -\vre_{0,b,t}\,\iim_{b,t}+\vim_{0,b,t}\,\ire_{b,t}\\
+e_{b,t} &= e^0_b + \frac{\Delta t}{E_b}\sum_{\tau\le t}\Bigl(\eta^{c}_b \pch_{b,\tau}-\frac{\pdis_{b,\tau}}{\eta^{d}_b}\Bigr),
+&\underline{\sigma}_b &\le e_{b,t}\le \overline{\sigma}_b
+\end{align}
+where $e_{b,t}$ is the state of charge as a fraction and $\underline{\sigma}_b,\overline{\sigma}_b$
+its bounds --- distinct from the capacity $E_b$, which appears in the denominator and is in units of energy.
+Inverter capacity at the service block (exact quadratic cone) and cyclic return of the
+state of charge over the window:
+\begin{equation}
+p_{b,\tstar}^{2}+q_{b,\tstar}^{2}\ \le\ \overline{P}_b^{\,2},
+\qquad
+\Bigl|\sum_{t\in\Hset}\Bigl(\eta^{c}_b \pch_{b,t}-\frac{\pdis_{b,t}}{\eta^{d}_b}\Bigr)\Bigr| \le \beta E_b/\Delta t
+\end{equation}
+Reactive power is released only at $\tstar$: $q_{b,t}=0$ for $t\neq\tstar$. In the sweep, the
+dispatch of slot~1 is fixed to the committed value: $\pch_{b,1}=\hat{p}^{c}_b$,
+$\pdis_{b,1}=\hat{p}^{d}_b$. The model also keeps the inherited constraint
+$p_{b,\tstar}\le \kappa\,\overline{P}_b$, where $\kappa=0$ reproduces the assumption of the paper
+--- batteries only discharging at the service block --- and $\kappa=1$ is the production
+configuration, bidirectional; with $\kappa=1$ the constraint is dominated by
+$\pch_{b,\tstar}\le\overline{P}_b$ and is not binding.
+
+\subsection{\nw{Fairness: proportional criterion C1}}
+
+\begin{nuevo}
+\textbf{\nw{New.}} Let \nw{$s_b$} be the nominal capacity of prosumer $b$ --- \nw{$s_b=\overline{P}_b$}
+is adopted, which in this model is at once the power of the battery and the radius of the
+circle of inverter capacity. Let \nw{$\zeta\in\mathbb{R}$} be a \textbf{single free scalar per
+solve}, interpretable as the \emph{utilisation factor} of the fleet. With
+\nw{$m\in\{0,1,2\}$} the fairness level and \nw{$\chi\in\{0,1\}$} the activation gate:
+
+\vspace{-3mm}
+\begin{align}
+\nw{p_{b,\tstar}} &\ \nw{=\ \zeta\, s_b} &&\nw{\forall b\in\Bset,}
+&&\nw{\text{if } m=1 \ \text{and}\ \chi=1} \label{eq:c1p}\\[2pt]
+\nw{\sum_{b:\,a(b)=\alpha} p_{b,\tstar}} &\ \nw{=\ \zeta \!\!\sum_{b:\,a(b)=\alpha}\!\! s_b}
+&&\nw{\forall \alpha\in\Aset,} &&\nw{\text{if } m=2 \ \text{and}\ \chi=1} \label{eq:c1a}
+\end{align}
+\end{nuevo}
+
+\textbf{A single degree of freedom.} The criterion is written with \emph{one} scalar $\zeta$, which
+removes \emph{one} degree of freedom. Writing it as $n-1$ pairwise equalities would remove $n-1$ and
+would overestimate the cost of fairness by a factor close to two.
+
+\textbf{Scope of each level.} Level~2 constrains only the sums per aggregator; the internal split
+of each aggregator remains free. The levels are alternative, not cumulative.
+
+\textbf{Consequence of the sign.} Since $p_{b,\tstar}=\pch-\pdis$, a single $\zeta$ forces the whole
+fleet to the same sign: \emph{it forbids one battery to charge while another discharges}. It is the
+strictest reading of the criterion, and that is why C1 gives the \textbf{upper bound} on the cost of fairness.
+
+\textbf{Feasibility.} $\zeta=0$ is always admissible, so that C1 \emph{contracts} the region and
+never makes it infeasible. With $s_b=\overline{P}_b$ the implied bound is $|\zeta|\le1$.
+
+\subsection{\nw{The gate $\chi$}}
+
+$\chi$ takes the value $1$ in the 12 directional solves and $0$ in the solve of the committed
+dispatch. The reason is not one of implementation:
+
+\begin{keybox}
+$\tstar$ is slot~2 \emph{also} in the baseline, so that without the gate
+\eqref{eq:c1p}--\eqref{eq:c1a} would constrain the dispatch executed in slot~1, the trajectory of
+the state of charge would diverge from the case without fairness, and the comparison would measure
+two mixed effects: the contraction of the region, and a different battery state. Moreover the
+objective of the baseline contains no service term at $\tstar$ --- by construction $w_2(\tstar)=0$
+--- so imposing a market rule there would constrain an agent that obtains no value at all from
+participating in it.
+\end{keybox}
+
+\subsection{Cases and nesting}
+
+\begin{center}\small
+\begin{tabular}{c l l}
+\toprule
+$m$ & Case & Constraint active at $\tstar$\\
+\midrule
+$0$ & No fairness (reference) & --- no row generated\\
+$1$ & \nw{Proportional between prosumers} & \nw{\eqref{eq:c1p}}\\
+$2$ & \nw{Proportional between aggregators} & \nw{\eqref{eq:c1a}}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+With $m=0$ both domains are empty: no row is generated and $\zeta$ remains as a free column with no
+coefficients, which presolve removes. That is the reason why the reference case reproduces the
+previous model exactly.
+
+\textbf{Nesting.} Level~1 implies level~2: by summing \eqref{eq:c1p} over the prosumers of
+an aggregator, \eqref{eq:c1a} is obtained with the same $\zeta$. Therefore
+\begin{equation}
+\mathcal{X}(m{=}1)\ \subseteq\ \mathcal{X}(m{=}2)\ \subseteq\ \mathcal{X}(m{=}0)
+\quad\Longrightarrow\quad
+\mathrm{proj}_{\theta}^{(1)}\ \le\ \mathrm{proj}_{\theta}^{(2)}\ \le\ \mathrm{proj}_{\theta}^{(0)}
+\ \ \forall\theta,\ \forall t
+\end{equation}
+which is the acceptance test: a constraint cannot enlarge the feasible set, and any
+violation is a defect and not a result.
+
+\subsection{Results on the micro network}
+
+Full verification on the 576 vertices: the reference case reproduces the previous model with
+exact $\Delta=0$ and byte-identical state of charge; the nesting holds without exception; and the
+constraint is satisfied with a maximum residual of $10^{-4}$, an order stricter than the solver's own
+feasibility tolerance.
+
+\begin{center}\small
+\begin{tabular}{l r r}
+\toprule
+& \textbf{$m=1$ prosumers} & \textbf{$m=2$ aggregators}\\
+\midrule
+Vertices with contraction & 297 / 576 \ (51.6\,\%) & 272 / 576 \ (47.2\,\%)\\
+Maximum projection loss & 38.3 kW & 16.1 kW\\
+Area loss --- median & 22.2\,\% & 7.5\,\%\\
+Area loss --- maximum & \textbf{87.3\,\%} & 23.1\,\%\\
+Maximum $|\zeta|$ & 1.000 & 1.000\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{keybox}
+\textbf{Two observations.} \emph{(i)} The loss of \emph{area} is much larger than that of projection
+per direction, whose median is practically nil: where the boundary has a flat face
+perpendicular to the sweep direction, the optimum slides to a fair point at no cost in that
+direction. Both metrics must be reported. \emph{(ii)} Scaling a two-dimensional region by $\gamma$
+scales its area by $\gamma^2$: an area loss of 87\,\% is equivalent to a linear shrinkage to
+$\sim$36\,\%, not to 13\,\%.
+\end{keybox}
+
+The fleet is homogeneous --- $\overline{P}_b = 3.6$ kW in the 1,216 batteries --- so that on this
+data the proportional criterion coincides numerically with the egalitarian one. That does not make
+it innocuous: the network is radial, and two prosumers with the same battery at different electrical
+positions cannot inject the same amount without producing different voltage rises. The
+heterogeneity that makes C1 bind is \textbf{locational}, not equipment.
+
+\end{document}

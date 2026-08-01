@@ -5,6 +5,13 @@ the optimization**: no constraint was added or removed, no objective was modifie
 production TR9 case the run went from **~28 h to 3 h 40 min** and every recorded number is
 unchanged.
 
+Both were found by profiling the existing sweep. Both are safe only because of how the sweep was
+already built — the 12 directions genuinely share one feasible region, and the un-rotated inputs are
+already frozen once per run. What changed is the placement of work that was reasonable when the
+sweep was written and no longer pays off in the configuration now used in production (a continuous
+QCP solved by barrier). **Reviewed and agreed before pushing.** The A/B evidence for "nothing moved"
+is in §3.
+
 **Scope:** the per-transformer path `RunTRk` → `RunTrafoFOR(tag)` → `RunFOR_Rolling` in
 `MainProject/OPF.ams` (section `RollingHorizonFOR`), which writes `FOR_rolling_<tag>.csv` and
 `FOR_rolling_soc_<tag>.csv`.
@@ -36,7 +43,7 @@ solve FOR_VertexCont
 
 That is **25 solves and 13 full data loads per period**.
 
-### 1.1 The redundant solve
+### 1.1 The per-direction warm-start solve
 
 `run MainExecution` solves `MinImportsMaxReverseP`. That program and `FOR_VertexCont` both declare
 `Constraints: NotTobeExcluded_constraints` and `Variables: NotTobeExcluded_variables`, so they
@@ -44,7 +51,8 @@ generate a **row-for-row identical matrix** and differ only in the objective col
 value and status go to `ConvFlag`/`ConvTime`, neither of which the sweep reads or writes to CSV —
 only its variable levels survived, as a starting point for the vertex solve.
 
-Two things make those 12 solves pure overhead:
+Its purpose was to seed the vertex solve with a starting point. Two things prevent it from doing so
+in the production configuration:
 
 - **`OFminImportsmaxReverseP` does not depend on the sweep angle.** Combined with the shared
   feasible region, the 12 `MainExecution` solves of one period are *the same optimization problem
@@ -55,11 +63,12 @@ Two things make those 12 solves pure overhead:
   takes an advanced basis instead, and the first solve — being barrier itself — produces no basis
   to hand over.
 
-Measured, it was worse than neutral: the cost-min optimum is an extreme point of the feasible set,
-hugging the boundary and poorly centred, which is the opposite of what an interior-point method
-wants. Removing it makes the remaining vertex solves **2.0–3.6× faster** (§3).
+Measured, the starting point it left also slowed the vertex solve down: the cost-min optimum is an
+extreme point of the feasible set, hugging the boundary and poorly centred, which is the opposite of
+what an interior-point method wants. Removing it makes the remaining vertex solves **2.0–3.6×
+faster** (§3).
 
-### 1.2 The redundant data load
+### 1.2 The repeated data load
 
 `Load_data_dsn` mixed **static reads** — the Access tables and `OpData.xls`, identical across all
 directions and all periods — with per-solve resets that are genuinely needed (the `Qinv` fix, the
@@ -213,19 +222,36 @@ and sees neither the removed solve nor the scaffolding.
 
 ---
 
-## 5. Options not taken
+## 5. Runtime of the fairness runs
 
-- **Solver threads and algorithm.** No explicit `option Threads` is set; the QCP solves use
-  `method := 'deterministic concurrent'`. Worth confirming from the solver log how many threads are
-  actually used. Bounded gain, nearly free, results unchanged.
-- **Parallelising the sweep.** The 12 directions are independent, the periods are not (sequential
-  SOC). AIMMS runs the `for` loop in one process, so this needs multiple instances or a redesign.
-  The easier parallel axis is already available: the per-transformer runs `RunTR1`…`RunTR9` are
-  independent and can be launched concurrently. Now that the solver is the dominant cost, this is
-  the main remaining avenue.
-- **Reusing the generated math program across the 12 directions.** Their constraint systems are
-  identical; only the objective coefficients change. Generating once per period would avoid
-  rebuilding the program 12 times.
+Added later, on top of the accelerated sweep. **This section is about cost, not correctness:** the
+fairness constraints (`FairMode = 1` / `2`, section `BatteryModel` → `Fairness`) *do* change the
+results, by design — see `results/TR9_fairness.md`. Nothing in sections 1–4 is affected; case A
+below is the same run measured in §3.2, re-used unchanged.
 
-CSV output is already append-style: `FOR_RollCSV` and `FOR_RollSOCCSV` are opened once, written
-line by line, and `putclose`d at the end. No change needed there.
+TR9, study case `v1_baseline`, 48 periods × 12 directions = 576 vertices each.
+
+| Run | Wall-clock | Vertex solve time | solver / wall | median | max | Status |
+|---|---|---|---|---|---|---|
+| **A** — `FairMode=0` (reference) | 3 h 40 min | 8,440.7 s | 64 % | 14.50 s | 22.42 s | 576/576 Optimal |
+| **L1** — `FairMode=1`, per prosumer | 3 h 49 min 12 s | 8,440.5 s (**+0.0 %**) | 61.4 % | 14.49 s | 23.59 s | 576/576 Optimal |
+| **L2** — `FairMode=2`, per aggregator | 4 h 47 min 57 s | 10,118.6 s (**+19.9 %**) | 58.6 % | 15.59 s | 46.13 s | 576/576 Optimal |
+
+Rebuild the table with `scripts/run_timing.py` (sum of the CSV `time` column, plus wall-clock from
+the file mtime and `--inicio`). The same caveat as §4 applies: that column is
+`FOR_VertexCont.SolutionTime` only.
+
+**Level 1 is free; level 2 costs 20 % — although level 2 constrains less.** Level 1 adds 90 equality
+rows and collapses the fleet to **one effective degree of freedom** (`x_i = zeta * s_i`), which
+makes the barrier's job easier: the vertex solve time is unchanged to the first decimal and the
+worst vertex moves by 1.2 s. Level 2 adds only **3** equality rows and leaves all 90 columns free
+inside them, so the feasible set stays 90-dimensional but heavily coupled — a large degenerate set,
+which is the expensive case for an interior-point method. Its worst vertex nearly doubles, 22.4 s
+to 46.1 s.
+
+Case A was not re-run under the fairness build. With `FairMode = 0` both constraints have an empty
+`IndexDomain` and generate zero rows, verified on the micro bed with `max |delta proj| = 0` and a
+byte-identical SOC CSV — the same acceptance criterion used in §3.
+
+The `FairMode = 0` production path therefore carries no measurable cost from this addition, and the
+figures in §3.2 remain the reference for it.

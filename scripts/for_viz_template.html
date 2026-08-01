@@ -1,0 +1,686 @@
+<title>Feasible operating region under fairness — __BED_TAG__</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:        #f9f9f7;
+    --surface:     #fcfcfb;
+    --ink:         #0b0b0b;
+    --ink-2:       #52514e;
+    --muted:       #898781;
+    --grid:        #e1e0d9;
+    --axis:        #c3c2b7;
+    --hairline:    rgba(11,11,11,0.10);
+    --s-a:         #2a78d6;
+    --s-l1:        #eb6834;
+    --s-l2:        #1baf7a;
+    --fill:        0.10;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+      --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+      --hairline: rgba(255,255,255,0.10);
+      --s-a: #3987e5; --s-l1: #d95926; --s-l2: #199e70; --fill: 0.14;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+    --hairline: rgba(255,255,255,0.10);
+    --s-a: #3987e5; --s-l1: #d95926; --s-l2: #199e70; --fill: 0.14;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header { margin-bottom: 24px; }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.09em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin: 0 0 6px;
+  }
+  h1 { font-size: 28px; line-height: 1.2; margin: 0 0 8px; text-wrap: balance; font-weight: 620; }
+  .sub { margin: 0; color: var(--ink-2); font-size: 14px; max-width: 68ch; }
+
+  .panel { background: var(--surface); border: 1px solid var(--hairline); border-radius: 6px; padding: 18px; }
+
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 20px; margin-bottom: 16px; }
+  .ctl-label {
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; white-space: nowrap;
+  }
+  .slider-group { display: flex; align-items: center; gap: 12px; flex: 1 1 340px; min-width: 260px; }
+  input[type="range"] { flex: 1; accent-color: var(--s-a); height: 24px; cursor: pointer; }
+  input[type="range"]:focus-visible { outline: 2px solid var(--s-a); outline-offset: 3px; }
+  .tval { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 15px; font-weight: 600; min-width: 10ch; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 5px;
+    border: 1px solid var(--hairline); background: var(--surface); color: var(--ink); cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--axis); }
+  button:focus-visible { outline: 2px solid var(--s-a); outline-offset: 2px; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .seg { display: inline-flex; border: 1px solid var(--hairline); border-radius: 5px; overflow: hidden; }
+  .seg button { border: none; border-radius: 0; padding: 6px 13px; }
+  .seg button + button { border-left: 1px solid var(--hairline); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+
+  .toggles { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .tg {
+    display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px;
+    border-radius: 5px; border: 1px solid var(--hairline); background: var(--surface);
+    cursor: pointer; font-size: 13px; user-select: none;
+  }
+  .tg:focus-visible { outline: 2px solid var(--s-a); outline-offset: 2px; }
+  .tg[aria-pressed="false"] { opacity: 0.42; }
+  .swatch { width: 22px; height: 3px; border-radius: 2px; flex: none; }
+
+  .main { display: grid; grid-template-columns: minmax(0,1fr) 258px; gap: 18px; align-items: start; }
+  @media (max-width: 880px) { .main { grid-template-columns: minmax(0,1fr); } }
+
+  .plot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 2px; }
+  .plot-title { font-size: 15px; font-weight: 600; margin: 0; }
+  .plot-note { font-size: 12px; color: var(--muted); }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .gridline { stroke: var(--grid); stroke-width: 1; }
+  .axisline { stroke: var(--axis); stroke-width: 1; }
+  .zeroline { stroke: var(--ink-2); stroke-width: 1; }
+  .ticklabel { font-family: var(--mono); font-size: 10px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  .axistitle { font-size: 11px; fill: var(--ink-2); font-weight: 600; }
+  .reg-ring { fill: none; stroke: var(--surface); stroke-width: 5; stroke-linejoin: round; }
+  .reg { stroke-width: 2; stroke-linejoin: round; }
+  .vtx-ring { fill: var(--surface); }
+  .dlabel { font-size: 11px; font-weight: 650; }
+  .traj { fill: none; stroke: var(--axis); stroke-width: 1.5; }
+
+  .tiles { display: flex; flex-direction: column; gap: 10px; }
+  .tile { background: var(--surface); border: 1px solid var(--hairline); border-radius: 6px; padding: 12px 14px; }
+  .tile-k {
+    font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; margin-bottom: 3px;
+  }
+  .tile-v { font-size: 22px; font-weight: 620; line-height: 1.15; }
+  .tile-u { font-size: 12px; color: var(--ink-2); font-weight: 400; }
+  .tile-sub { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
+
+  .tl-wrap { margin-top: 18px; }
+  .tl-hit { cursor: pointer; }
+  .tl-cursor { stroke: var(--ink-2); stroke-width: 1; }
+
+  .tip {
+    position: fixed; pointer-events: none; z-index: 20; opacity: 0;
+    background: var(--surface); border: 1px solid var(--hairline); border-radius: 6px;
+    padding: 9px 11px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+    transition: opacity .09s; min-width: 172px;
+  }
+  .tip-h { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .tip-row { display: flex; align-items: center; gap: 7px; margin-top: 3px; }
+  .tip-v { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 650; margin-left: auto; }
+  .tip-n { color: var(--ink-2); font-size: 11px; }
+
+  .banner {
+    margin-top: 12px; padding: 10px 13px; border-radius: 5px;
+    border: 1px solid var(--hairline); background: var(--page);
+    font-size: 12.5px; color: var(--ink-2);
+  }
+  details { margin-top: 18px; }
+  summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 6px 0; }
+  summary:focus-visible { outline: 2px solid var(--s-a); outline-offset: 2px; }
+  .tbl-scroll { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; font-size: 12px; width: 100%; min-width: 640px; }
+  th, td {
+    text-align: right; padding: 5px 10px; border-bottom: 1px solid var(--hairline);
+    font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap;
+  }
+  th { color: var(--muted); font-weight: 600; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; }
+  th:first-child, td:first-child { text-align: left; }
+  .grp { border-left: 1px solid var(--hairline); }
+
+  footer { margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--hairline); font-size: 12px; color: var(--muted); }
+  footer p { margin: 0 0 8px; max-width: 80ch; }
+  code { font-family: var(--mono); font-size: 0.92em; color: var(--ink-2); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Stage 0 · proportional C1 criterion · __BED_SHORT__</p>
+  <h1>How much the feasible operating region shrinks when fairness is imposed</h1>
+  <p class="sub">
+    Feasible operating region at the PCC for the service slot, over the course of the day. Three runs
+    of the same model: no fairness, fairness between prosumers, and fairness between aggregators. The
+    axes are fixed in both views: nothing rescales when the slider moves.
+  </p>
+</header>
+
+<div class="controls panel">
+  <div class="slider-group">
+    <span class="ctl-label">Period</span>
+    <input type="range" id="t" min="1" max="48" value="1" step="1" aria-label="Half-hour period, 1 to 48">
+    <span class="tval" id="tlab">01 · 00:00</span>
+  </div>
+  <button id="play" aria-pressed="false">Play</button>
+  <div style="display:flex;align-items:center;gap:9px">
+    <span class="ctl-label">Region</span>
+    <span class="seg" role="group" aria-label="Which region is shown">
+      <button id="v-dev" aria-pressed="true">Batteries only</button>
+      <button id="v-abs" aria-pressed="false">Whole network</button>
+    </span>
+  </div>
+  <div class="toggles" role="group" aria-label="Visible cases">
+    <span class="tg" role="button" tabindex="0" aria-pressed="true" data-c="A">
+      <span class="swatch" style="background:var(--s-a)"></span>No fairness</span>
+    <span class="tg" role="button" tabindex="0" aria-pressed="true" data-c="L1">
+      <span class="swatch" style="background:var(--s-l1)"></span>Prosumers</span>
+    <span class="tg" role="button" tabindex="0" aria-pressed="true" data-c="L2">
+      <span class="swatch" style="background:var(--s-l2)"></span>Aggregators</span>
+  </div>
+</div>
+
+<div class="main">
+  <div class="panel">
+    <div class="plot-head">
+      <h2 class="plot-title" id="ptitle">What the batteries can do</h2>
+      <span class="plot-note" id="pnote">1:1 scale · fixed axes</span>
+    </div>
+    <svg id="pq" viewBox="0 0 560 490" role="img" aria-labelledby="pqdesc"></svg>
+    <p id="pqdesc" class="plot-note" style="margin:8px 0 0"></p>
+    <div class="banner" id="banner" hidden></div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile">
+      <div class="tile-k">Area lost · prosumers</div>
+      <div class="tile-v" style="color:var(--s-l1)" id="k-l1">—</div>
+      <div class="tile-sub" id="k-l1s">—</div>
+    </div>
+    <div class="tile">
+      <div class="tile-k">Area lost · aggregators</div>
+      <div class="tile-v" style="color:var(--s-l2)" id="k-l2">—</div>
+      <div class="tile-sub" id="k-l2s">—</div>
+    </div>
+    <div class="tile">
+      <div class="tile-k">Area without fairness</div>
+      <div class="tile-v" id="k-a">—<span class="tile-u"> kW·kVAr</span></div>
+      <div class="tile-sub">reference for this period</div>
+    </div>
+    <div class="tile">
+      <div class="tile-k">Utilisation ζ · prosumers</div>
+      <div class="tile-v" id="k-z">—</div>
+      <div class="tile-sub">max across the 12 directions</div>
+    </div>
+  </div>
+</div>
+
+<div class="tl-wrap panel">
+  <div class="plot-head">
+    <h2 class="plot-title">Area loss over the course of the day</h2>
+    <span class="plot-note">click to jump to a period</span>
+  </div>
+  <svg id="tl" viewBox="0 0 1120 190" role="img"
+       aria-label="Percentage area loss of the region per period, for the two fairness levels"></svg>
+</div>
+
+<details>
+  <summary>Show the 12 vertices of the selected period (table)</summary>
+  <div class="tbl-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2">Direction</th>
+          <th colspan="2" class="grp">No fairness</th>
+          <th colspan="2" class="grp">Prosumers</th>
+          <th colspan="2" class="grp">Aggregators</th>
+          <th colspan="2" class="grp">Projection loss</th>
+        </tr>
+        <tr>
+          <th class="grp">P</th><th>Q</th><th class="grp">P</th><th>Q</th>
+          <th class="grp">P</th><th>Q</th><th class="grp">L1 kW</th><th>L2 kW</th>
+        </tr>
+      </thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+  <p class="plot-note" id="tbnote" style="margin-top:8px"></p>
+</details>
+
+<footer>
+  <p><strong>The two regions.</strong> “Whole network” shows the (P, Q) pairs exactly as the solver
+  returns them, measured at the PCC, the feeder head: they say <em>where the feeder sits</em>. Their
+  position is set by the passive imbalance of the whole network — load minus PV plus losses — which
+  travels some 3.3 MW between midday and the evening and which nobody controls within the service
+  slot. “Batteries only” subtracts that reference point: it says <em>what the batteries can do about
+  it</em>. Same shape and same size, different origin.</p>
+  <p><strong>Why the distinction matters here.</strong> It is Tulio's criterion in
+  <code>results/TR9_FOR_rolling.md</code>: the absolute regions of the nine transformers overlap
+  between −2.16 and −2.29 MW and cannot be told apart, while their widths differ by 3.7×. Only the
+  deviation view separates them. His conclusion: the deviation region for allocation and dispatch,
+  the absolute one for network feasibility. Fairness is allocation, so the default view here is the
+  deviation one.</p>
+  <p><strong>Careful with the area.</strong> Scaling a 2-D region by a factor γ scales its area by γ².
+  An area loss of 87 % amounts to a linear shrink to ~36 %, not to 13 %.</p>
+  <p><strong>How it is drawn.</strong> For each of 12 directions, the directional sweep solves for the
+  point of the region that reaches furthest in that direction; joining those 12 points gives the
+  outline. Since fairness is a constraint, the region can only shrink: the three are always nested,
+  verified at all 576 vertices. __BED_DESC__ Positive power
+  = network into the feeder.</p>
+</footer>
+</div>
+
+<div class="tip" id="tip" role="status" aria-live="polite"></div>
+
+<script>
+const DATA = __DATA__;
+
+const CASES = [
+  { id: "A",  name: "No fairness",   v: "--s-a",  lab: "no fairness",  ai: 3  },
+  { id: "L1", name: "Prosumers",     v: "--s-l1", lab: "prosumers",    ai: 7  },
+  { id: "L2", name: "Aggregators",   v: "--s-l2", lab: "aggregators",  ai: 11 }
+];
+const PERIODS = DATA.meta.periods;
+const ANGLES  = DATA.meta.angles;
+const BASE    = DATA.baseline || null;      // B(t) with the batteries idle; null = deviation view unavailable
+const on   = { A: true, L1: true, L2: true };
+let cur    = PERIODS[0];
+let view   = BASE ? "dev" : "abs";
+let timer  = null;
+
+const $ = id => document.getElementById(id);
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const NS = "http://www.w3.org/2000/svg";
+const el = (t, a) => { const e = document.createElementNS(NS, t);
+  for (const k in a) e.setAttribute(k, a[k]); return e; };
+// en-US, to match the page prose: thousands separated by "," and decimals by ".".
+// With es-CL the axis printed "-2.000" for minus two thousand, which an English reader
+// parses as minus two thousandths.
+const fmt = (x, d) => x.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const clock = t => { const m = (t - 1) * 30;
+  return String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); };
+
+/* Point in the active view. In the deviation view B is subtracted for the TARGET period
+   (now+1), which is the slot the region is offered for. */
+function pt(caseId, t, i) {
+  const p = DATA.cases[caseId][t].pts[i];
+  if (view === "abs" || !BASE) return p;
+  const b = BASE[t];
+  return [p[0] - b[0], p[1] - b[1]];
+}
+
+/* ---- FIXED domains: computed ONCE over the 48 periods, never change afterwards ---- */
+function computeDomain(mode) {
+  let xs = [], ys = [];
+  for (const t of PERIODS) for (const c of CASES) for (let i = 0; i < ANGLES.length; i++) {
+    const p = DATA.cases[c.id][t].pts[i];
+    if (mode === "abs") { xs.push(p[0]); ys.push(p[1]); }
+    else if (BASE) { xs.push(p[0] - BASE[t][0]); ys.push(p[1] - BASE[t][1]); }
+  }
+  if (mode === "abs" && BASE) for (const t of PERIODS) { xs.push(BASE[t][0]); ys.push(BASE[t][1]); }
+  if (!xs.length) return null;
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const span = Math.max(x1 - x0, y1 - y0) * 1.12;     // square => genuine 1:1 aspect
+  return { cx, cy, span, x0: cx - span / 2, y0: cy - span / 2 };
+}
+const DOM = { abs: computeDomain("abs"), dev: computeDomain("dev") };
+
+function niceStep(span) {
+  const raw = span / 6, mag = Math.pow(10, Math.floor(Math.log10(raw))), n = raw / mag;
+  return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * mag;
+}
+
+/* ---------------- P-Q plane ----------------
+   Two different geometries, because the data are different:
+   - deviation: a square. dP and dQ have similar ranges (~97 kW), so it fills the frame.
+   - absolute:  a wide strip + a detail inset. P spans 3,389 kW and Q only 272, so at
+                1:1 scale the content is a thin band: a square would leave 90% of it
+                empty (with the Q axis reaching +-2,000 kVAr with no data there). The
+                region is 6 px across in the strip, so its direct labels do not fit:
+                they go in the magnified inset, where they can be read.                 */
+const PQ_DEV  = { w: 560, h: 490, l: 62, r: 16, t: 14, b: 50 };
+const PQ_ABS  = { w: 560, h: 470, l: 62, r: 16, t: 14, b: 46 };
+const STRIP_H = 118;        // height of the trajectory panel
+const INSET_T = 176;        // where the detail inset starts
+
+function frame(g, ox, oy, w, h, X, Y, dx0, dxs, dy0, dys, xlab, ylab, hh) {
+  const sx = niceStep(dxs), sy = niceStep(dys);
+  for (let v = Math.ceil(dx0 / sx) * sx; v <= dx0 + dxs; v += sx) {
+    g.appendChild(el("line", { x1: X(v), y1: oy, x2: X(v), y2: oy + h, class: "gridline" }));
+    const lb = el("text", { x: X(v), y: oy + h + 15, class: "ticklabel", "text-anchor": "middle" });
+    lb.textContent = fmt(v, 0); g.appendChild(lb);
+  }
+  for (let v = Math.ceil(dy0 / sy) * sy; v <= dy0 + dys; v += sy) {
+    g.appendChild(el("line", { x1: ox, y1: Y(v), x2: ox + w, y2: Y(v), class: "gridline" }));
+    const lb = el("text", { x: ox - 8, y: Y(v) + 3.5, class: "ticklabel", "text-anchor": "end" });
+    lb.textContent = fmt(v, 0); g.appendChild(lb);
+  }
+  g.appendChild(el("rect", { x: ox, y: oy, width: w, height: h, fill: "none", class: "axisline" }));
+  if (dx0 < 0 && dx0 + dxs > 0)
+    g.appendChild(el("line", { x1: X(0), y1: oy, x2: X(0), y2: oy + h, class: "zeroline" }));
+  if (dy0 < 0 && dy0 + dys > 0)
+    g.appendChild(el("line", { x1: ox, y1: Y(0), x2: ox + w, y2: Y(0), class: "zeroline" }));
+  if (xlab) {
+    const t = el("text", { x: ox + w / 2, y: oy + h + 33, class: "axistitle", "text-anchor": "middle" });
+    t.textContent = xlab; g.appendChild(t);
+  }
+  if (ylab) {
+    const t = el("text", { x: 15, y: oy + h / 2, class: "axistitle", "text-anchor": "middle",
+      transform: "rotate(-90 15 " + (oy + h / 2) + ")" });
+    t.textContent = ylab; g.appendChild(t);
+  }
+}
+
+function regions(s, X, Y, ox, oy, w, h, withLabels) {
+  for (const c of CASES) {
+    if (!on[c.id]) continue;
+    const poly = ANGLES.map((_, i) => { const p = pt(c.id, cur, i);
+      return X(p[0]).toFixed(2) + "," + Y(p[1]).toFixed(2); }).join(" ");
+    s.appendChild(el("polygon", { points: poly, class: "reg-ring" }));
+    s.appendChild(el("polygon", { points: poly, class: "reg",
+      fill: cssv(c.v), "fill-opacity": cssv("--fill"), stroke: cssv(c.v) }));
+  }
+  for (const c of CASES) {
+    if (!on[c.id]) continue;
+    for (let i = 0; i < ANGLES.length; i++) {
+      const p = pt(c.id, cur, i);
+      s.appendChild(el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 4.6, class: "vtx-ring" }));
+      s.appendChild(el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 3, fill: cssv(c.v) }));
+    }
+  }
+  if (!withLabels) return;
+  // Labels anchored to directions 120 degrees apart (indices 3, 7, 11 of 12), pushed outwards
+  // from the centre of each region. They are drawn only if the region is big enough ON SCREEN:
+  // at 6 px the three anchors land on top of each other and the labels would overlap.
+  for (const c of CASES) {
+    if (!on[c.id]) continue;
+    let mx = 0, my = 0, xs = [], ys = [];
+    for (let i = 0; i < ANGLES.length; i++) { const p = pt(c.id, cur, i);
+      mx += p[0]; my += p[1]; xs.push(X(p[0])); ys.push(Y(p[1])); }
+    mx /= ANGLES.length; my /= ANGLES.length;
+    if (Math.max(...xs) - Math.min(...xs) < 46 || Math.max(...ys) - Math.min(...ys) < 46) continue;
+    const a = pt(c.id, cur, c.ai);
+    const vx = X(a[0]) - X(mx), vy = Y(a[1]) - Y(my), n = Math.hypot(vx, vy) || 1;
+    let lx = X(a[0]) + vx / n * 17, ly = Y(a[1]) + vy / n * 17 + 4;
+    lx = Math.min(Math.max(lx, ox + 34), ox + w - 34);
+    ly = Math.min(Math.max(ly, oy + 12), oy + h - 6);
+    const lb = el("text", { x: lx, y: ly, class: "dlabel", fill: cssv(c.v), "text-anchor": "middle" });
+    lb.textContent = c.lab; s.appendChild(lb);
+  }
+}
+
+function nearestHit(s, X, Y, ox, oy, w, h, VB) {
+  const hit = el("rect", { x: ox, y: oy, width: w, height: h, fill: "transparent" });
+  hit.style.cursor = "crosshair";
+  hit.addEventListener("pointermove", ev => {
+    const bb = s.getBoundingClientRect();
+    const mx = (ev.clientX - bb.left) * (VB.w / bb.width);
+    const my = (ev.clientY - bb.top) * (VB.h / bb.height);
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < ANGLES.length; i++) {
+      const p = pt("A", cur, i);
+      const dx = X(p[0]) - mx, dy = Y(p[1]) - my, d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; bi = i; }
+    }
+    showTip(ev, bi);
+  });
+  hit.addEventListener("pointerleave", hideTip);
+  s.appendChild(hit);
+}
+
+function drawDev(s) {
+  const d = DOM.dev, P = PQ_DEV;
+  s.setAttribute("viewBox", "0 0 " + P.w + " " + P.h);
+  const iw = P.w - P.l - P.r, ih = P.h - P.t - P.b;
+  const side = Math.min(iw, ih);
+  const ox = P.l + (iw - side) / 2, oy = P.t + (ih - side) / 2;
+  const X = p => ox + (p - d.x0) / d.span * side;
+  const Y = q => oy + side - (q - d.y0) / d.span * side;
+  const g = el("g", {});
+  frame(g, ox, oy, side, side, X, Y, d.x0, d.span, d.y0, d.span,
+        "ΔP from the all-idle baseline (kW)", "ΔQ (kVAr)");
+  s.appendChild(g);
+  regions(s, X, Y, ox, oy, side, side, true);
+  nearestHit(s, X, Y, ox, oy, side, side, P);
+}
+
+function drawAbs(s) {
+  const P = PQ_ABS;
+  s.setAttribute("viewBox", "0 0 " + P.w + " " + P.h);
+  const iw = P.w - P.l - P.r;
+
+  // --- panel 1: the strip. Fixed framing over the range of the day; 1:1 preserved, and that
+  //     is why it is a strip: P sets the horizontal scale, and Q takes the room it needs. ---
+  let xs = [], ys = [];
+  for (const t of PERIODS) {
+    xs.push(BASE[t][0]); ys.push(BASE[t][1]);
+    for (const c of CASES) for (let i = 0; i < ANGLES.length; i++) {
+      const p = DATA.cases[c.id][t].pts[i]; xs.push(p[0]); ys.push(p[1]);
+    }
+  }
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const padX = (x1 - x0) * 0.06;
+  const dx0 = x0 - padX, dxs = (x1 - x0) + 2 * padX;
+  const kx = iw / dxs;                       // kW per px
+  const stripY = P.t + 8, stripH = Math.max(STRIP_H - 30, (y1 - y0) * kx + 34);
+  const dys = stripH / kx;                   // exactly 1:1: same scale on both axes
+  const dy0 = (y0 + y1) / 2 - dys / 2;
+  const X = p => P.l + (p - dx0) * kx;
+  const Y = q => stripY + stripH - (q - dy0) * kx;
+
+  const g = el("g", {});
+  frame(g, P.l, stripY, iw, stripH, X, Y, dx0, dxs, dy0, dys,
+        "Active power at the PCC (kW)", "Q (kVAr)");
+  s.appendChild(g);
+
+  const tr = PERIODS.map(t => X(BASE[t][0]).toFixed(1) + "," + Y(BASE[t][1]).toFixed(1)).join(" ");
+  s.appendChild(el("polyline", { points: tr, class: "traj" }));
+  const b = BASE[cur];
+  s.appendChild(el("circle", { cx: X(b[0]), cy: Y(b[1]), r: 5.6, class: "vtx-ring" }));
+  s.appendChild(el("circle", { cx: X(b[0]), cy: Y(b[1]), r: 3.4, fill: cssv("--axis") }));
+  regions(s, X, Y, P.l, stripY, iw, stripH, false);   // no labels: only ~6 px across here
+
+  // locator box around the tiny region
+  const bw = 13, bx = X(b[0]) - bw, by = Y(b[1]) - bw;
+  s.appendChild(el("rect", { x: bx, y: by, width: bw * 2, height: bw * 2,
+    fill: "none", stroke: cssv("--ink-2"), "stroke-width": 1 }));
+
+  // --- panel 2: the detail, at a readable scale ---
+  const d = DOM.dev;
+  const iy = INSET_T + 22, side = P.h - P.b - iy;
+  const ix = P.l + (iw - side) / 2;
+  const XX = p => ix + ((p - BASE[cur][0]) - d.x0) / d.span * side;
+  const YY = q => iy + side - ((q - BASE[cur][1]) - d.y0) / d.span * side;
+  const g2 = el("g", {});
+  frame(g2, ix, iy, side, side, XX, YY, d.x0 + BASE[cur][0], d.span, d.y0 + BASE[cur][1], d.span,
+        null, null);
+  s.appendChild(g2);
+  regions(s, XX, YY, ix, iy, side, side, true);
+  nearestHit(s, XX, YY, ix, iy, side, side, P);
+
+  // connectors from the locator to the detail inset
+  const ln = { stroke: cssv("--axis"), "stroke-width": 1, "stroke-dasharray": "" };
+  s.appendChild(el("line", Object.assign({ x1: bx, y1: by + bw * 2, x2: ix, y2: iy }, ln)));
+  s.appendChild(el("line", Object.assign({ x1: bx + bw * 2, y1: by + bw * 2, x2: ix + side, y2: iy }, ln)));
+  const cap = el("text", { x: ix + side / 2, y: iy - 8, class: "ticklabel", "text-anchor": "middle" });
+  cap.textContent = "detail · magnified " + Math.round(dxs / d.span) + "×";
+  s.appendChild(cap);
+}
+
+function drawPQ() {
+  const s = $("pq"); s.textContent = "";
+  if (view === "abs" && BASE) drawAbs(s); else drawDev(s);
+}
+
+function showTip(ev, i) {
+  const tip = $("tip"); tip.textContent = "";
+  const h = document.createElement("div"); h.className = "tip-h";
+  h.textContent = "Direction " + fmt(ANGLES[i], 0) + "° · period " + cur + " (" + clock(+cur) + ")";
+  tip.appendChild(h);
+  for (const c of CASES) {
+    if (!on[c.id]) continue;
+    const p = pt(c.id, cur, i);
+    const row = document.createElement("div"); row.className = "tip-row";
+    const sw = document.createElement("span"); sw.className = "swatch";
+    sw.style.background = cssv(c.v); row.appendChild(sw);
+    const nm = document.createElement("span"); nm.className = "tip-n";
+    nm.textContent = c.name; row.appendChild(nm);
+    const v = document.createElement("span"); v.className = "tip-v";
+    v.textContent = fmt(p[0], 1) + " / " + fmt(p[1], 1); row.appendChild(v);
+    tip.appendChild(row);
+  }
+  const u = document.createElement("div");
+  u.className = "tip-h"; u.style.marginTop = "6px"; u.style.marginBottom = "0";
+  u.textContent = (view === "dev" ? "ΔP / ΔQ" : "P / Q") + " in kW";
+  tip.appendChild(u);
+  tip.style.opacity = "1";
+  const w = tip.offsetWidth, hh = tip.offsetHeight;
+  let x = ev.clientX + 14, y = ev.clientY - hh - 10;
+  if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+  if (y < 8) y = ev.clientY + 16;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+function hideTip() { $("tip").style.opacity = "0"; }
+
+/* ---------------- timeline ---------------- */
+const TL = { w: 1120, h: 190, l: 48, r: 16, t: 14, b: 34 };
+
+function drawTL() {
+  const s = $("tl"); s.textContent = "";
+  const iw = TL.w - TL.l - TL.r, ih = TL.h - TL.t - TL.b;
+  const s1 = DATA.series.areaLossPct_L1, s2 = DATA.series.areaLossPct_L2;
+  const ymax = Math.ceil(Math.max(...s1, ...s2) / 10) * 10;
+  const X = i => TL.l + i / (PERIODS.length - 1) * iw;
+  const Y = v => TL.t + ih - v / ymax * ih;
+
+  for (let v = 0; v <= ymax; v += ymax / 4) {
+    s.appendChild(el("line", { x1: TL.l, y1: Y(v), x2: TL.l + iw, y2: Y(v), class: "gridline" }));
+    const lb = el("text", { x: TL.l - 8, y: Y(v) + 3.5, class: "ticklabel", "text-anchor": "end" });
+    lb.textContent = fmt(v, 0) + "%"; s.appendChild(lb);
+  }
+  s.appendChild(el("line", { x1: TL.l, y1: TL.t + ih, x2: TL.l + iw, y2: TL.t + ih, class: "axisline" }));
+  for (let i = 0; i < PERIODS.length; i += 6) {
+    const lb = el("text", { x: X(i), y: TL.t + ih + 16, class: "ticklabel", "text-anchor": "middle" });
+    lb.textContent = clock(PERIODS[i]); s.appendChild(lb);
+  }
+  const ci = PERIODS.indexOf(+cur);
+  s.appendChild(el("line", { x1: X(ci), y1: TL.t, x2: X(ci), y2: TL.t + ih, class: "tl-cursor" }));
+
+  [[s2, "--s-l2", "aggregators"], [s1, "--s-l1", "prosumers"]].forEach(([ser, v, nm]) => {
+    const d = ser.map((y, i) => X(i).toFixed(1) + "," + Y(y).toFixed(1)).join(" ");
+    s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv("--surface"),
+      "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv(v),
+      "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    let mi = 0; ser.forEach((y, i) => { if (y > ser[mi]) mi = i; });
+    const lb = el("text", { x: Math.min(X(mi) + 8, TL.l + iw - 62), y: Y(ser[mi]) - 7,
+      class: "dlabel", fill: cssv(v) });
+    lb.textContent = nm; s.appendChild(lb);
+  });
+
+  const hit = el("rect", { x: TL.l, y: TL.t, width: iw, height: ih, fill: "transparent", class: "tl-hit" });
+  const pick = ev => {
+    const bb = s.getBoundingClientRect();
+    const mx = (ev.clientX - bb.left) * (TL.w / bb.width);
+    const i = Math.round((mx - TL.l) / iw * (PERIODS.length - 1));
+    setT(PERIODS[Math.min(Math.max(i, 0), PERIODS.length - 1)]);
+  };
+  hit.addEventListener("click", pick);
+  hit.addEventListener("pointermove", ev => { if (ev.buttons === 1) pick(ev); });
+  s.appendChild(hit);
+}
+
+/* ---------------- numeric readout ---------------- */
+function paint() {
+  const A = DATA.cases.A[cur], L1 = DATA.cases.L1[cur], L2 = DATA.cases.L2[cur];
+  const i = PERIODS.indexOf(+cur);
+  $("k-l1").textContent = fmt(DATA.series.areaLossPct_L1[i], 1) + " %";
+  $("k-l1s").textContent = fmt(A.area - L1.area, 0) + " of " + fmt(A.area, 0);
+  $("k-l2").textContent = fmt(DATA.series.areaLossPct_L2[i], 1) + " %";
+  $("k-l2s").textContent = fmt(A.area - L2.area, 0) + " of " + fmt(A.area, 0);
+  $("k-a").textContent = "";
+  $("k-a").append(document.createTextNode(fmt(A.area, 0)));
+  const u = document.createElement("span"); u.className = "tile-u"; u.textContent = " kW·kVAr";
+  $("k-a").appendChild(u);
+  const z = DATA.series.zeta_L1;
+  $("k-z").textContent = z ? fmt(Math.max(...z[i].map(Math.abs)), 3) : "—";
+  $("tlab").textContent = String(cur).padStart(2, "0") + " · " + clock(+cur);
+
+  const tb = $("tb"); tb.textContent = "";
+  ANGLES.forEach((a, k) => {
+    const tr = document.createElement("tr");
+    const pa = pt("A", cur, k), p1 = pt("L1", cur, k), p2 = pt("L2", cur, k);
+    const cells = [fmt(a, 0) + "°",
+      fmt(pa[0], 1), fmt(pa[1], 1), fmt(p1[0], 1), fmt(p1[1], 1), fmt(p2[0], 1), fmt(p2[1], 1),
+      fmt(A.proj[k] - L1.proj[k], 2), fmt(A.proj[k] - L2.proj[k], 2)];
+    cells.forEach((c, ci) => {
+      const td = document.createElement(ci === 0 ? "th" : "td");
+      if (ci === 0) td.setAttribute("scope", "row");
+      if ([1, 3, 5, 7].includes(ci)) td.className = "grp";
+      td.textContent = c; tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  $("tbnote").textContent = view === "dev"
+    ? "P and Q in kW, measured from the all-idle baseline point (ΔP, ΔQ)."
+    : "P and Q in kW, absolute at the PCC, the feeder head.";
+}
+
+function applyView() {
+  $("v-dev").setAttribute("aria-pressed", String(view === "dev"));
+  $("v-abs").setAttribute("aria-pressed", String(view === "abs"));
+  $("ptitle").textContent = view === "dev" ? "What the batteries can do" : "Where the feeder sits";
+  $("pnote").textContent = "1:1 scale · fixed axes";
+  $("pqdesc").textContent = view === "dev"
+    ? "Origin at the all-idle point, every battery at rest. ΔP < 0 = the fleet injects more than when idle; ΔP > 0 = it absorbs more."
+    : "Above, fixed framing over the range of the day: the grey line is the feeder trajectory with the batteries idle, and the dot marks the current period. The region fits inside the small box — __SPAN_REGION__ against a travel of __SPAN_DAY__ — which is why it is magnified below, at the same 1:1 scale.";
+  const b = $("banner");
+  if (!BASE) {
+    b.hidden = false;
+    b.textContent = "The deviation view needs the all-idle trajectory "
+      + "(__BASE_FILE__, procedure __BASE_PROC__). Until that exists, "
+      + "only the absolute region is available.";
+  } else b.hidden = true;
+}
+
+function setT(t) { cur = String(t); $("t").value = t; drawPQ(); drawTL(); paint(); }
+function setView(v) { if (!BASE && v === "dev") return; view = v; applyView(); drawPQ(); paint(); }
+
+$("t").addEventListener("input", e => setT(+e.target.value));
+$("v-dev").addEventListener("click", () => setView("dev"));
+$("v-abs").addEventListener("click", () => setView("abs"));
+if (!BASE) $("v-dev").disabled = true;
+
+$("play").addEventListener("click", () => {
+  const b = $("play");
+  if (timer) { clearInterval(timer); timer = null;
+    b.setAttribute("aria-pressed", "false"); b.textContent = "Play"; return; }
+  b.setAttribute("aria-pressed", "true"); b.textContent = "Pause";
+  timer = setInterval(() => setT((+cur % PERIODS.length) + 1), 480);
+});
+
+document.querySelectorAll(".tg").forEach(tg => {
+  const flip = () => {
+    const c = tg.dataset.c, now = tg.getAttribute("aria-pressed") === "true";
+    if (now && Object.values(on).filter(Boolean).length === 1) return;
+    on[c] = !now; tg.setAttribute("aria-pressed", String(!now)); drawPQ();
+  };
+  tg.addEventListener("click", flip);
+  tg.addEventListener("keydown", e => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } });
+});
+
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawPQ(); drawTL(); });
+new MutationObserver(() => { drawPQ(); drawTL(); })
+  .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+applyView();
+setT(PERIODS[0]);
+</script>

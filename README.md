@@ -88,7 +88,13 @@ works for anyone who clones it:
 
 - **Root:** `README.md`, `CONTRIBUTING.md`.
 - **`docs/`:** longer guides (setup, reproducibility, validation procedures).
+  - `rolling-for-performance.md` — what the rolling FOR sweep costs and why.
+  - `formulation-opf-aggregators-fairness-2026-07-30.pdf` — the full mathematical
+    formulation with multiple aggregators and the C1 fairness criterion, typeset;
+    everything new relative to the inherited model is marked in red. LaTeX source in
+    `docs/formulation-src/`.
 - **`scripts/README.md`, `results/README.md`:** next to what they document.
+- **`results/TR9_fairness.md`:** the production results for that formulation.
 
 Personal, machine-specific, or session-specific notes (local setup, per-run
 runbooks, working logs) are intentionally kept **outside** this repo and are not
