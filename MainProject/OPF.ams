@@ -1235,99 +1235,6 @@ Model Main_OPF_VI_LG {
 					run), not because it is the modelled default."
 				}
 			}
-			Parameter FairSOCTol {
-				Default: 1.0e-6;
-				Comment: {
-					"How close to its SOC bound a battery may sit and still be credited with capability, in
-					SOC units. A NUMERICAL NOISE FLOOR, not a design dial - and the difference is testable,
-					which is the only reason this value can be defended.
-
-					WHY IT EXISTS. A bare > 0 test on a computed headroom is knife-edge in floating point. On
-					the micro bed at period 29 (14:00) every battery was resting on its SOC ceiling, yet none
-					was relaxed: RollSOCnext came back as 0.99999997 rather than 1, left microwatts of
-					headroom, and the battery counted as a full participant - free to bind the common Zeta as
-					tightly as one with kilowatts to spare. The measured artefact is about 3e-8 in SOC units.
-
-					WHY 1e-6. Thirty times the measured artefact, and worth 1e-6 * BattEcap * etaDis / DeltaT
-					= 8 mW against a 3.6 kW rating - one part in 450,000. Nothing with real capability is
-					anywhere near it.
-
-					WHY NOT 1e-3, WHICH WAS TRIED FIRST. It was derived from Feasibility_Tolerance on the
-					argument that SOC cannot be resolved better than the solver guarantees. Correct in
-					principle, wrong in calibration: it sits four orders above the artefact actually observed,
-					and the micro run of 3-Aug-2026 disqualified it empirically. The eligible set moved from
-					14 affected periods to 32; periods 21-23 lost EVERY prosumer from the equality set, so the
-					criterion stopped binding at all there; median contraction fell from 0.46% to 0.07% and
-					the vertices it touched from 576/576 to 433/576. A value that changes the result that much
-					is a policy dial, whatever it was derived from.
-
-					HOW TO DEFEND IT: by insensitivity, measured, never by argument. Sweep it a couple of
-					decades and the eligible set must not move, because real capability is either ~0 or ~kW
-					with nothing in between. That is exactly the test 1e-3 failed. If a future case makes even
-					1e-6 move the set, it has stopped being a noise floor too, and the question belongs in the
-					bounded-deviation criterion instead - which asks something different: not WHO participates,
-					but how closely a participant must comply.
-
-					OPEN MODELLING QUESTION, for Prof. Luis rather than for this comment. The gap between the
-					two values is not numerical noise: it is the batteries the optimiser parks exactly ON a
-					bound, full at midday and on the floor at night. Whether a battery sitting at its ceiling
-					counts as a market participant decides how hard the criterion bites through the whole
-					solar day, not in one isolated period."
-				}
-			}
-			Parameter FairDisHead {
-				IndexDomain: bat;
-				Definition: max(0, min(BattMaxP(bat),
-				            (RollSOCnext(bat) - BattSOCmin(bat) - FairSOCTol)*BattEcap(bat)*etaDis(bat)/DeltaT));
-				Comment: {
-					"How much this battery can still DISCHARGE in the service slot, in p.u. - the export
-					capability it brings to the market. Zero means it is sitting on its SOC floor with
-					nothing to offer.
-
-					A PARAMETER, not a variable, and that is the whole trick. In the rolling horizon the
-					slot-1 dispatch is committed before the sweep (RollChgExec/RollDisExec, pinned with
-					.nonvar := 1), so the SOC entering the service slot is already decided - RollSOCnext,
-					assigned before FairActive := 1. Eligibility is therefore known BEFORE any directional
-					solve and can gate an IndexDomain. No binaries, no disjunction, no MIP: the rows stay
-					linear and the cost of fairness stays comparable to the unrestricted case.
-
-					It also means the eligible set is IDENTICAL across cases A and L1..L4: fairness is gated
-					off in the committed baseline (FairActive=0), so every case walks the same SOC path -
-					verified byte-identical on TR9. Eligibility is a property of the PERIOD, not of the
-					criterion, which is what makes the cross-criterion comparison legitimate.
-
-					REQUIRES the rolling context: outside RunFOR_Rolling, RollSOCnext is stale and this
-					reads zero for everyone. Do NOT combine m=3/m=4 with FairBaseline=1 either - the
-					baseline solve runs BEFORE RollSOCnext is refreshed for the step, so it would gate on
-					the previous slot's state."
-				}
-			}
-			Parameter FairChgHead {
-				IndexDomain: bat;
-				Definition: max(0, min(BattMaxP(bat),
-				            (BattSOCmax(bat) - RollSOCnext(bat) - FairSOCTol)*BattEcap(bat)/(etaChg(bat)*DeltaT)));
-				Comment: "Mirror of FairDisHead on the charging side: how much this battery can still ABSORB in the service slot. Zero means it is full. Same parameter-not-variable argument and the same rolling-context requirement.";
-			}
-			Parameter FairBinds {
-				IndexDomain: bat;
-				Definition: {
-					if FairMode <= 2 then 1
-					elseif FairMode = 3 then (FairDisHead(bat) > 0 and FairChgHead(bat) > 0)
-					else (FairDisHead(bat) > 0) endif
-				}
-				Comment: {
-					"1 when this battery is bound by the EQUALITY form of the active criterion. Used by the
-					fairness log so that util == Zeta stays the verification at every level: measuring the
-					utilisation over batteries that carry only a one-sided row, or none at all, would report a
-					mismatch that is by design rather than a defect.
-
-					m<=2 every battery; m=3 those with both heads, since the others carry <= or >= instead;
-					m=4 those that can discharge, which is exactly the set the aggregator sums run over.
-
-					Adds no row: it is read in a put statement, never in a constraint. The IndexDomains state
-					their own conditions directly, so that the row a reader sees is self-contained."
-				}
-			}
 			Parameter FairCap {
 				IndexDomain: bat;
 				Definition: {
@@ -1456,48 +1363,28 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint FairProportional_ProsumerExch {
-				IndexDomain: bat | FairMode = 3 and (FairActive or FairBaseline)
-				                 and FairDisHead(bat) > 0 and FairChgHead(bat) > 0;
+				IndexDomain: bat | FairMode = 3 and (FairActive or FairBaseline);
 				Definition: -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP) = Zeta*FairCap(bat);
-				Comment: "C1 at PROSUMER level on the EXCHANGE (Prof. Luis, 31-Jul-2026), for the prosumers that can actually move in the service slot. TotPcust already IS the expression from the minutes -- (charge - discharge) + consumption - PV -- and TotPcust(BattBus(bat),BattPhase(bat),.) is the model\'s own idiom for the prosumer owning this battery, used by both cost-min objectives. SIGN: TotPcust is positive = import, so export is its negative and Zeta > 0 means the fleet exports. The feasible set does not depend on that choice - the row is an equality, so flipping the left-hand side only flips the sign of Zeta. NOT ExportedPnode: it is tied down only by TotPcust = ImportedPnode - ExportedPnode, and the directional sweep does not push the pair to a proper decomposition, so the solver could inflate both and satisfy the row while exporting nothing. EXACTNESS: TotPcust is NODAL, so this is per-prosumer only because no bus carries two batteries -- verified on Database.mdb (v1_baseline, 3-Aug-2026), where every battery also owns exactly one load and that load always has PV.";
-			}
-			Constraint FairProportional_ProsumerExch_NoDis {
-				IndexDomain: bat | FairMode = 3 and (FairActive or FairBaseline)
-				                 and FairDisHead(bat) <= 0;
-				Definition: -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP) <= Zeta*FairCap(bat);
-				Comment: "Same criterion, relaxed for a prosumer that CANNOT DISCHARGE at the service slot: its battery sits on the SOC floor, so it has no export to offer. It may fall short of its share (<=), but it stays bound on the import side, because importing is something it can still do. That is the point: exclude a prosumer only from what it is unable to do, never from the rest. WHY IT MATTERS: without this, one battery on the floor could make the whole period infeasible -- observed on the micro bed 3-Aug-2026, period 45 (22:00), infeasible in all twelve directions because BES_TR9_two316_A reached the floor with zero discharge headroom and 0.93 kW of its own consumption, which forced Zeta <= -0.13 on everyone and closed the window. Note this covers the fully-stuck case (neither head) too, on the looser side.";
-			}
-			Constraint FairProportional_ProsumerExch_NoChg {
-				IndexDomain: bat | FairMode = 3 and (FairActive or FairBaseline)
-				                 and FairChgHead(bat) <= 0 and FairDisHead(bat) > 0;
-				Definition: -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP) >= Zeta*FairCap(bat);
-				Comment: "Mirror of the previous row for a FULL battery: it cannot absorb, so it may fall short of its share on the import side (>=), while staying bound on export, which it can still provide.";
+				Comment: "C1 at PROSUMER level on the EXCHANGE (Prof. Luis, 31-Jul-2026). Deliberately a PLAIN EQUALITY over every prosumer, exactly as m=1 is: CAN BE INFEASIBLE, and that is the finding rather than a defect to patch. Unlike m=1, where Zeta=0 parks the fleet and is always admissible, here the passive net load enters as a different constant per prosumer, so Zeta=0 demands BattP_Balance = -netload exactly, which a battery need not be able to deliver; late in the evening none can. Measured on the micro bed 3-Aug-2026: period 45 (22:00) infeasible in all twelve directions, with BES_TR9_two316_A on its SOC floor, zero discharge headroom and 0.93 kW of its own consumption, forcing Zeta <= -0.1315 on the whole fleet. An eligibility rule was tried and removed: relaxing the row to <= for whoever cannot discharge stops the infeasibility but does not stop that prosumer exporting past its share, so the criterion would apply only where convenient. The answer is a different normalisation, not a better patch -- see m=5/m=6 in OneDrive, criterios-m5-m6-justicia-sobre-rango-disponible-2026-08-03.md. TotPcust already IS the expression from the minutes -- (charge - discharge) + consumption - PV -- and TotPcust(BattBus(bat),BattPhase(bat),.) is the model\'s own idiom for the prosumer owning this battery, used by both cost-min objectives. SIGN: TotPcust is positive = import, so export is its negative and Zeta > 0 means the fleet exports. The feasible set does not depend on that choice - the row is an equality, so flipping the left-hand side only flips the sign of Zeta. NOT ExportedPnode: it is tied down only by TotPcust = ImportedPnode - ExportedPnode, and the directional sweep does not push the pair to a proper decomposition, so the solver could inflate both and satisfy the row while exporting nothing. EXACTNESS: TotPcust is NODAL, so this is per-prosumer only because no bus carries two batteries -- verified on Database.mdb (v1_baseline, 3-Aug-2026), where every battery also owns exactly one load and that load always has PV.";
 			}
 			Constraint FairProportional_AggregatorExch {
 				IndexDomain: a | FairMode = 4 and (FairActive or FairBaseline);
 				Definition: {
-					-sum(bat | BattAgg(bat) = a and FairDisHead(bat) > 0,
+					-sum(bat | BattAgg(bat) = a,
 					     TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP))
-					= Zeta*sum(bat | BattAgg(bat) = a and FairDisHead(bat) > 0, FairCap(bat))
+					= Zeta*sum(bat | BattAgg(bat) = a, FairCap(bat))
 				}
 				Comment: {
 					"C1 at AGGREGATOR level on the EXCHANGE. Stands to FairProportional_ProsumerExch as
 					FairProportional_Aggregator stands to FairProportional_Prosumer: the aggregator total tracks
 					Zeta while the split among its own prosumers stays free.
 
-					BOTH sums run over the members that can provide the service, so a battery on its SOC floor
-					neither drags the aggregator down nor inflates the share it is measured against. Restricting
-					the capacity as well as the dispatch is what keeps util == Zeta meaningful.
+					Like m=3 it is a plain equality over every member, and it inherits the same exposure to
+					infeasibility -- though less of it, because the aggregator keeps internal freedom and can
+					rebalance around a member on its SOC floor. That is the same mechanism by which level 2
+					escaped the collapse level 1 suffered on TR9.
 
-					ASYMMETRY, and its limit. At prosumer level the relaxation is one-sided: a member that
-					cannot discharge keeps its import obligation. Here it is not, because a single equality on
-					the aggregate cannot be one-sided without knowing sign(Zeta), which is an outcome of the
-					solve, and making it conditional would need a disjunction and therefore binaries. The
-					practical cost is small: the aggregator has internal freedom, so it can rebalance around a
-					member on the floor -- exactly the mechanism by which level 2 escaped the collapse that
-					level 1 suffered on TR9.
-
-					An aggregator with no eligible member yields 0 = Zeta*0, trivially satisfied - no division
+					An aggregator left with no batteries yields 0 = Zeta*0, trivially satisfied - no division
 					here, so no epsilon guard is needed."
 				}
 			}
@@ -2632,24 +2519,20 @@ Model Main_OPF_VI_LG {
 						! inline rather than as a parameter on purpose - it must add no identifier and no row, and
 						! with FairMode<=2 it reduces to BattP_Balance, so A/L1/L2 log exactly what they logged
 						! before m=3/m=4 existed. The sign matches the constraints: export positive.
-					!
-					! The sums run over FairBinds, i.e. the batteries the equality actually binds, so n_batt and
-					! cap_pu report the PARTICIPATING fleet rather than the installed one once m>=3 excludes
-					! whoever cannot serve. That is what keeps util == Zeta a valid check.
 						put FOR_RollFairCSV;
 						for (a) do
 							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
 							    FairMode:2:0, ",", Zeta:14:6, ",", FOR_StatCur, ",",
-							    a:8, ",", (sum(bat | BattAgg(bat) = a and FairBinds(bat), 1)):4:0, ",",
-							    (sum(bat | BattAgg(bat) = a and FairBinds(bat), FairCap(bat))):14:6, ",",
-							    (sum(bat | BattAgg(bat) = a and FairBinds(bat), (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							    a:8, ",", (sum(bat | BattAgg(bat) = a, 1)):4:0, ",",
+							    (sum(bat | BattAgg(bat) = a, FairCap(bat))):14:6, ",",
+							    (sum(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
 							     else BattP_Balance(bat,PeriodMaxP) endif))):14:6, ",",
-							    (sum(bat | BattAgg(bat) = a and FairBinds(bat), (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							    (sum(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
 							     else BattP_Balance(bat,PeriodMaxP) endif))
-							        / max(sum(bat | BattAgg(bat) = a and FairBinds(bat), FairCap(bat)), 1e-9)):14:6, ",",
-							    (min(bat | BattAgg(bat) = a and FairBinds(bat), (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							        / max(sum(bat | BattAgg(bat) = a, FairCap(bat)), 1e-9)):14:6, ",",
+							    (min(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
 							     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6, ",",
-							    (max(bat | BattAgg(bat) = a and FairBinds(bat), (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							    (max(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
 							     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6 / ;
 						endfor;
 						put FOR_RollCSV;   ! restore the active file for the next direction
@@ -3312,7 +3195,7 @@ Model Main_OPF_VI_LG {
 				FairMode    := 0;
 				FairFileTag := "";
 			}
-			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between PROSUMERS on the EXCHANGE (m=3, Prof. Luis 31-Jul-2026). ~10 min. Run this BEFORE the TR9 version. FairCap switches to BattMaxP + PVsize automatically (keyed off FairMode), so s_i becomes nameplate EXPORT capability and no flag has to be remembered. Zeta > 0 means the fleet is exporting. NOTE the bound is one-sided here: Zeta <= 1 still holds by construction, Zeta >= -1 does NOT - report the realised range rather than assuming it.";
+			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between PROSUMERS on the EXCHANGE (m=3, Prof. Luis 31-Jul-2026). ~10 min. Run this BEFORE the TR9 version. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment.";
 		}
 		Procedure RunMicro_FairL4 {
 			Body: {
@@ -3322,7 +3205,7 @@ Model Main_OPF_VI_LG {
 				FairMode    := 0;
 				FairFileTag := "";
 			}
-			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between AGGREGATORS on the EXCHANGE (m=4). ~10 min. The micro bed\'s 1/7/4 aggregator split makes this the sharper test of level 4, exactly as it is for level 2. FairCap switches to BattMaxP + PVsize automatically (keyed off FairMode), so s_i becomes nameplate EXPORT capability and no flag has to be remembered. Zeta > 0 means the fleet is exporting. NOTE the bound is one-sided here: Zeta <= 1 still holds by construction, Zeta >= -1 does NOT - report the realised range rather than assuming it.";
+			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between AGGREGATORS on the EXCHANGE (m=4). ~10 min. The micro bed\'s 1/7/4 aggregator split makes this the sharper test of level 4, exactly as it is for level 2. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment.";
 		}
 		Procedure RunTR9_FairL3 {
 			Body: {
@@ -3332,7 +3215,7 @@ Model Main_OPF_VI_LG {
 				FairMode    := 0;
 				FairFileTag := "";
 			}
-			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between PROSUMERS on the EXCHANGE (m=3). ~3h40-4h. Run only after RunMicro_FairL3 passes. Unlike m=1, this one has genuinely heterogeneous capacities to work with - PV runs 1 to 4 kW across the fleet while the batteries are all 3.6 kW - so \'proportional\' no longer coincides with \'equal absolute\'. FairCap switches to BattMaxP + PVsize automatically (keyed off FairMode), so s_i becomes nameplate EXPORT capability and no flag has to be remembered. Zeta > 0 means the fleet is exporting. NOTE the bound is one-sided here: Zeta <= 1 still holds by construction, Zeta >= -1 does NOT - report the realised range rather than assuming it.";
+			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between PROSUMERS on the EXCHANGE (m=3). ~3h40-4h. Run only after RunMicro_FairL3 passes. Unlike m=1, this one has genuinely heterogeneous capacities to work with - PV runs 1 to 4 kW across the fleet while the batteries are all 3.6 kW - so \'proportional\' no longer coincides with \'equal absolute\'. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment.";
 		}
 		Procedure RunTR9_FairL4 {
 			Body: {
@@ -3342,7 +3225,7 @@ Model Main_OPF_VI_LG {
 				FairMode    := 0;
 				FairFileTag := "";
 			}
-			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between AGGREGATORS on the EXCHANGE (m=4). ~3h40-4h30. Budget MORE wall-clock than m=3: level 2 cost +19.9% against level 1 because it leaves the fleet many coupled degrees of freedom instead of collapsing it to one, and m=4 stands to m=3 the same way. FairCap switches to BattMaxP + PVsize automatically (keyed off FairMode), so s_i becomes nameplate EXPORT capability and no flag has to be remembered. Zeta > 0 means the fleet is exporting. NOTE the bound is one-sided here: Zeta <= 1 still holds by construction, Zeta >= -1 does NOT - report the realised range rather than assuming it.";
+			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between AGGREGATORS on the EXCHANGE (m=4). ~3h40-4h30. Budget MORE wall-clock than m=3: level 2 cost +19.9% against level 1 because it leaves the fleet many coupled degrees of freedom instead of collapsing it to one, and m=4 stands to m=3 the same way. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment.";
 		}
 	}
 	Section DOE_Dispatch {

@@ -74,10 +74,13 @@ def load_fair(path):
 def participation(fair):
     """Periods where the criterion bound fewer prosumers than its own maximum.
 
-    From m=3 on, n_batt counts the PARTICIPATING fleet: a prosumer sitting on its SOC floor has
-    no export to offer and is left out of the sharing rule rather than dragging it down. The
-    exclusion is a modelling result worth reporting per period, not an implementation detail --
-    it is what stops one empty battery from making a whole period infeasible.
+    Every criterion currently in the model is a plain equality over the whole fleet, so this
+    should report the full count in every period and the check is a passive invariant. It is
+    kept armed because it is nearly free and because the alternative -- a criterion that
+    silently stops covering part of the fleet -- is exactly the failure it would catch.
+
+    An eligibility rule was tried on 3-Aug-2026 and removed; see the m=3 constraint comment and
+    criterios-m5-m6-justicia-sobre-rango-disponible-2026-08-03.md in OneDrive.
     """
     tot = {}
     for k, rows in fair.items():
@@ -90,11 +93,12 @@ def participation(fair):
         if n < full:
             short[now] = min(short.get(now, n), n)
         if n == 0:
-            # Nobody left on the equality. zeta is then a free column appearing only in one-sided
-            # rows, with no objective coefficient, so ANY sufficiently slack value satisfies them:
-            # what the solver reports is wherever the barrier stopped, not something the problem
-            # determines. It looks like a normal number and is not one -- do not read it, do not
-            # plot it. Seen on the micro bed at FairSOCTol=1e-3, periods 21-23.
+            # Nobody left on the equality. zeta would then be a free column with no objective
+            # coefficient, and whatever the solver reports is wherever the barrier stopped rather
+            # than something the problem determines: a normal-looking number carrying no
+            # information. Cannot arise while every criterion is a plain equality, which is why
+            # this is a guard and not a routine branch -- it did arise on 3-Aug-2026, in 11 of 48
+            # periods, under the eligibility rule that has since been removed.
             unpinned.add(now)
     return full, short, unpinned
 
@@ -145,10 +149,10 @@ def check_constraint(fair, mode):
     # inequality at level 2). Two-sided, and a value outside means the premise broke -- not that
     # a constraint was violated.
     #
-    # m=3/m=4: only ONE side survives. s_i = BattMaxP + PVsize bounds the EXPORT (PV at full
-    # output plus the battery at rated power), so zeta <= 1 still holds; but the import side is
-    # load + BattMaxP, and a prosumer whose load exceeds its own PV plus battery can legitimately
-    # push zeta below -1. So the lower end is REPORTED, not asserted.
+    # m=3/m=4: only ONE side survives. s_i = BattMaxP + GenP0(PeriodMaxP) is the export capability
+    # available at that instant, so zeta <= 1 still holds; but the import side is load + BattMaxP,
+    # and a prosumer whose load exceeds its own PV output plus battery can legitimately push zeta
+    # below -1 -- at night, where GenP0 is zero, easily. So the lower end is REPORTED, not asserted.
     if exchange:
         print("  %-28s %.4f  %s" % ("max zeta (derived <= 1)", zmax,
               "OK" if zmax <= 1 + TOL_FAIR else "DERIVATION BROKEN"))
