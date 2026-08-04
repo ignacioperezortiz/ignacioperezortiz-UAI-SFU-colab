@@ -132,6 +132,13 @@ a flat face the optimum slides to a fair point at no projection cost, so project
 suggests fairness is nearly free when it is not.
 
 ## `build_viz.py`
+
+Emits **one page per criterion family**, not one page with every region: `FOR_fairness_<bed>.html`
+for L1/L2, which ration the battery, and `FOR_fairness_exchange_<bed>.html` for L3/L4, which
+ration the prosumer exchange. Within a family the stricter level nests inside the looser one;
+across families nothing nests, because they constrain different quantities, so drawing them
+together would suggest a hierarchy that does not exist. Families with no run on disk are skipped.
+Periods where a criterion has no region are left blank rather than drawn at the origin.
 Builds the self-contained interactive HTML viewer from that JSON plus
 `for_viz_template.html`.
 
@@ -142,8 +149,8 @@ Builds the self-contained interactive HTML viewer from that JSON plus
   with a double click.
 - **Run:**
   ```bash
-  py -3 scripts/build_viz.py                 # -> results/viz/FOR_fairness_micro.html
-  py -3 scripts/build_viz.py --suffix _TR9   # -> results/viz/FOR_fairness_TR9.html
+  py -3 scripts/build_viz.py                 # -> results/viz/FOR_fairness{,_exchange}_micro.html
+  py -3 scripts/build_viz.py --suffix _TR9   # -> results/viz/FOR_fairness{,_exchange}_TR9.html
   ```
 
 Per-bed text and the two footer figures are substituted into the template; the figures
