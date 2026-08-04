@@ -75,16 +75,25 @@ files) from a rolling-dispatch CSV and a per-customer load+PV table.
 
 ---
 
-The four scripts below cover the fairness runs (`FairMode` 1 and 2 against the
-no-fairness case A). They read their CSVs from the current directory by default, so run
-them **from the repository root** with the model outputs there. Results and reasoning:
+The four scripts below cover the fairness runs (`FairMode` 1 to 4 against the no-fairness
+case A). They read their CSVs from the current directory by default, so run them **from the
+repository root** with the model outputs there. Results and reasoning:
 `results/TR9_fairness.md`.
+
+The four criteria come in two pairs. `L1`/`L2` allocate the **battery**; `L3`/`L4` allocate
+the prosumer's whole **exchange** with the grid, and normalise by `BattMaxP + PVsize` instead
+of `BattMaxP` alone. Within a pair the first is between prosumers and the second between
+aggregators, and the first nests inside the second. **Across** pairs there is no nesting —
+they constrain different quantities — so `L1` and `L3` are not comparable that way. Levels
+with no run on disk are skipped, so these scripts work mid-campaign.
 
 ## `check_fairness.py`
 Verifies the fairness runs against case A: nesting `proj_L1 <= proj_L2 <= proj_A` at
 every vertex, constraint satisfaction (`util == zeta` in every aggregator, plus
-`util_min == util_max` for level 1), the `|zeta| <= 1` bound, and how much the
-projection contracted.
+`util_min == util_max` for level 1), the `-1 <= zeta <= 1` bound, and how much the
+projection contracted. That bound is **derived, not imposed** — no row of the model
+enforces it, so the check confirms the derivation still holds rather than policing a
+constraint.
 
 - **Inputs:** `FOR_rolling<suffix>.csv` / `_fairL1` / `_fairL2` plus the matching
   `FOR_rolling_fair<suffix>*.csv` fairness logs (model outputs, git-ignored). Missing

@@ -1,4 +1,4 @@
-"""Extract the A / L1 / L2 cases of the rolling FOR into a compact JSON and report the
+"""Extract the A / L1..L4 cases of the rolling FOR into a compact JSON and report the
 AREA contraction, which is the metric check_fairness.py does not cover.
 
 Usage (from the repo root):
@@ -34,18 +34,19 @@ BEDS = {
 BATT_MAX_P_KW = 3.6   # homogeneous fleet: 3.6 kW across the 1,216 batteries
 
 
+# L1/L2 allocate the battery, L3/L4 the prosumer's whole exchange. Listed once so the three
+# places that iterate over levels cannot drift apart. Levels with no run on disk are skipped,
+# so this is safe to leave in place mid-campaign.
+LEVELS = ("L1", "L2", "L3", "L4")
+
+
 def paths(suffix):
     """(tag -> main csv, tag -> fairness csv) for the given suffix."""
-    cases = [
-        ("A",  "FOR_rolling%s.csv" % suffix),
-        ("L1", "FOR_rolling%s_fairL1.csv" % suffix),
-        ("L2", "FOR_rolling%s_fairL2.csv" % suffix),
-    ]
-    fair = {
-        "A":  "FOR_rolling_fair%s.csv" % suffix,
-        "L1": "FOR_rolling_fair%s_fairL1.csv" % suffix,
-        "L2": "FOR_rolling_fair%s_fairL2.csv" % suffix,
-    }
+    cases = [("A", "FOR_rolling%s.csv" % suffix)]
+    cases += [(lv, "FOR_rolling%s_fair%s.csv" % (suffix, lv)) for lv in LEVELS]
+    fair = {"A": "FOR_rolling_fair%s.csv" % suffix}
+    for lv in LEVELS:
+        fair[lv] = "FOR_rolling_fair%s_fair%s.csv" % (suffix, lv)
     return cases, fair
 
 
@@ -152,7 +153,7 @@ def main():
         out["cases"][tag] = per
         out["series"]["area_" + tag] = [per[str(n)]["area"] for n in periods]
 
-    for tag in ("L1", "L2"):
+    for tag in LEVELS:
         if tag not in data:
             continue
         loss, lossmax = [], []
@@ -218,7 +219,7 @@ def main():
     print()
     print("case A area (kW*kVAr): min %.1f  max %.1f"
           % (min(out["series"]["area_A"]), max(out["series"]["area_A"])))
-    for tag in ("L1", "L2"):
+    for tag in LEVELS:
         k = "areaLossPct_" + tag
         if k not in out["series"]:
             continue

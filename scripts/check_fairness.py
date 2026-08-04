@@ -1,11 +1,16 @@
 """Check the Stage 0 fairness runs against case A.
 
 Usage (from the repo root):
-    py -3 scripts/check_fairness.py                # micro: A vs L1 vs L2
+    py -3 scripts/check_fairness.py                # micro: A vs L1..L4
     py -3 scripts/check_fairness.py --suffix _TR9  # TR9
 
+Four criteria, in two pairs. L1/L2 allocate the BATTERY, L3/L4 the prosumer's whole EXCHANGE
+with the grid; within each pair the first is between prosumers and the second between
+aggregators. Cases that have not been run are skipped, so this works mid-campaign.
+
 Verifies three things:
-  1. Nesting  proj_L1 <= proj_L2 <= proj_A  at every vertex (a defect if it fails).
+  1. Nesting  proj_L1 <= proj_L2 <= proj_A  at every vertex (a defect if it fails), and the
+     same for L3 <= L4 <= A.
   2. That the constraint holds: util == zeta in every aggregator.
   3. How much the FOR contracted, and whether that matches what case A predicted.
 """
@@ -84,23 +89,45 @@ def check_nesting(a, b, name_a, name_b):
 
 
 def check_constraint(fair, mode):
-    """util must equal zeta in every aggregator; in L1, umin==umax as well."""
-    bad_util, bad_spread, zmax = [], [], 0.0
+    """util must equal zeta in every aggregator; at prosumer level, umin==umax as well."""
+    prosumer_level = mode in (1, 3)      # 1 and 3 pin every prosumer; 2 and 4 only the totals
+    exchange = mode >= 3                 # 3 and 4 allocate the exchange, not the battery
+    bad_util, bad_spread = [], []
+    zmin, zmax = 0.0, 0.0
     for k, rows in fair.items():
         for r in rows:
-            zmax = max(zmax, abs(r["zeta"]))
+            zmin, zmax = min(zmin, r["zeta"]), max(zmax, r["zeta"])
             if r["cap"] <= 0:
                 continue
             if abs(r["util"] - r["zeta"]) > TOL_FAIR:
                 bad_util.append((k, r["agg"], r["util"] - r["zeta"]))
-            if mode == 1 and (r["umax"] - r["umin"]) > TOL_FAIR:
+            if prosumer_level and (r["umax"] - r["umin"]) > TOL_FAIR:
                 bad_spread.append((k, r["agg"], r["umax"] - r["umin"]))
     print("  %-28s %s" % ("util == zeta", "OK" if not bad_util
           else "FAILS in %d rows (max %.2e)" % (len(bad_util), max(abs(d) for _, _, d in bad_util))))
-    if mode == 1:
-        print("  %-28s %s" % ("L1: umin == umax", "OK" if not bad_spread
+    if prosumer_level:
+        print("  %-28s %s" % ("umin == umax", "OK" if not bad_spread
               else "FAILS in %d rows (max %.2e)" % (len(bad_spread), max(d for _, _, d in bad_spread))))
-    print("  %-28s %.4f  %s" % ("max |zeta|", zmax, "OK" if zmax <= 1 + TOL_FAIR else "OUT OF BOUNDS"))
+
+    # The bound is DERIVED, never imposed: no row of the model enforces it, at any level.
+    #
+    # m=1/m=2: |BattP_Balance| <= BattMaxP holds per battery and FairCap = BattMaxP, so dividing
+    # the fairness equality by the capacity carries the bound onto zeta (through the triangle
+    # inequality at level 2). Two-sided, and a value outside means the premise broke -- not that
+    # a constraint was violated.
+    #
+    # m=3/m=4: only ONE side survives. s_i = BattMaxP + PVsize bounds the EXPORT (PV at full
+    # output plus the battery at rated power), so zeta <= 1 still holds; but the import side is
+    # load + BattMaxP, and a prosumer whose load exceeds its own PV plus battery can legitimately
+    # push zeta below -1. So the lower end is REPORTED, not asserted.
+    if exchange:
+        print("  %-28s %.4f  %s" % ("max zeta (derived <= 1)", zmax,
+              "OK" if zmax <= 1 + TOL_FAIR else "DERIVATION BROKEN"))
+        print("  %-28s %.4f  %s" % ("min zeta (no bound)", zmin,
+              "" if zmin >= -1 else "below -1: expected, import side is unbounded"))
+    else:
+        print("  %-28s %.4f  %s" % ("max |zeta| (derived <= 1)", max(abs(zmin), abs(zmax)),
+              "OK" if max(abs(zmin), abs(zmax)) <= 1 + TOL_FAIR else "DERIVATION BROKEN"))
     return not bad_util and not bad_spread
 
 
@@ -131,11 +158,10 @@ def main():
     args = p.parse_args()
     s = args.suffix
 
-    files = {
-        "A":  ("FOR_rolling%s.csv" % s,          "FOR_rolling_fair%s.csv" % s),
-        "L1": ("FOR_rolling%s_fairL1.csv" % s,   "FOR_rolling_fair%s_fairL1.csv" % s),
-        "L2": ("FOR_rolling%s_fairL2.csv" % s,   "FOR_rolling_fair%s_fairL2.csv" % s),
-    }
+    files = {"A": ("FOR_rolling%s.csv" % s, "FOR_rolling_fair%s.csv" % s)}
+    for lv in ("L1", "L2", "L3", "L4"):
+        files[lv] = ("FOR_rolling%s_fair%s.csv" % (s, lv),
+                     "FOR_rolling_fair%s_fair%s.csv" % (s, lv))
 
     main_d, fair_d = {}, {}
     for tag, (fm, ff) in files.items():
@@ -158,7 +184,7 @@ def main():
         print("[ok] %s (%d vertices)" % (fm, len(main_d[tag])))
 
     ok = True
-    for tag, mode in (("L1", 1), ("L2", 2)):
+    for tag, mode in (("L1", 1), ("L2", 2), ("L3", 3), ("L4", 4)):
         if tag not in main_d:
             continue
         print("\n=== %s (FairMode=%d) ===" % (tag, mode))
@@ -168,9 +194,14 @@ def main():
             ok &= check_nesting(main_d["A"], main_d[tag], "A", tag)
             contraction(main_d["A"], main_d[tag])
 
-    if "L1" in main_d and "L2" in main_d:
-        print("\n=== nesting between levels ===")
-        ok &= check_nesting(main_d["L2"], main_d["L1"], "L2", "L1")
+    # Within each pair the prosumer-level criterion implies the aggregator-level one: summing the
+    # per-prosumer equality over an aggregator reproduces the aggregate equality with the same
+    # zeta. So L1 nests inside L2 and L3 inside L4. ACROSS pairs there is no such implication --
+    # they constrain different quantities -- so L1 vs L3 is deliberately not checked here.
+    for inner, outer in (("L1", "L2"), ("L3", "L4")):
+        if inner in main_d and outer in main_d:
+            print("\n=== nesting between levels (%s inside %s) ===" % (inner, outer))
+            ok &= check_nesting(main_d[outer], main_d[inner], outer, inner)
 
     print("\n%s" % ("ALL OK" if ok else "FAILURES - see above"))
     return 0 if ok else 1
