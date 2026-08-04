@@ -488,8 +488,11 @@ function drawAbs(s) {
   let xs = [], ys = [];
   for (const t of PERIODS) {
     xs.push(BASE[t][0]); ys.push(BASE[t][1]);
-    for (const c of CASES) for (let i = 0; i < ANGLES.length; i++) {
-      const p = DATA.cases[c.id][t].pts[i]; xs.push(p[0]); ys.push(p[1]);
+    for (const c of CASES) {
+      if (!has(c.id, t)) continue;          // no region there: nothing to frame
+      for (let i = 0; i < ANGLES.length; i++) {
+        const p = DATA.cases[c.id][t].pts[i]; xs.push(p[0]); ys.push(p[1]);
+      }
     }
   }
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -553,14 +556,15 @@ function showTip(ev, i) {
   tip.appendChild(h);
   for (const c of CASES) {
     if (!on[c.id]) continue;
-    const p = pt(c.id, cur, i);
+    const p = has(c.id, cur) ? pt(c.id, cur, i) : null;
     const row = document.createElement("div"); row.className = "tip-row";
     const sw = document.createElement("span"); sw.className = "swatch";
     sw.style.background = cssv(c.v); row.appendChild(sw);
     const nm = document.createElement("span"); nm.className = "tip-n";
     nm.textContent = c.name; row.appendChild(nm);
     const v = document.createElement("span"); v.className = "tip-v";
-    v.textContent = fmt(p[0], 1) + " / " + fmt(p[1], 1); row.appendChild(v);
+    v.textContent = p ? fmt(p[0], 1) + " / " + fmt(p[1], 1) : "no region";
+    row.appendChild(v);
     tip.appendChild(row);
   }
   const u = document.createElement("div");
