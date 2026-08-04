@@ -143,33 +143,54 @@ def main():
         per = {}
         for now in periods:
             rows = data[tag][now]
-            pts = [[round(r["P"], 3), round(r["Q"], 3)] for r in rows]
-            per[str(now)] = {
-                "pts": pts,
-                "area": round(shoelace(pts), 3),
-                "proj": [round(r["proj"], 4) for r in rows],
-                "allOpt": all(r["st"] == "Optimal" for r in rows),
-            }
+            # A vertex the solver could not place writes P = Q = proj = 0.000000. That is a
+            # placeholder, NOT an operating point, and it must never reach the page: joining
+            # twelve of them draws a region collapsed onto the origin and reports a 100% area
+            # loss, which reads as "fairness shrank the region to nothing" when the truth is
+            # that no region exists for that period. m=3 does this legitimately -- see the
+            # constraint comment in OPF.ams -- so the null has to be carried, not patched over.
+            if all(r["st"] == "Optimal" for r in rows):
+                pts = [[round(r["P"], 3), round(r["Q"], 3)] for r in rows]
+                per[str(now)] = {
+                    "pts": pts,
+                    "area": round(shoelace(pts), 3),
+                    "proj": [round(r["proj"], 4) for r in rows],
+                    "allOpt": True,
+                }
+            else:
+                st = sorted({r["st"] for r in rows if r["st"] != "Optimal"})
+                per[str(now)] = {"pts": None, "area": None, "proj": None,
+                                 "allOpt": False, "status": ", ".join(st)}
         out["cases"][tag] = per
         out["series"]["area_" + tag] = [per[str(n)]["area"] for n in periods]
+        gaps = [n for n in periods if not per[str(n)]["allOpt"]]
+        if gaps:
+            print("[gap] %-3s no region in %d period(s): %s"
+                  % (tag, len(gaps), ", ".join(str(n) for n in gaps)))
 
     for tag in LEVELS:
         if tag not in data:
             continue
-        loss, lossmax = [], []
+        # null wherever either side has no region: a loss against something that does not exist
+        # is not zero and not 100%, it is undefined, and the page has to show a gap.
+        loss, lossmax, arealoss = [], [], []
         for n in periods:
             a = out["cases"]["A"][str(n)]["proj"]
             b = out["cases"][tag][str(n)]["proj"]
+            if a is None or b is None:
+                loss.append(None)
+                lossmax.append(None)
+                arealoss.append(None)
+                continue
             d = [x - y for x, y in zip(a, b)]
             loss.append(round(sum(d) / len(d), 4))
             lossmax.append(round(max(d), 4))
+            aA = out["cases"]["A"][str(n)]["area"]
+            arealoss.append(round(100.0 * (aA - out["cases"][tag][str(n)]["area"])
+                                  / max(aA, 1e-9), 2))
         out["series"]["projLossMean_" + tag] = loss
         out["series"]["projLossMax_" + tag] = lossmax
-        out["series"]["areaLossPct_" + tag] = [
-            round(100.0 * (out["cases"]["A"][str(n)]["area"] - out["cases"][tag][str(n)]["area"])
-                  / max(out["cases"]["A"][str(n)]["area"], 1e-9), 2)
-            for n in periods
-        ]
+        out["series"]["areaLossPct_" + tag] = arealoss
         if tag in zeta:
             out["series"]["zeta_" + tag] = [
                 [round(zeta[tag][n][a], 6) for a in angles] for n in periods
@@ -201,8 +222,10 @@ def main():
             if bad:
                 print("   WARNING: non-optimal periods in the baseline:", bad[:8])
             dP = [out["cases"]["A"][str(n)]["pts"][i][0] - out["baseline"][str(n)][0]
-                  for n in periods for i in range(len(angles))]
-            print("   dP range (case A): %.1f .. %.1f kW" % (min(dP), max(dP)))
+                  for n in periods if out["cases"]["A"][str(n)]["pts"]
+                  for i in range(len(angles))]
+            if dP:
+                print("   dP range (case A): %.1f .. %.1f kW" % (min(dP), max(dP)))
     else:
         print("no baseline (%s does not exist) -> absolute region only, no deviation view"
               % bed["baseline"])
@@ -217,15 +240,23 @@ def main():
     print("periods : %d | angles: %d | aggregate nameplate: %.1f kW"
           % (len(periods), len(angles), out["meta"]["namePlateKW"]))
     print()
-    print("case A area (kW*kVAr): min %.1f  max %.1f"
-          % (min(out["series"]["area_A"]), max(out["series"]["area_A"])))
+    aA = [v for v in out["series"]["area_A"] if v is not None]
+    print("case A area (kW*kVAr): min %.1f  max %.1f" % (min(aA), max(aA)))
     for tag in LEVELS:
         k = "areaLossPct_" + tag
         if k not in out["series"]:
             continue
-        pc = out["series"][k]
-        print("area loss %s: median %.2f%%  max %.2f%%  (period of the max: %d)"
-              % (tag, median(pc), max(pc), periods[pc.index(max(pc))]))
+        # periods with no region are null, and are reported as a gap rather than folded into
+        # the statistics -- averaging over them would understate or invent a contraction.
+        pc = [v for v in out["series"][k] if v is not None]
+        if not pc:
+            print("area loss %s: no period has a region" % tag)
+            continue
+        gaps = sum(1 for v in out["series"][k] if v is None)
+        print("area loss %s: median %.2f%%  max %.2f%%  (period of the max: %d)%s"
+              % (tag, median(pc), max(pc),
+                 periods[out["series"][k].index(max(pc))],
+                 "  [%d period(s) with no region, excluded]" % gaps if gaps else ""))
     return 0
 
 
