@@ -81,8 +81,8 @@ repository root** with the model outputs there. Results and reasoning:
 `results/TR9_fairness.md`.
 
 The four criteria come in two pairs. `L1`/`L2` allocate the **battery**; `L3`/`L4` allocate
-the prosumer's whole **exchange** with the grid, and normalise by `BattMaxP + PVsize` instead
-of `BattMaxP` alone. Within a pair the first is between prosumers and the second between
+the prosumer's whole **exchange** with the grid, and normalise by `BattMaxP + GenP0(PeriodMaxP)`
+-- the export capability actually available at the service instant -- instead of `BattMaxP` alone. Within a pair the first is between prosumers and the second between
 aggregators, and the first nests inside the second. **Across** pairs there is no nesting —
 they constrain different quantities — so `L1` and `L3` are not comparable that way. Levels
 with no run on disk are skipped, so these scripts work mid-campaign.
@@ -113,7 +113,7 @@ of magnitude below the smallest defect worth catching. The derivation is in
 `results/TR9_fairness.md` §5.4.
 
 ## `make_viz_data.py`
-Extracts cases A / L1 / L2 to one compact JSON for the viewer, and reports the **area**
+Extracts cases A and L1..L4 to one compact JSON for the viewer, and reports the **area**
 contraction (shoelace over the 12 vertices per period) — the metric `check_fairness.py`
 does not cover.
 
@@ -138,15 +138,16 @@ for L1/L2, which ration the battery, and `FOR_fairness_exchange_<bed>.html` for 
 ration the prosumer exchange. Within a family the stricter level nests inside the looser one;
 across families nothing nests, because they constrain different quantities, so drawing them
 together would suggest a hierarchy that does not exist. Families with no run on disk are skipped.
-Periods where a criterion has no region are left blank rather than drawn at the origin.
-Builds the self-contained interactive HTML viewer from that JSON plus
-`for_viz_template.html`.
+Periods where a criterion has no region are left blank rather than drawn at the origin: m=3 can
+legitimately fail to solve, and a vertex the solver could not place writes P = Q = 0, which drawn
+as data would read as a region shrunk to a point instead of a region that does not exist.
+
+Builds the self-contained interactive HTML viewer from that JSON plus `for_viz_template.html`.
 
 - **Inputs:** `scripts/for_data<suffix>.json` (run `make_viz_data.py` first) and
   `scripts/for_viz_template.html`.
-- **Output:** `results/viz/FOR_fairness_micro.html` or
-  `results/viz/FOR_fairness_TR9.html`. No network access at runtime — the page opens
-  with a double click.
+- **Output:** two pages per bed, `results/viz/FOR_fairness{,_exchange}_<bed>.html`. No network
+  access at runtime — either opens with a double click.
 - **Run:**
   ```bash
   py -3 scripts/build_viz.py                 # -> results/viz/FOR_fairness{,_exchange}_micro.html
