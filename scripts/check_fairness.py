@@ -66,8 +66,30 @@ def load_fair(path):
                 "umax": float(r["util_max"]),
                 "cap": float(r["cap_pu"]),
                 "sump": float(r["sumP_pu"]),
+                "n": int(float(r["n_batt"])),
             })
     return out
+
+
+def participation(fair):
+    """Periods where the criterion bound fewer prosumers than its own maximum.
+
+    From m=3 on, n_batt counts the PARTICIPATING fleet: a prosumer sitting on its SOC floor has
+    no export to offer and is left out of the sharing rule rather than dragging it down. The
+    exclusion is a modelling result worth reporting per period, not an implementation detail --
+    it is what stops one empty battery from making a whole period infeasible.
+    """
+    tot = {}
+    for k, rows in fair.items():
+        tot[k] = sum(r["n"] for r in rows)
+    if not tot:
+        return None
+    full = max(tot.values())
+    short = {}
+    for (now, _), n in tot.items():
+        if n < full:
+            short[now] = min(short.get(now, n), n)
+    return full, short
 
 
 def check_nesting(a, b, name_a, name_b):
@@ -163,7 +185,7 @@ def main():
         files[lv] = ("FOR_rolling%s_fair%s.csv" % (s, lv),
                      "FOR_rolling_fair%s_fair%s.csv" % (s, lv))
 
-    main_d, fair_d = {}, {}
+    main_d, fair_d, nonoptimal = {}, {}, {}
     for tag, (fm, ff) in files.items():
         pm, pf = os.path.join(args.root, fm), os.path.join(args.root, ff)
         if not os.path.exists(pm):
@@ -181,7 +203,21 @@ def main():
             ff_d = load_fair(pf)
             if ff_d:
                 fair_d[tag] = ff_d
-        print("[ok] %s (%d vertices)" % (fm, len(main_d[tag])))
+        # Non-optimal vertices must be surfaced HERE, at load time. They used to pass unmentioned
+        # because every check below skips them, so a case could report "ALL OK" while a whole
+        # period had failed to solve -- which is exactly what m=3 did on the micro bed (period 45,
+        # all 12 directions). Under m=1/m=2 a non-optimal vertex would be a defect, since Zeta=0
+        # is always admissible there; under m=3/m=4 it is a legitimate result, because the passive
+        # net load enters the row as a per-prosumer constant and no single Zeta need fit everyone.
+        # Either way it is never something to pass over in silence.
+        nonopt = [k for k, v in d.items() if v["status"] != "Optimal"]
+        if nonopt:
+            per = sorted(set(k[0] for k in nonopt))
+            print("[ok] %s (%d vertices)  ** %d NON-OPTIMAL in periods %s **"
+                  % (fm, len(d), len(nonopt), ", ".join(str(p) for p in per)))
+            nonoptimal[tag] = (len(nonopt), per)
+        else:
+            print("[ok] %s (%d vertices)" % (fm, len(d)))
 
     ok = True
     for tag, mode in (("L1", 1), ("L2", 2), ("L3", 3), ("L4", 4)):
@@ -190,6 +226,17 @@ def main():
         print("\n=== %s (FairMode=%d) ===" % (tag, mode))
         if tag in fair_d:
             ok &= check_constraint(fair_d[tag], mode)
+            part = participation(fair_d[tag])
+            if part:
+                full, short = part
+                if short:
+                    worst = min(short.values())
+                    print("  %-28s %d of %d prosumers at the tightest period; %d periods affected"
+                          % ("participation", worst, full, len(short)))
+                    print("        periods: %s"
+                          % ", ".join("%d(%d)" % (p, n) for p, n in sorted(short.items())[:12]))
+                else:
+                    print("  %-28s %d of %d, every period" % ("participation", full, full))
         if "A" in main_d:
             ok &= check_nesting(main_d["A"], main_d[tag], "A", tag)
             contraction(main_d["A"], main_d[tag])
@@ -203,7 +250,20 @@ def main():
             print("\n=== nesting between levels (%s inside %s) ===" % (inner, outer))
             ok &= check_nesting(main_d[outer], main_d[inner], outer, inner)
 
-    print("\n%s" % ("ALL OK" if ok else "FAILURES - see above"))
+    if nonoptimal:
+        print("\nNON-OPTIMAL VERTICES")
+        for tag, (n, per) in sorted(nonoptimal.items()):
+            print("  %-3s %d vertices, periods %s"
+                  % (tag, n, ", ".join(str(p) for p in per)))
+        print("  Every check above SKIPS these, so read the verdict with them in mind.")
+
+    if not ok:
+        verdict = "FAILURES - see above"
+    elif nonoptimal:
+        verdict = "CHECKS OK - but some vertices did not solve, see above"
+    else:
+        verdict = "ALL OK"
+    print("\n%s" % verdict)
     return 0 if ok else 1
 
 
