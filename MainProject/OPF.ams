@@ -1236,31 +1236,43 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Parameter FairSOCTol {
-				Default: 1.0e-3;
+				Default: 1.0e-6;
 				Comment: {
 					"How close to its SOC bound a battery may sit and still be credited with capability, in
-					SOC units. NOT a design dial - it is the solver's own resolution, and it belongs here
-					because measuring capability against the nominal bound claims a precision the solve does
-					not deliver.
+					SOC units. A NUMERICAL NOISE FLOOR, not a design dial - and the difference is testable,
+					which is the only reason this value can be defended.
 
-					SET TO MATCH Feasibility_Tolerance, which the rolling solves fix at 1.0e-3. Keep the two
-					in step: if that tolerance is ever loosened, this has to follow, or capability will be
-					read off digits the solver never guaranteed.
+					WHY IT EXISTS. A bare > 0 test on a computed headroom is knife-edge in floating point. On
+					the micro bed at period 29 (14:00) every battery was resting on its SOC ceiling, yet none
+					was relaxed: RollSOCnext came back as 0.99999997 rather than 1, left microwatts of
+					headroom, and the battery counted as a full participant - free to bind the common Zeta as
+					tightly as one with kilowatts to spare. The measured artefact is about 3e-8 in SOC units.
 
-					In power terms it is worth about 1e-3 * BattEcap * etaDis / DeltaT = 8 W against a 3.6 kW
-					rating, i.e. one part in 450. Nothing with real capability is anywhere near it.
+					WHY 1e-6. Thirty times the measured artefact, and worth 1e-6 * BattEcap * etaDis / DeltaT
+					= 8 mW against a 3.6 kW rating - one part in 450,000. Nothing with real capability is
+					anywhere near it.
 
-					WHY IT EXISTS AT ALL. Without it the test is knife-edge: a battery parked on its ceiling
-					returns 0.99999997, keeps microwatts of headroom and is treated as a full participant,
-					free to bind the common Zeta as tightly as a battery with kilowatts to spare. Observed on
-					the micro bed 3-Aug-2026 at period 29, where every battery sat on the ceiling yet none was
-					relaxed.
+					WHY NOT 1e-3, WHICH WAS TRIED FIRST. It was derived from Feasibility_Tolerance on the
+					argument that SOC cannot be resolved better than the solver guarantees. Correct in
+					principle, wrong in calibration: it sits four orders above the artefact actually observed,
+					and the micro run of 3-Aug-2026 disqualified it empirically. The eligible set moved from
+					14 affected periods to 32; periods 21-23 lost EVERY prosumer from the equality set, so the
+					criterion stopped binding at all there; median contraction fell from 0.46% to 0.07% and
+					the vertices it touched from 576/576 to 433/576. A value that changes the result that much
+					is a policy dial, whatever it was derived from.
 
-					HOW TO DEFEND IT: by insensitivity, not by argument. Sweep it over a couple of decades and
-					the eligible set should not move, because real capability is either ~0 or ~kW with nothing
-					in between. If the set does move with it, it has stopped being a noise floor and has become
-					a policy dial -- and a policy dial belongs in the bounded-deviation criterion, which asks a
-					different question: not WHO participates, but how closely a participant must comply."
+					HOW TO DEFEND IT: by insensitivity, measured, never by argument. Sweep it a couple of
+					decades and the eligible set must not move, because real capability is either ~0 or ~kW
+					with nothing in between. That is exactly the test 1e-3 failed. If a future case makes even
+					1e-6 move the set, it has stopped being a noise floor too, and the question belongs in the
+					bounded-deviation criterion instead - which asks something different: not WHO participates,
+					but how closely a participant must comply.
+
+					OPEN MODELLING QUESTION, for Prof. Luis rather than for this comment. The gap between the
+					two values is not numerical noise: it is the batteries the optimiser parks exactly ON a
+					bound, full at midday and on the floor at night. Whether a battery sitting at its ceiling
+					counts as a market participant decides how hard the criterion bites through the whole
+					solar day, not in one isolated period."
 				}
 			}
 			Parameter FairDisHead {
