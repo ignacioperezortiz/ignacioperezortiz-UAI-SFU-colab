@@ -23,6 +23,8 @@ PROTemp/
 # Model outputs (regenerated on every run)
 # ---------------------------------------------------------------------------
 FOR_rolling*.csv
+# progress marker of RunFOR_RollingPreflight: rewritten every vertex, pure run artefact
+FOR_rolling_preflight_progress.txt
 /*.png
 *_analysis_data.xlsx
 

@@ -2335,6 +2335,19 @@ Model Main_OPF_VI_LG {
 			StringParameter FOR_RollPreflightName {
 				Definition: "FOR_rolling_preflight" + PreflightSuffix + ".csv";
 			}
+			File FOR_PreProgress {
+				Name: "FOR_rolling_preflight_progress.txt";
+				Comment: {
+					"Externally observable progress of RunFOR_RollingPreflight, rewritten and closed after
+					every vertex so the flush actually reaches disk.
+
+					It exists because AIMMS buffers a put file until its final putclose, and the 36-row
+					preflight CSV never fills a page: it stays at ZERO BYTES for the entire run. On the full
+					feeder that meant hours with no way to tell a slow solve from a hung one, and nothing to
+					show for it if the run was cancelled. Overwritten rather than appended - the current
+					state is what matters, and truncating keeps it to one page so it always flushes."
+				}
+			}
 			File FOR_RollPreflightCSV {
 				Name: FOR_RollPreflightName;
 			}
@@ -3075,6 +3088,18 @@ Model Main_OPF_VI_LG {
 							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
 							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
 						endif;
+
+						! ---- progress marker, flushed to disk after every vertex (see FOR_PreProgress) ----
+						put FOR_PreProgress;
+						put "slot ", RollNow:3:0, "  ->  target ", (mod(RollNow,nPeriods)+1):3:0,
+						    "   direccion ", ord(ia):3:0, " de ", FOR_nAngles:3:0,
+						    "   (", FOR_Angle:6:1, " grados)" / ;
+						put "vertices resueltos : ", Preflight_nSolves:5:0 / ;
+						put "sin resolver       : ", Preflight_nFail:5:0 / ;
+						put "solver acumulado   : ", Preflight_TotalTime:12:2, " s" / ;
+						put "ultimo vertice     : ", FOR_VertexCont.SolutionTime:12:2, " s   estado ", FOR_StatCur / ;
+						putclose FOR_PreProgress;
+						put FOR_RollPreflightCSV;   ! restore the active file for the next direction
 					endfor;
 				endfor;
 				
