@@ -85,11 +85,18 @@ def participation(fair):
     if not tot:
         return None
     full = max(tot.values())
-    short = {}
+    short, unpinned = {}, set()
     for (now, _), n in tot.items():
         if n < full:
             short[now] = min(short.get(now, n), n)
-    return full, short
+        if n == 0:
+            # Nobody left on the equality. zeta is then a free column appearing only in one-sided
+            # rows, with no objective coefficient, so ANY sufficiently slack value satisfies them:
+            # what the solver reports is wherever the barrier stopped, not something the problem
+            # determines. It looks like a normal number and is not one -- do not read it, do not
+            # plot it. Seen on the micro bed at FairSOCTol=1e-3, periods 21-23.
+            unpinned.add(now)
+    return full, short, unpinned
 
 
 def check_nesting(a, b, name_a, name_b):
@@ -228,7 +235,13 @@ def main():
             ok &= check_constraint(fair_d[tag], mode)
             part = participation(fair_d[tag])
             if part:
-                full, short = part
+                full, short, unpinned = part
+                if unpinned:
+                    print("  %-28s %d periods with an EMPTY equality set: %s"
+                          % ("zeta UNPINNED", len(unpinned),
+                             ", ".join(str(p) for p in sorted(unpinned))))
+                    print("        the criterion does not bind there and the logged zeta is an"
+                          " artefact, not a result")
                 if short:
                     worst = min(short.values())
                     print("  %-28s %d of %d prosumers at the tightest period; %d periods affected"
