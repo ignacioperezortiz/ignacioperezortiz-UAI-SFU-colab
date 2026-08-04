@@ -109,6 +109,7 @@
     color: var(--muted); font-weight: 600; margin-bottom: 3px;
   }
   .tile-v { font-size: 22px; font-weight: 620; line-height: 1.15; }
+  .tile-v-sm { font-size: 15px; font-family: var(--mono); font-variant-numeric: tabular-nums; }
   .tile-u { font-size: 12px; color: var(--ink-2); font-weight: 400; }
   .tile-sub { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: var(--mono); }
 
@@ -214,9 +215,10 @@
       <div class="tile-sub">reference for this period</div>
     </div>
     <div class="tile">
-      <div class="tile-k">Utilisation ζ · prosumers</div>
-      <div class="tile-v" id="k-z">—</div>
-      <div class="tile-sub">max across the 12 directions</div>
+      <div class="tile-k">Utilisation ζ</div>
+      <div class="tile-v tile-v-sm" style="color:var(--s-l1)" id="k-z1">—</div>
+      <div class="tile-v tile-v-sm" style="color:var(--s-l2)" id="k-z2">—</div>
+      <div class="tile-sub">range over the 12 directions</div>
     </div>
   </div>
 </div>
@@ -228,6 +230,17 @@
   </div>
   <svg id="tl" viewBox="0 0 1120 190" role="img"
        aria-label="Percentage area loss of the region per period, for the two fairness levels"></svg>
+</div>
+
+<div class="tl-wrap panel" id="zwrap">
+  <div class="plot-head">
+    <h2 class="plot-title">Fleet utilisation ζ over the course of the day</h2>
+    <span class="plot-note">click to jump to a period</span>
+  </div>
+  <svg id="zt" viewBox="0 0 1120 230" role="img"
+       aria-label="Range of the fleet utilisation factor zeta per period, over the 12 directions,
+                   for the two fairness levels"></svg>
+  <p class="plot-note" id="zdesc" style="margin:10px 0 0"></p>
 </div>
 
 <details>
@@ -268,6 +281,15 @@
   deviation one.</p>
   <p><strong>Careful with the area.</strong> Scaling a 2-D region by a factor γ scales its area by γ².
   An area loss of 87 % amounts to a linear shrink to ~36 %, not to 13 %.</p>
+  <p><strong>What ζ is, and why it never leaves ±1.</strong> ζ is the single free scalar of the C1
+  criterion: the fraction of its own nameplate power that every prosumer (m&nbsp;=&nbsp;1), or every
+  aggregator (m&nbsp;=&nbsp;2), is made to run at in the service slot. Positive is charging, negative
+  discharging. There is one ζ per solve, so each direction of the sweep has its own — which is why a
+  period shows a range rather than a number. <strong>The bound needs no constraint of its own:</strong>
+  every battery already satisfies |P<sub>i</sub>|&nbsp;≤&nbsp;P̄<sub>i</sub> through its charge and
+  discharge limits, so dividing the fairness equality by the capacity gives −1&nbsp;≤&nbsp;ζ&nbsp;≤&nbsp;1
+  for free, at either level. It is a consequence of the formulation, not an assumption added to it.</p>
+
   <p><strong>How it is drawn.</strong> For each of 12 directions, the directional sweep solves for the
   point of the region that reaches furthest in that direction; joining those 12 points gives the
   outline. Since fairness is a constraint, the region can only shrink: the three are always nested,
@@ -597,6 +619,134 @@ function drawTL() {
   s.appendChild(hit);
 }
 
+/* ---------------- fleet utilisation ζ ----------------
+   There is ONE ζ per solve, so every period carries 12 of them, one per direction of the
+   sweep: what is drawn is that range. The upper edge is the most charging the rule asks of
+   the fleet, the lower edge the most discharging, and the width of the band is the
+   flexibility the rule leaves. Plotting a single collapsed statistic instead would hide
+   exactly the effect this page is about — the discharging edge going to zero.
+
+   The ±1 lines are NOT a constraint of the model and there is no row imposing them. Every
+   battery already satisfies |P_i| ≤ P̄_i through its own charge and discharge limits, and
+   dividing the fairness equality by the capacity carries that bound straight onto ζ. They
+   are drawn because the bound is tight — the fleet does reach nameplate — not decorative. */
+const ZT = { w: 1120, h: 230, l: 48, r: 16, t: 16, b: 34 };
+const ZLV = [
+  { id: "L2", ser: "zeta_L2", v: "--s-l2", lab: "aggregators" },   // wider: drawn first
+  { id: "L1", ser: "zeta_L1", v: "--s-l1", lab: "prosumers"   }
+];
+const ZHAVE = ZLV.filter(l => Array.isArray(DATA.series[l.ser]) && DATA.series[l.ser].length);
+const zHi = ser => DATA.series[ser].map(r => Math.max(...r));
+const zLo = ser => DATA.series[ser].map(r => Math.min(...r));
+
+function drawZeta() {
+  if (!ZHAVE.length) { $("zwrap").hidden = true; return; }
+  const s = $("zt"); s.textContent = "";
+  const iw = ZT.w - ZT.l - ZT.r, ih = ZT.h - ZT.t - ZT.b;
+  const X = i => ZT.l + i / (PERIODS.length - 1) * iw;
+  const Y = v => ZT.t + ih - (v + 1.08) / 2.16 * ih;      // fixed domain: ζ can never leave ±1
+
+  for (let v = -1; v <= 1.001; v += 0.5) {
+    s.appendChild(el("line", { x1: ZT.l, y1: Y(v), x2: ZT.l + iw, y2: Y(v), class: "gridline" }));
+    const lb = el("text", { x: ZT.l - 8, y: Y(v) + 3.5, class: "ticklabel", "text-anchor": "end" });
+    lb.textContent = fmt(v, 1); s.appendChild(lb);
+  }
+  for (let i = 0; i < PERIODS.length; i += 6) {
+    const lb = el("text", { x: X(i), y: ZT.t + ih + 16, class: "ticklabel", "text-anchor": "middle" });
+    lb.textContent = clock(PERIODS[i]); s.appendChild(lb);
+  }
+
+  // m = 1 is the stricter rule, so its band sits INSIDE the m = 2 one. Only the outer band is
+  // filled and the inner one is drawn as a bare envelope: two stacked translucent fills mix
+  // into an ambiguous third colour, and giving the inner one an opaque backing reads as if the
+  // two ranges were disjoint, which is the opposite of what nesting means.
+  ZHAVE.forEach((l, k) => {
+    const hi = zHi(l.ser), lo = zLo(l.ser);
+    if (k === 0) {
+      const up = hi.map((y, i) => X(i).toFixed(1) + "," + Y(y).toFixed(1));
+      const dn = lo.map((y, i) => X(i).toFixed(1) + "," + Y(y).toFixed(1)).reverse();
+      s.appendChild(el("polygon", { points: up.concat(dn).join(" "),
+        fill: cssv(l.v), "fill-opacity": cssv("--fill"), stroke: "none" }));
+    }
+    for (const edge of [hi, lo]) {
+      const d = edge.map((y, i) => X(i).toFixed(1) + "," + Y(y).toFixed(1)).join(" ");
+      s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv(l.v),
+        "stroke-width": k === 0 ? 1.6 : 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    }
+  });
+
+  // Drawn AFTER the bands: the inner band carries an opaque backing, which would otherwise
+  // swallow the zero line, the ±1 bounds and the period cursor.
+  s.appendChild(el("line", { x1: ZT.l, y1: Y(0), x2: ZT.l + iw, y2: Y(0), class: "zeroline" }));
+  for (const v of [-1, 1])
+    s.appendChild(el("line", { x1: ZT.l, y1: Y(v), x2: ZT.l + iw, y2: Y(v),
+      stroke: cssv("--axis"), "stroke-width": 1, "stroke-dasharray": "3 3" }));
+  const bl = el("text", { x: ZT.l + iw, y: Y(1) - 6, class: "ticklabel", "text-anchor": "end" });
+  bl.textContent = "±1 · whole fleet at nameplate"; s.appendChild(bl);
+  const ci = PERIODS.indexOf(+cur);
+  s.appendChild(el("line", { x1: X(ci), y1: ZT.t, x2: X(ci), y2: ZT.t + ih, class: "tl-cursor" }));
+
+  // Direct labels anchored where the two lower edges are furthest apart — which is the evening
+  // stretch where m = 1 loses the discharging side and m = 2 keeps it. With one level only,
+  // anchor on the widest point of the band instead.
+  let mi = 0;
+  if (ZHAVE.length === 2) {
+    const a = zLo("zeta_L1"), b = zLo("zeta_L2");
+    a.forEach((_, i) => { if (a[i] - b[i] > a[mi] - b[mi]) mi = i; });
+  } else {
+    const hi = zHi(ZHAVE[0].ser), lo = zLo(ZHAVE[0].ser);
+    hi.forEach((_, i) => { if (hi[i] - lo[i] > hi[mi] - lo[mi]) mi = i; });
+  }
+  ZHAVE.forEach(l => {
+    // The inner band is labelled above its UPPER edge and the outer one below its LOWER edge:
+    // at the anchor period the inner band has collapsed onto zero, so labelling both off the
+    // lower edge would stack the two labels on the zero line. Clamped into the plot box, since
+    // the outer lower edge sits near −1 there and would otherwise land on the time axis.
+    const y0 = l.id === "L1" ? Y(zHi(l.ser)[mi]) - 7 : Y(zLo(l.ser)[mi]) + 15;
+    const t = el("text", { x: Math.min(Math.max(X(mi), ZT.l + 36), ZT.l + iw - 42),
+      y: Math.min(Math.max(y0, ZT.t + 11), ZT.t + ih - 5), class: "dlabel",
+      fill: cssv(l.v), "text-anchor": "middle" });
+    t.textContent = l.lab; s.appendChild(t);
+  });
+
+  const hit = el("rect", { x: ZT.l, y: ZT.t, width: iw, height: ih, fill: "transparent", class: "tl-hit" });
+  const pick = ev => {
+    const bb = s.getBoundingClientRect();
+    const mx = (ev.clientX - bb.left) * (ZT.w / bb.width);
+    const i = Math.round((mx - ZT.l) / iw * (PERIODS.length - 1));
+    setT(PERIODS[Math.min(Math.max(i, 0), PERIODS.length - 1)]);
+  };
+  hit.addEventListener("click", pick);
+  hit.addEventListener("pointermove", ev => { if (ev.buttons === 1) pick(ev); });
+  s.appendChild(hit);
+}
+
+/* Caption derived from the data, never written by hand: the same page serves more than one
+   test bed, and hand-written figures are precisely what broke it the first time. */
+function zetaCaption() {
+  if (!ZHAVE.length) return;
+  const out = ["Each period carries 12 values of ζ, one per direction: the band runs from the "
+    + "most discharging the criterion asks of the fleet (below) to the most charging (above), "
+    + "and its width is the flexibility left."];
+  let za = 0, zi = 0;
+  for (const l of ZHAVE) DATA.series[l.ser].forEach((r, i) =>
+    r.forEach(v => { if (Math.abs(v) > za) { za = Math.abs(v); zi = i; } }));
+  out.push("The bound is tight: ζ reaches " + fmt(za, 3) + " at " + clock(PERIODS[zi]) + ".");
+  if (ZHAVE.length === 2) {
+    const lo1 = zLo("zeta_L1"), lo2 = zLo("zeta_L2");
+    const col = [];
+    lo1.forEach((v, i) => { if (v > -1e-6) col.push(i); });
+    if (col.length) {
+      const med = col.map(i => lo2[i]).sort((x, y) => x - y)[Math.floor(col.length / 2)];
+      out.push("Under m = 1 the discharging edge collapses onto zero in " + col.length + " of "
+        + PERIODS.length + " periods — the whole fleet held still by whichever single battery sits "
+        + "on its SOC floor — while under m = 2 it still reaches " + fmt(med, 2) + " (median), "
+        + "because the split inside an aggregator stays free.");
+    }
+  }
+  $("zdesc").textContent = out.join(" ");
+}
+
 /* ---------------- numeric readout ---------------- */
 function paint() {
   const A = DATA.cases.A[cur], L1 = DATA.cases.L1[cur], L2 = DATA.cases.L2[cur];
@@ -609,8 +759,10 @@ function paint() {
   $("k-a").append(document.createTextNode(fmt(A.area, 0)));
   const u = document.createElement("span"); u.className = "tile-u"; u.textContent = " kW·kVAr";
   $("k-a").appendChild(u);
-  const z = DATA.series.zeta_L1;
-  $("k-z").textContent = z ? fmt(Math.max(...z[i].map(Math.abs)), 3) : "—";
+  const zr = ser => { const z = DATA.series[ser];
+    return z ? fmt(Math.min(...z[i]), 2) + " … " + fmt(Math.max(...z[i]), 2) : "—"; };
+  $("k-z1").textContent = zr("zeta_L1");
+  $("k-z2").textContent = zr("zeta_L2");
   $("tlab").textContent = String(cur).padStart(2, "0") + " · " + clock(+cur);
 
   const tb = $("tb"); tb.textContent = "";
@@ -650,7 +802,7 @@ function applyView() {
   } else b.hidden = true;
 }
 
-function setT(t) { cur = String(t); $("t").value = t; drawPQ(); drawTL(); paint(); }
+function setT(t) { cur = String(t); $("t").value = t; drawPQ(); drawTL(); drawZeta(); paint(); }
 function setView(v) { if (!BASE && v === "dev") return; view = v; applyView(); drawPQ(); paint(); }
 
 $("t").addEventListener("input", e => setT(+e.target.value));
@@ -677,10 +829,11 @@ document.querySelectorAll(".tg").forEach(tg => {
     if (e.key === "Enter" || e.key === " ") { e.preventDefault(); flip(); } });
 });
 
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawPQ(); drawTL(); });
-new MutationObserver(() => { drawPQ(); drawTL(); })
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { drawPQ(); drawTL(); drawZeta(); });
+new MutationObserver(() => { drawPQ(); drawTL(); drawZeta(); })
   .observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
 applyView();
+zetaCaption();
 setT(PERIODS[0]);
 </script>
