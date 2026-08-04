@@ -461,7 +461,42 @@ fleet to the same sign: \emph{it forbids one battery to charge while another dis
 strictest reading of the criterion, and that is why C1 gives the \textbf{upper bound} on the cost of fairness.
 
 \textbf{Feasibility.} $\zeta=0$ is always admissible, so that C1 \emph{contracts} the region and
-never makes it infeasible. With $s_b=\overline{P}_b$ the implied bound is $|\zeta|\le1$.
+never makes it infeasible.
+
+\begin{nuevo}
+\textbf{\nw{Corrected (31~Jul).} \nw{The bound on the scalar, and why it is not a constraint.}}
+\nw{The bound is stated as a \emph{linear box}, never in modulus: writing $|\zeta|\le1$ would
+introduce a nonlinearity for no reason. The correct form is}
+
+\vspace{-3mm}
+\begin{equation}
+\nw{-1\ \le\ \zeta\ \le\ 1 .}
+\label{eq:zbox}
+\end{equation}
+
+\nw{That said, \eqref{eq:zbox} \textbf{is not added to the model}, because it holds by construction.
+Every battery already satisfies $|p_{b,\tstar}|\le\overline{P}_b$ through its own charge and
+discharge limits, which are box bounds on $\pch$ and $\pdis$ and hold at all times, independently of
+the fidelity switches. With $s_b=\overline{P}_b$, dividing \eqref{eq:c1p} by the capacity carries
+that bound straight onto $\zeta$; at level~2 the same follows from the triangle inequality on the
+aggregator sum:}
+
+\vspace{-3mm}
+\[
+\nw{\Big|\sum_{b:\,a(b)=\alpha} p_{b,\tstar}\Big|\ \le\
+\sum_{b:\,a(b)=\alpha} \big|p_{b,\tstar}\big|\ \le\ \sum_{b:\,a(b)=\alpha} s_b .}
+\]
+
+\nw{Imposing it would therefore add a redundant row. The \emph{a posteriori} verification shows
+further that the bound is \textbf{reached} ---$\max|\zeta|=1.0000$--- and never exceeded: it is an
+effective facet of the feasible region, not slack.}
+
+\smallskip
+\nw{\textbf{Warning for $m=3$ and $m=4$.} The argument requires the normalising capacity to be
+\emph{the same quantity} that bounds the left-hand side. Once the criterion moves to the prosumer
+exchange and the normalisation is no longer $\overline{P}_b$, the bound stops coming for free and
+will have to be re-derived ---possibly as an explicit constraint after all.}
+\end{nuevo}
 
 \subsection{\nw{The gate $\chi$}}
 
@@ -523,7 +558,7 @@ Vertices with contraction & 297 / 576 \ (51.6\,\%) & 272 / 576 \ (47.2\,\%)\\
 Maximum projection loss & 38.3 kW & 16.1 kW\\
 Area loss --- median & 22.2\,\% & 7.5\,\%\\
 Area loss --- maximum & \textbf{87.3\,\%} & 23.1\,\%\\
-Maximum $|\zeta|$ & 1.000 & 1.000\\
+Observed $\max|\zeta|$ \ \nw{(bound \eqref{eq:zbox}, reached)} & 1.000 & 1.000\\
 \bottomrule
 \end{tabular}
 \end{center}

@@ -170,7 +170,18 @@ Run `scripts/check_fairness.py --suffix _TR9` (§9). Results:
 | `util_min == util_max` (level 1 only) | OK | n/a |
 | `\|zeta\|` max | 1.0000 | 1.0000 |
 
-`|zeta| <= 1` is the implied bound when `FairCap = BattMaxP`; it is reached, not exceeded.
+**`-1 <= zeta <= 1` is derived, not imposed.** No row of the model enforces it, and none should:
+`MaxBattP_Chg_def` and `MaxBattP_Dis_def` already bound every battery to
+`|BattP_Balance| <= BattMaxP` unconditionally, and `FairCap = BattMaxP`, so dividing the fairness
+equality by the capacity carries the bound onto `zeta` — directly at level 1, and through the
+triangle inequality on the aggregator sum at level 2. Adding it as a row would be redundant, and
+adding it as `|zeta| <= 1` would make it nonlinear. It is **reached** (1.0000) and never exceeded,
+so it is a genuine facet of the feasible set rather than slack. The check above therefore validates
+the derivation, not a constraint.
+
+*Caveat for the m=3/m=4 criteria:* the derivation needs the normalising capacity to be the same
+quantity that bounds the left-hand side. Once fairness moves to the prosumer exchange and the
+normalisation is no longer `BattMaxP`, the bound stops coming for free.
 
 ### 5.2 Nesting
 
