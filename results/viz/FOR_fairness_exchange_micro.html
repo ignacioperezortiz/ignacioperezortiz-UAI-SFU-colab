@@ -159,7 +159,7 @@
   <p class="sub">
     Feasible operating region at the PCC for the service slot, over the course of the day. Three runs
     of the same model: no fairness, fairness between prosumers, and fairness between aggregators. What
-    is rationed here is the battery: what each prosumer charges or discharges at the service slot, rationed in proportion to its installed battery power. The axes are fixed in both views: nothing rescales when the
+    is rationed here is the whole exchange with the grid -- battery plus consumption minus PV -- rationed in proportion to the export capability available at that instant. The axes are fixed in both views: nothing rescales when the
     slider moves.
   </p>
 </header>
@@ -300,7 +300,7 @@ const DATA = {"meta":{"bed":"TR9_two (micro): 12 prosumers, 21 loads, 21 buses",
 /* The two fairness levels this page shows, injected by build_viz.py: ["L1","L2"] for the
    criteria on the battery, ["L3","L4"] for those on the prosumer exchange. Levels with no run
    on disk drop out here, so a half-finished campaign still renders. */
-const LV = ["L1", "L2"];
+const LV = ["L3"];
 const CASES = [
   { id: "A",   name: "No fairness", v: "--s-a",  lab: "no fairness",  ai: 3  },
   { id: LV[0], name: "Prosumers",   v: "--s-l1", lab: "prosumers",    ai: 7  },

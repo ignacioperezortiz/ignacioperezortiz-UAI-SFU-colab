@@ -158,8 +158,9 @@
   <h1>How much the feasible operating region shrinks when fairness is imposed</h1>
   <p class="sub">
     Feasible operating region at the PCC for the service slot, over the course of the day. Three runs
-    of the same model: no fairness, fairness between prosumers, and fairness between aggregators. The
-    axes are fixed in both views: nothing rescales when the slider moves.
+    of the same model: no fairness, fairness between prosumers, and fairness between aggregators. What
+    is rationed here is __FAMILY_WHAT__. The axes are fixed in both views: nothing rescales when the
+    slider moves.
   </p>
 </header>
 
@@ -177,14 +178,7 @@
       <button id="v-abs" aria-pressed="false">Whole network</button>
     </span>
   </div>
-  <div class="toggles" role="group" aria-label="Visible cases">
-    <span class="tg" role="button" tabindex="0" aria-pressed="true" data-c="A">
-      <span class="swatch" style="background:var(--s-a)"></span>No fairness</span>
-    <span class="tg" role="button" tabindex="0" aria-pressed="true" data-c="L1">
-      <span class="swatch" style="background:var(--s-l1)"></span>Prosumers</span>
-    <span class="tg" role="button" tabindex="0" aria-pressed="true" data-c="L2">
-      <span class="swatch" style="background:var(--s-l2)"></span>Aggregators</span>
-  </div>
+  <div class="toggles" role="group" aria-label="Visible cases" id="tgs"></div>
 </div>
 
 <div class="main">
@@ -257,7 +251,7 @@
         </tr>
         <tr>
           <th class="grp">P</th><th>Q</th><th class="grp">P</th><th>Q</th>
-          <th class="grp">P</th><th>Q</th><th class="grp">L1 kW</th><th>L2 kW</th>
+          <th class="grp">P</th><th>Q</th><th class="grp">kW</th><th>kW</th>
         </tr>
       </thead>
       <tbody id="tb"></tbody>
@@ -303,15 +297,20 @@
 <script>
 const DATA = __DATA__;
 
+/* The two fairness levels this page shows, injected by build_viz.py: ["L1","L2"] for the
+   criteria on the battery, ["L3","L4"] for those on the prosumer exchange. Levels with no run
+   on disk drop out here, so a half-finished campaign still renders. */
+const LV = __LEVELS__;
 const CASES = [
-  { id: "A",  name: "No fairness",   v: "--s-a",  lab: "no fairness",  ai: 3  },
-  { id: "L1", name: "Prosumers",     v: "--s-l1", lab: "prosumers",    ai: 7  },
-  { id: "L2", name: "Aggregators",   v: "--s-l2", lab: "aggregators",  ai: 11 }
-];
+  { id: "A",   name: "No fairness", v: "--s-a",  lab: "no fairness",  ai: 3  },
+  { id: LV[0], name: "Prosumers",   v: "--s-l1", lab: "prosumers",    ai: 7  },
+  { id: LV[1], name: "Aggregators", v: "--s-l2", lab: "aggregators",  ai: 11 }
+].filter(c => c.id && DATA.cases[c.id]);
+const LVP = CASES.filter(c => c.id !== "A").map(c => c.id);   // the levels actually present
 const PERIODS = DATA.meta.periods;
 const ANGLES  = DATA.meta.angles;
 const BASE    = DATA.baseline || null;      // B(t) with the batteries idle; null = deviation view unavailable
-const on   = { A: true, L1: true, L2: true };
+const on   = {}; CASES.forEach(c => { on[c.id] = true; });
 let cur    = PERIODS[0];
 let view   = BASE ? "dev" : "abs";
 let timer  = null;
@@ -330,6 +329,8 @@ const clock = t => { const m = (t - 1) * 30;
 
 /* Point in the active view. In the deviation view B is subtracted for the TARGET period
    (now+1), which is the slot the region is offered for. */
+function has(caseId, t) { const c = DATA.cases[caseId]; return !!(c && c[t] && c[t].pts); }
+
 function pt(caseId, t, i) {
   const p = DATA.cases[caseId][t].pts[i];
   if (view === "abs" || !BASE) return p;
@@ -340,10 +341,13 @@ function pt(caseId, t, i) {
 /* ---- FIXED domains: computed ONCE over the 48 periods, never change afterwards ---- */
 function computeDomain(mode) {
   let xs = [], ys = [];
-  for (const t of PERIODS) for (const c of CASES) for (let i = 0; i < ANGLES.length; i++) {
+  for (const t of PERIODS) for (const c of CASES) {
+    if (!has(c.id, t)) continue;                 // no region there: nothing to frame
+    for (let i = 0; i < ANGLES.length; i++) {
     const p = DATA.cases[c.id][t].pts[i];
     if (mode === "abs") { xs.push(p[0]); ys.push(p[1]); }
     else if (BASE) { xs.push(p[0] - BASE[t][0]); ys.push(p[1] - BASE[t][1]); }
+    }
   }
   if (mode === "abs" && BASE) for (const t of PERIODS) { xs.push(BASE[t][0]); ys.push(BASE[t][1]); }
   if (!xs.length) return null;
@@ -402,7 +406,7 @@ function frame(g, ox, oy, w, h, X, Y, dx0, dxs, dy0, dys, xlab, ylab, hh) {
 
 function regions(s, X, Y, ox, oy, w, h, withLabels) {
   for (const c of CASES) {
-    if (!on[c.id]) continue;
+    if (!on[c.id] || !has(c.id, cur)) continue;
     const poly = ANGLES.map((_, i) => { const p = pt(c.id, cur, i);
       return X(p[0]).toFixed(2) + "," + Y(p[1]).toFixed(2); }).join(" ");
     s.appendChild(el("polygon", { points: poly, class: "reg-ring" }));
@@ -410,7 +414,7 @@ function regions(s, X, Y, ox, oy, w, h, withLabels) {
       fill: cssv(c.v), "fill-opacity": cssv("--fill"), stroke: cssv(c.v) }));
   }
   for (const c of CASES) {
-    if (!on[c.id]) continue;
+    if (!on[c.id] || !has(c.id, cur)) continue;
     for (let i = 0; i < ANGLES.length; i++) {
       const p = pt(c.id, cur, i);
       s.appendChild(el("circle", { cx: X(p[0]), cy: Y(p[1]), r: 4.6, class: "vtx-ring" }));
@@ -422,7 +426,7 @@ function regions(s, X, Y, ox, oy, w, h, withLabels) {
   // from the centre of each region. They are drawn only if the region is big enough ON SCREEN:
   // at 6 px the three anchors land on top of each other and the labels would overlap.
   for (const c of CASES) {
-    if (!on[c.id]) continue;
+    if (!on[c.id] || !has(c.id, cur)) continue;
     let mx = 0, my = 0, xs = [], ys = [];
     for (let i = 0; i < ANGLES.length; i++) { const p = pt(c.id, cur, i);
       mx += p[0]; my += p[1]; xs.push(X(p[0])); ys.push(Y(p[1])); }
@@ -446,6 +450,7 @@ function nearestHit(s, X, Y, ox, oy, w, h, VB) {
     const mx = (ev.clientX - bb.left) * (VB.w / bb.width);
     const my = (ev.clientY - bb.top) * (VB.h / bb.height);
     let bi = 0, bd = Infinity;
+    if (!has("A", cur)) return;
     for (let i = 0; i < ANGLES.length; i++) {
       const p = pt("A", cur, i);
       const dx = X(p[0]) - mx, dy = Y(p[1]) - my, d2 = dx * dx + dy * dy;
@@ -577,8 +582,11 @@ const TL = { w: 1120, h: 190, l: 48, r: 16, t: 14, b: 34 };
 function drawTL() {
   const s = $("tl"); s.textContent = "";
   const iw = TL.w - TL.l - TL.r, ih = TL.h - TL.t - TL.b;
-  const s1 = DATA.series.areaLossPct_L1, s2 = DATA.series.areaLossPct_L2;
-  const ymax = Math.ceil(Math.max(...s1, ...s2) / 10) * 10;
+  const SER = LVP.map(id => DATA.series["areaLossPct_" + id]).filter(Boolean);
+  if (!SER.length) return;
+  const flat = SER.flat().filter(v => v !== null);
+  if (!flat.length) return;
+  const ymax = Math.max(10, Math.ceil(Math.max(...flat) / 10) * 10);
   const X = i => TL.l + i / (PERIODS.length - 1) * iw;
   const Y = v => TL.t + ih - v / ymax * ih;
 
@@ -595,16 +603,39 @@ function drawTL() {
   const ci = PERIODS.indexOf(+cur);
   s.appendChild(el("line", { x1: X(ci), y1: TL.t, x2: X(ci), y2: TL.t + ih, class: "tl-cursor" }));
 
-  [[s2, "--s-l2", "aggregators"], [s1, "--s-l1", "prosumers"]].forEach(([ser, v, nm]) => {
-    const d = ser.map((y, i) => X(i).toFixed(1) + "," + Y(y).toFixed(1)).join(" ");
-    s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv("--surface"),
-      "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-    s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv(v),
-      "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
-    let mi = 0; ser.forEach((y, i) => { if (y > ser[mi]) mi = i; });
-    const lb = el("text", { x: Math.min(X(mi) + 8, TL.l + iw - 62), y: Y(ser[mi]) - 7,
-      class: "dlabel", fill: cssv(v) });
-    lb.textContent = nm; s.appendChild(lb);
+  /* Drawn outermost-first so the tighter criterion sits on top. A null is a period with no
+     region at all -- not a loss of 100% -- so the line BREAKS there rather than diving to the
+     axis, which would invent a result the run never produced. */
+  const order = CASES.filter(c => c.id !== "A").reverse();
+  order.forEach(c => {
+    const ser = DATA.series["areaLossPct_" + c.id];
+    if (!ser) return;
+    let run = [];
+    const flush = () => {
+      if (run.length > 1) {
+        const d = run.join(" ");
+        s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv("--surface"),
+          "stroke-width": 5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+        s.appendChild(el("polyline", { points: d, fill: "none", stroke: cssv(c.v),
+          "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+      } else if (run.length === 1) {
+        const xy = run[0].split(",");
+        s.appendChild(el("circle", { cx: xy[0], cy: xy[1], r: 2, fill: cssv(c.v) }));
+      }
+      run = [];
+    };
+    ser.forEach((y, i) => {
+      if (y === null) { flush(); return; }
+      run.push(X(i).toFixed(1) + "," + Y(y).toFixed(1));
+    });
+    flush();
+    let mi = -1;
+    ser.forEach((y, i) => { if (y !== null && (mi < 0 || y > ser[mi])) mi = i; });
+    if (mi >= 0) {
+      const lb = el("text", { x: Math.min(X(mi) + 8, TL.l + iw - 62), y: Y(ser[mi]) - 7,
+        class: "dlabel", fill: cssv(c.v) });
+      lb.textContent = c.lab; s.appendChild(lb);
+    }
   });
 
   const hit = el("rect", { x: TL.l, y: TL.t, width: iw, height: ih, fill: "transparent", class: "tl-hit" });
@@ -631,10 +662,8 @@ function drawTL() {
    dividing the fairness equality by the capacity carries that bound straight onto ζ. They
    are drawn because the bound is tight — the fleet does reach nameplate — not decorative. */
 const ZT = { w: 1120, h: 230, l: 48, r: 16, t: 16, b: 34 };
-const ZLV = [
-  { id: "L2", ser: "zeta_L2", v: "--s-l2", lab: "aggregators" },   // wider: drawn first
-  { id: "L1", ser: "zeta_L1", v: "--s-l1", lab: "prosumers"   }
-];
+const ZLV = CASES.filter(c => c.id !== "A").reverse()               // wider band drawn first
+  .map(c => ({ id: c.id, ser: "zeta_" + c.id, v: c.v, lab: c.lab, inner: c.v === "--s-l1" }));
 const ZHAVE = ZLV.filter(l => Array.isArray(DATA.series[l.ser]) && DATA.series[l.ser].length);
 const zHi = ser => DATA.series[ser].map(r => Math.max(...r));
 const zLo = ser => DATA.series[ser].map(r => Math.min(...r));
@@ -644,9 +673,15 @@ function drawZeta() {
   const s = $("zt"); s.textContent = "";
   const iw = ZT.w - ZT.l - ZT.r, ih = ZT.h - ZT.t - ZT.b;
   const X = i => ZT.l + i / (PERIODS.length - 1) * iw;
-  const Y = v => ZT.t + ih - (v + 1.08) / 2.16 * ih;      // fixed domain: ζ can never leave ±1
+  /* Fixed across periods so bands stay comparable, but sized to the data: under m=3/m=4 the
+     bound is one-sided and zeta DOES pass -1 on the import side. A hardcoded ±1.08 would clip it
+     silently, which is worse than a taller axis. */
+  const ZB = Math.max(1.0, ...ZHAVE.map(l => Math.max(...DATA.series[l.ser]
+                .flat().map(Math.abs))));
+  const ZD = ZB * 1.08;
+  const Y = v => ZT.t + ih - (v + ZD) / (2 * ZD) * ih;
 
-  for (let v = -1; v <= 1.001; v += 0.5) {
+  for (let v = -Math.ceil(ZB * 2) / 2; v <= ZB + 0.001; v += 0.5) {
     s.appendChild(el("line", { x1: ZT.l, y1: Y(v), x2: ZT.l + iw, y2: Y(v), class: "gridline" }));
     const lb = el("text", { x: ZT.l - 8, y: Y(v) + 3.5, class: "ticklabel", "text-anchor": "end" });
     lb.textContent = fmt(v, 1); s.appendChild(lb);
@@ -691,7 +726,7 @@ function drawZeta() {
   // anchor on the widest point of the band instead.
   let mi = 0;
   if (ZHAVE.length === 2) {
-    const a = zLo("zeta_L1"), b = zLo("zeta_L2");
+    const a = zLo(ZLV[1].ser), b = zLo(ZLV[0].ser);
     a.forEach((_, i) => { if (a[i] - b[i] > a[mi] - b[mi]) mi = i; });
   } else {
     const hi = zHi(ZHAVE[0].ser), lo = zLo(ZHAVE[0].ser);
@@ -702,7 +737,7 @@ function drawZeta() {
     // at the anchor period the inner band has collapsed onto zero, so labelling both off the
     // lower edge would stack the two labels on the zero line. Clamped into the plot box, since
     // the outer lower edge sits near −1 there and would otherwise land on the time axis.
-    const y0 = l.id === "L1" ? Y(zHi(l.ser)[mi]) - 7 : Y(zLo(l.ser)[mi]) + 15;
+    const y0 = l.inner ? Y(zHi(l.ser)[mi]) - 7 : Y(zLo(l.ser)[mi]) + 15;
     const t = el("text", { x: Math.min(Math.max(X(mi), ZT.l + 36), ZT.l + iw - 42),
       y: Math.min(Math.max(y0, ZT.t + 11), ZT.t + ih - 5), class: "dlabel",
       fill: cssv(l.v), "text-anchor": "middle" });
@@ -728,12 +763,20 @@ function zetaCaption() {
   const out = ["Each period carries 12 values of ζ, one per direction: the band runs from the "
     + "most discharging the criterion asks of the fleet (below) to the most charging (above), "
     + "and its width is the flexibility left."];
-  let za = 0, zi = 0;
-  for (const l of ZHAVE) DATA.series[l.ser].forEach((r, i) =>
-    r.forEach(v => { if (Math.abs(v) > za) { za = Math.abs(v); zi = i; } }));
-  out.push("The bound is tight: ζ reaches " + fmt(za, 3) + " at " + clock(PERIODS[zi]) + ".");
+  let zx = -9e9, xi = 0, zn = 9e9;
+  for (const l of ZHAVE) DATA.series[l.ser].forEach((r, i) => r.forEach(v => {
+    if (v > zx) { zx = v; xi = i; }
+    if (v < zn) { zn = v; }
+  }));
+  out.push("On the export side the bound is tight: ζ reaches " + fmt(zx, 3) + " at "
+    + clock(PERIODS[xi]) + ".");
+  if (zn < -1.0001) {
+    out.push("It passes " + fmt(zn, 3) + " on the import side, which is expected rather than a "
+      + "defect: s_i measures what the prosumer can EXPORT, and importing its own load plus a "
+      + "charging battery can exceed that. Only the upper bound is derived.");
+  }
   if (ZHAVE.length === 2) {
-    const lo1 = zLo("zeta_L1"), lo2 = zLo("zeta_L2");
+    const lo1 = zLo(ZLV[1].ser), lo2 = zLo(ZLV[0].ser);
     const col = [];
     lo1.forEach((v, i) => { if (v > -1e-6) col.push(i); });
     if (col.length) {
@@ -749,29 +792,58 @@ function zetaCaption() {
 
 /* ---------------- numeric readout ---------------- */
 function paint() {
-  const A = DATA.cases.A[cur], L1 = DATA.cases.L1[cur], L2 = DATA.cases.L2[cur];
+  const A = DATA.cases.A[cur];
   const i = PERIODS.indexOf(+cur);
-  $("k-l1").textContent = fmt(DATA.series.areaLossPct_L1[i], 1) + " %";
-  $("k-l1s").textContent = fmt(A.area - L1.area, 0) + " of " + fmt(A.area, 0);
-  $("k-l2").textContent = fmt(DATA.series.areaLossPct_L2[i], 1) + " %";
-  $("k-l2s").textContent = fmt(A.area - L2.area, 0) + " of " + fmt(A.area, 0);
+  /* A period with no region reads as an em dash, never as 0 or 100%: the run did not produce a
+     smaller region there, it produced none. */
+  ["k-l1", "k-l2"].forEach((k, j) => {
+    const c = CASES[j + 1];
+    const tile = $(k).closest(".tile");
+    if (tile) tile.hidden = !c;      // no run for this level: drop the tile, not a stray dash
+    if (!c) return;
+    const ser = c && DATA.series["areaLossPct_" + c.id];
+    const v = ser ? ser[i] : null;
+    const d = c && DATA.cases[c.id][cur];
+    $(k).textContent = v === null || v === undefined ? "—" : fmt(v, 1) + " %";
+    $(k + "s").textContent = (!d || d.area === null || !A.area)
+      ? (d && !d.allOpt ? "no region: " + (d.status || "not solved") : "—")
+      : fmt(A.area - d.area, 0) + " of " + fmt(A.area, 0);
+  });
   $("k-a").textContent = "";
-  $("k-a").append(document.createTextNode(fmt(A.area, 0)));
-  const u = document.createElement("span"); u.className = "tile-u"; u.textContent = " kW·kVAr";
-  $("k-a").appendChild(u);
+  if (A.area === null) { $("k-a").append(document.createTextNode("—")); }
+  else {
+    $("k-a").append(document.createTextNode(fmt(A.area, 0)));
+    const u = document.createElement("span"); u.className = "tile-u"; u.textContent = " kW·kVAr";
+    $("k-a").appendChild(u);
+  }
   const zr = ser => { const z = DATA.series[ser];
     return z ? fmt(Math.min(...z[i]), 2) + " … " + fmt(Math.max(...z[i]), 2) : "—"; };
-  $("k-z1").textContent = zr("zeta_L1");
-  $("k-z2").textContent = zr("zeta_L2");
+  /* ZLV is outer-first, the tiles read inner-first, and each takes the colour of the level it
+     actually shows, so a single-level page cannot mislabel which one it is. */
+  const zin = ZLV.find(l => l.inner), zout = ZLV.find(l => !l.inner);
+  [["k-z1", zin], ["k-z2", zout]].forEach(([k, l]) => {
+    const e = $(k);
+    e.textContent = l ? zr(l.ser) : "—";
+    e.style.color = l ? cssv(l.v) : "";
+    e.hidden = !l;
+  });
   $("tlab").textContent = String(cur).padStart(2, "0") + " · " + clock(+cur);
 
   const tb = $("tb"); tb.textContent = "";
   ANGLES.forEach((a, k) => {
     const tr = document.createElement("tr");
-    const pa = pt("A", cur, k), p1 = pt("L1", cur, k), p2 = pt("L2", cur, k);
-    const cells = [fmt(a, 0) + "°",
-      fmt(pa[0], 1), fmt(pa[1], 1), fmt(p1[0], 1), fmt(p1[1], 1), fmt(p2[0], 1), fmt(p2[1], 1),
-      fmt(A.proj[k] - L1.proj[k], 2), fmt(A.proj[k] - L2.proj[k], 2)];
+    const cells = [fmt(a, 0) + "°"];
+    CASES.forEach(c => {
+      if (!has(c.id, cur)) { cells.push("—", "—"); return; }
+      const p = pt(c.id, cur, k);
+      cells.push(fmt(p[0], 1), fmt(p[1], 1));
+    });
+    while (cells.length < 7) cells.push("—", "—");
+    CASES.filter(c => c.id !== "A").forEach(c => {
+      const d = DATA.cases[c.id][cur];
+      cells.push(has("A", cur) && d.proj ? fmt(A.proj[k] - d.proj[k], 2) : "—");
+    });
+    while (cells.length < 9) cells.push("—");
     cells.forEach((c, ci) => {
       const td = document.createElement(ci === 0 ? "th" : "td");
       if (ci === 0) td.setAttribute("scope", "row");
@@ -816,6 +888,18 @@ $("play").addEventListener("click", () => {
     b.setAttribute("aria-pressed", "false"); b.textContent = "Play"; return; }
   b.setAttribute("aria-pressed", "true"); b.textContent = "Pause";
   timer = setInterval(() => setT((+cur % PERIODS.length) + 1), 480);
+});
+
+/* Toggles are built rather than written out, so a page with only one level present -- a
+   half-finished campaign -- shows only the switches it can honour. */
+CASES.forEach(c => {
+  const tg = document.createElement("span");
+  tg.className = "tg"; tg.setAttribute("role", "button"); tg.tabIndex = 0;
+  tg.setAttribute("aria-pressed", "true"); tg.dataset.c = c.id;
+  const sw = document.createElement("span");
+  sw.className = "swatch"; sw.style.background = cssv(c.v);
+  tg.appendChild(sw); tg.appendChild(document.createTextNode(c.name));
+  $("tgs").appendChild(tg);
 });
 
 document.querySelectorAll(".tg").forEach(tg => {

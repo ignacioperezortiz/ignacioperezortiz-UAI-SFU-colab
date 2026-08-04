@@ -44,6 +44,27 @@ BEDS = {
     },
 }
 
+# One page PER CRITERION FAMILY, never one page with all five regions. L1/L2 ration the battery,
+# L3/L4 the prosumer's whole exchange with the grid; within a family the stricter level nests
+# inside the looser one, but ACROSS families nothing nests -- they constrain different quantities.
+# Drawing them together would imply a hierarchy that does not exist. Faceting also keeps each page
+# at three series, which is where a categorical palette still separates cleanly for marks that can
+# overlap anywhere; past three the guidance is to facet rather than invent hues.
+FAMILIES = {
+    "battery": {
+        "levels": ["L1", "L2"],
+        "prefix": "",
+        "what": ("the battery: what each prosumer charges or discharges at the service slot, "
+                 "rationed in proportion to its installed battery power"),
+    },
+    "exchange": {
+        "levels": ["L3", "L4"],
+        "prefix": "exchange_",
+        "what": ("the whole exchange with the grid -- battery plus consumption minus PV -- "
+                 "rationed in proportion to the export capability available at that instant"),
+    },
+}
+
 
 def kw(x):
     """Format in kW with an English-convention thousands separator (3,959 kW)."""
@@ -56,7 +77,9 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--suffix", default="", help="transformer suffix, e.g. _TR9")
     p.add_argument("--json", default=None, help="JSON path (defaults to scripts/for_data<suffix>.json)")
-    p.add_argument("--out", default=None, help="path of the output HTML")
+    p.add_argument("--out", default=None, help="path of the output HTML (single family only)")
+    p.add_argument("--family", default=None, choices=sorted(FAMILIES),
+                   help="build just one family; default builds every family that has data")
     args = p.parse_args()
 
     here = os.path.dirname(os.path.abspath(__file__))
@@ -79,6 +102,8 @@ def main():
     spans = []
     allP = []
     for n in per:
+        if not A[str(n)]["pts"]:      # case A has no region there: nothing to measure
+            continue
         P = [pt[0] for pt in A[str(n)]["pts"]]
         spans.append(max(P) - min(P))
         allP.extend(P)
@@ -86,7 +111,38 @@ def main():
     span_day = max(allP) - min(allP)
 
     tpl = io.open(os.path.join(here, "for_viz_template.html"), encoding="utf-8").read()
+
+    fams = [args.family] if args.family else sorted(FAMILIES)
+    built = 0
+    for fam in fams:
+        levels = [lv for lv in FAMILIES[fam]["levels"] if lv in data["cases"]]
+        if not levels:
+            print("skip %-8s no run on disk for %s" % (fam, "/".join(FAMILIES[fam]["levels"])))
+            continue
+        built += 1
+        html = build_one(tpl, data, bed, fam, levels, span_region, span_day)
+        name = bed["out"].replace("FOR_fairness_", "FOR_fairness_" + FAMILIES[fam]["prefix"])
+        dest = args.out or os.path.join(repo, "results", "viz", name)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        io.open(dest, "w", encoding="utf-8", newline="").write(html)
+        gaps = sum(1 for lv in levels for v in data["cases"][lv].values() if not v["allOpt"])
+        print("written : %s  (%.1f KB)  levels %s%s"
+              % (dest, os.path.getsize(dest) / 1024, "+".join(levels),
+                 "  [%d period(s) with no region]" % gaps if gaps else ""))
+    if not built:
+        print("nothing written: no fairness run on disk")
+        return 1
+    print("bed     : %s" % data["meta"]["bed"])
+    print("deviation view: %s" % ("YES" if data.get("baseline") else "NO (baseline missing)"))
+    print("footer  : region %s | travel over the day %s" % (kw(span_region), kw(span_day)))
+    return 0
+
+
+def build_one(tpl, data, bed, fam, levels, span_region, span_day):
+    """Substitute one family into the template."""
     html = (tpl
+            .replace("__LEVELS__", json.dumps(levels))
+            .replace("__FAMILY_WHAT__", FAMILIES[fam]["what"])
             .replace("__BED_TAG__", bed["tag"])
             .replace("__BED_SHORT__", bed["short"])
             .replace("__BED_DESC__", bed["desc"])
@@ -96,23 +152,11 @@ def main():
             .replace("__SPAN_DAY__", kw(span_day))
             .replace("__DATA__", json.dumps(data, separators=(",", ":"))))
 
-    if "__" in html.replace("__DATA__", ""):
-        import re
-        left = sorted(set(re.findall(r"__[A-Z_]+__", html)))
-        if left:
-            print("WARNING: placeholders left unfilled: %s" % left)
-
-    dest = args.out or os.path.join(repo, "results", "viz", bed["out"])
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    io.open(dest, "w", encoding="utf-8", newline="").write(html)
-
-    cases = [t for t in ("A", "L1", "L2") if t in data["cases"]]
-    print("written : %s  (%.1f KB)" % (dest, os.path.getsize(dest) / 1024))
-    print("bed     : %s" % data["meta"]["bed"])
-    print("cases   : %s" % ", ".join(cases))
-    print("deviation view: %s" % ("YES" if data.get("baseline") else "NO (baseline missing)"))
-    print("footer  : region %s | travel over the day %s" % (kw(span_region), kw(span_day)))
-    return 0
+    import re
+    left = sorted(set(re.findall(r"__[A-Z_]+__", html.replace("__DATA__", ""))))
+    if left:
+        print("WARNING: placeholders left unfilled: %s" % left)
+    return html
 
 
 if __name__ == "__main__":
