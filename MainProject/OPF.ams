@@ -1235,10 +1235,38 @@ Model Main_OPF_VI_LG {
 					run), not because it is the modelled default."
 				}
 			}
+			Parameter FairSOCTol {
+				Default: 1.0e-3;
+				Comment: {
+					"How close to its SOC bound a battery may sit and still be credited with capability, in
+					SOC units. NOT a design dial - it is the solver's own resolution, and it belongs here
+					because measuring capability against the nominal bound claims a precision the solve does
+					not deliver.
+
+					SET TO MATCH Feasibility_Tolerance, which the rolling solves fix at 1.0e-3. Keep the two
+					in step: if that tolerance is ever loosened, this has to follow, or capability will be
+					read off digits the solver never guaranteed.
+
+					In power terms it is worth about 1e-3 * BattEcap * etaDis / DeltaT = 8 W against a 3.6 kW
+					rating, i.e. one part in 450. Nothing with real capability is anywhere near it.
+
+					WHY IT EXISTS AT ALL. Without it the test is knife-edge: a battery parked on its ceiling
+					returns 0.99999997, keeps microwatts of headroom and is treated as a full participant,
+					free to bind the common Zeta as tightly as a battery with kilowatts to spare. Observed on
+					the micro bed 3-Aug-2026 at period 29, where every battery sat on the ceiling yet none was
+					relaxed.
+
+					HOW TO DEFEND IT: by insensitivity, not by argument. Sweep it over a couple of decades and
+					the eligible set should not move, because real capability is either ~0 or ~kW with nothing
+					in between. If the set does move with it, it has stopped being a noise floor and has become
+					a policy dial -- and a policy dial belongs in the bounded-deviation criterion, which asks a
+					different question: not WHO participates, but how closely a participant must comply."
+				}
+			}
 			Parameter FairDisHead {
 				IndexDomain: bat;
 				Definition: max(0, min(BattMaxP(bat),
-				            (RollSOCnext(bat) - BattSOCmin(bat))*BattEcap(bat)*etaDis(bat)/DeltaT));
+				            (RollSOCnext(bat) - BattSOCmin(bat) - FairSOCTol)*BattEcap(bat)*etaDis(bat)/DeltaT));
 				Comment: {
 					"How much this battery can still DISCHARGE in the service slot, in p.u. - the export
 					capability it brings to the market. Zero means it is sitting on its SOC floor with
@@ -1265,7 +1293,7 @@ Model Main_OPF_VI_LG {
 			Parameter FairChgHead {
 				IndexDomain: bat;
 				Definition: max(0, min(BattMaxP(bat),
-				            (BattSOCmax(bat) - RollSOCnext(bat))*BattEcap(bat)/(etaChg(bat)*DeltaT)));
+				            (BattSOCmax(bat) - RollSOCnext(bat) - FairSOCTol)*BattEcap(bat)/(etaChg(bat)*DeltaT)));
 				Comment: "Mirror of FairDisHead on the charging side: how much this battery can still ABSORB in the service slot. Zero means it is full. Same parameter-not-variable argument and the same rolling-context requirement.";
 			}
 			Parameter FairBinds {
