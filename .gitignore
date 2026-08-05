@@ -25,6 +25,8 @@ PROTemp/
 FOR_rolling*.csv
 # progress marker of RunFOR_RollingPreflight: rewritten every vertex, pure run artefact
 FOR_rolling_preflight_progress.txt
+# matrix size / memory / objective-row signs, written when PreflightGMPProbe = 1
+FOR_gmp_probe*.txt
 /*.png
 *_analysis_data.xlsx
 
