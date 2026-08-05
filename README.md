@@ -8,7 +8,7 @@ and for the whole feeder.
 > **Working on this repository?** Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. It
 > sets out the git workflow we follow, how we split work across the model sections,
 > and how input data is versioned as study cases. `MainProject/OPF.ams` is a single
-> ~4,200-line file that AIMMS rewrites on save, so the process there is what keeps
+> ~5,900-line file that AIMMS rewrites on save, so the process there is what keeps
 > parallel work mergeable.
 
 ---
@@ -71,6 +71,9 @@ Results are written as `FOR_rolling*.csv` in the repo root. These are **git-igno
 │   ├── Settings/          # AIMMS project settings
 │   ├── User Files/        # UI bitmaps
 │   └── WebUI/             # WebUI resources
+├── docs/                  # longer guides (section 6)
+├── scripts/               # post-processing (see scripts/README.md)
+├── results/               # per-transformer results (see results/README.md)
 ├── .gitignore
 ├── CONTRIBUTING.md        # collaboration workflow — read before contributing
 └── README.md
@@ -101,10 +104,10 @@ works for anyone who clones it:
     phases: the per-direction overhead removed in July, and the GMP matrix reuse.
   - `network-scope.md` — per-transformer vs whole-feeder runs and exact vs linearized
     formulation: what each covers, what each costs, and which produced `results/`.
-  - `formulation-opf-aggregators-fairness-2026-07-30.pdf` — the full mathematical
+  - `formulation-opf-aggregators-fairness.pdf` — the full mathematical
     formulation with multiple aggregators and the C1 fairness criterion, typeset;
-    everything new relative to the inherited model is marked in red. LaTeX source in
-    `docs/formulation-src/`.
+    what is new relative to the inherited model is marked in red, and what is
+    proposed but not yet implemented in blue. LaTeX source in `docs/formulation-src/`.
 - **`scripts/README.md`, `results/README.md`:** next to what they document.
 - **`results/TR9_fairness.md`:** the production results for that formulation.
 

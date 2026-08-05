@@ -4,7 +4,7 @@ Working agreement for the UAI–SFU collaboration on this repository.
 
 The central constraint that shapes everything below:
 
-> **`MainProject/OPF.ams` is a single ~4,200-line file, and AIMMS rewrites it wholesale
+> **`MainProject/OPF.ams` is a single ~5,900-line file, and AIMMS rewrites it wholesale
 > on save.** A three-line edit can produce a several-hundred-line diff. Two people
 > editing it on long-lived parallel branches will produce a merge that is painful at
 > best and unresolvable at worst.

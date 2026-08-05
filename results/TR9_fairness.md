@@ -26,7 +26,7 @@ committed as `4404d54` and `42f158c`.
 
 **Formulation.** The full mathematical statement — sets, objective, network, batteries and the
 fairness criterion, with everything new relative to the inherited model marked in red — is
-`docs/formulation-opf-aggregators-fairness-2026-07-30.pdf`. This document reports what that
+`docs/formulation-opf-aggregators-fairness.pdf`. This document reports what that
 formulation does when run; the PDF states what it is.
 
 ---
