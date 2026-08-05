@@ -12,9 +12,19 @@ sweep was written and no longer pays off in the configuration now used in produc
 QCP solved by barrier). **Reviewed and agreed before pushing.** The A/B evidence for "nothing moved"
 is in §3.
 
-**Scope:** the per-transformer path `RunTRk` → `RunTrafoFOR(tag)` → `RunFOR_Rolling` in
+A **second phase** builds on this one and is covered in §6–§8: the sweep matrix is generated once
+per period through the GMP library rather than once per direction, which takes on the model
+generation that §3.3 identifies as the remaining non-solver cost.
+
+**Scope:** the per-transformer path `RunTR1`…`RunTR9` → `RunTrafoFOR(tag)` → `RunFOR_Rolling` in
 `MainProject/OPF.ams` (section `RollingHorizonFOR`), which writes `FOR_rolling_<tag>.csv` and
-`FOR_rolling_soc_<tag>.csv`.
+`FOR_rolling_soc_<tag>.csv`. §6–§8 also cover `RunFOR_RollingPreflight`, the whole-feeder entry
+point.
+
+**Formulation.** §1–§5 and §7.1–§7.2 are the exact production configuration (`FOR_PolyS = 0`,
+`FOR_LinearizeVmax = 0`). §7.3 reports both: the timing comparison there uses the linearized
+variant, which relaxes the voltage cap, and the instance-size table is the exact one. Each table
+says which. `docs/network-scope.md` covers what each configuration suits.
 
 ---
 
@@ -146,7 +156,8 @@ Also compared against a pre-refactor run of the same test bed: identical. All th
 
 ### 3.2 Production case — `RunTR9` (90 prosumers)
 
-Against the committed reference run of the same study case (`v1_baseline`).
+Against a prior reference run of the same study case (`v1_baseline`). Model output is git-ignored,
+so the reference is regenerated rather than checked out.
 
 | | reference | current | |
 |---|---|---|---|
@@ -193,7 +204,9 @@ because it removes real redundant work and makes the 12 in-loop calls cheap, but
 §2.2.
 
 What remains per period is the 13 solves plus the generation of their math programs. Model
-generation, not I/O, is now the largest non-solver cost.
+generation, not I/O, is the largest remaining non-solver cost — measured later at ~665 s per
+generation on the whole feeder. **§6 addresses it**, by generating once per period instead of
+thirteen times.
 
 ---
 
@@ -255,3 +268,235 @@ byte-identical SOC CSV — the same acceptance criterion used in §3.
 
 The `FairMode = 0` production path therefore carries no measurable cost from this addition, and the
 figures in §3.2 remain the reference for it.
+
+---
+
+## 6. Generating the sweep matrix once per period
+
+A second acceleration, added on top of §1–§4 and measured against it. As before, **nothing in the
+optimization changes**: no constraint added or removed, no objective modified.
+
+### 6.1 What GMP is, and why it applies here
+
+A `solve` statement in AIMMS does two things: it **generates** the math program — walking the
+algebraic model and expanding every indexed constraint into explicit matrix rows — and then hands
+that matrix to the solver. Generation happens on **every** `solve`, whether or not anything changed,
+because AIMMS holds no cached matrix between statements. On the whole feeder that expansion is
+7.5 M rows and takes ~665 s, against ~200 s of actual solving.
+
+The **GMP library** (Generated Mathematical Program) exposes that matrix as an object with a handle,
+so it can be generated once and then modified in place:
+
+```
+RollGMP := GMP::Instance::Generate( FOR_VertexCont, "FORrollsweep" );
+...                                   ! modify coefficients / bounds / rows / objective
+GMP::Instance::Solve( RollGMP );      ! solves without regenerating
+GMP::Instance::Delete( RollGMP );     ! releases it
+```
+
+This fits the sweep because the 12 directions of a period **share one feasible region** (§1) and
+differ only in the objective: same reset, same rotated inputs, same initial SOC, same committed
+slot-1 dispatch. Only the angle changes, and it reaches the matrix through two coefficients of a
+single row. So one generation can serve all 12 solves.
+
+The calls used, all on AIMMS 26.2:
+
+| Call | Purpose |
+|---|---|
+| `GMP::Instance::Generate` / `Solve` / `Delete` | build, solve and release the instance |
+| `GMP::Coefficient::Get` / `Set` | read and rewrite the two objective-row coefficients |
+| `GMP::Column::SetAsObjective` | switch which column is minimized |
+| `GMP::Column::FreezeMulti` | pin a column at a value — the instance-level equivalent of `.nonvar` |
+| `GMP::Row::DeactivateMulti` / `ActivateMulti` | take rows out of the problem and put them back |
+| `GMP::Solution::GetProgramStatus` / `SendToModel` | read the status, copy the solution into model identifiers |
+| `GMP::Instance::GetNumberOfRows` / `Columns` / `Nonzeros` / `GetMemoryUsed` | inspect the instance (`PreflightGMPProbe`) |
+
+Two notes on the API, since they shape the code: `GMP::Coefficient::Get/Set` and the `Row`/`Column`
+calls take **symbolic references** (`OF_FOR_definition`, `P_PCC(PeriodMaxP)`), not row or column
+numbers; and the `*Multi` variants take a binding domain, so an indexed family is one call rather
+than one per element.
+
+Both entry points support it, behind flags that **default to the previous behaviour**:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `RollUseGMP` | 0 | `RunFOR_Rolling`: the 12 sweep directions share one generated matrix |
+| `RollGMPBaseline` | 0 | `RunFOR_Rolling`: the committed baseline is solved from that same instance. Needs `RollUseGMP = 1`; on its own it is inert |
+| `PreflightUseGMP` | 0 | same, for `RunFOR_RollingPreflight` |
+| `PreflightGMPBaseline` | 0 | same, for the preflight |
+| `PreflightGMPProbe` | 0 | writes matrix size, memory and the objective-row coefficients |
+| `PreflightFlushCSV` | 1 | closes the preflight CSV after every vertex |
+
+With `RollUseGMP` alone a period generates twice — once for the baseline, once for the sweep; with
+`RollGMPBaseline` as well, once. The flags reach the per-transformer path too, since
+`RunTR1`…`RunTR9` → `RunTrafoFOR` → `RunFOR_Rolling`.
+
+`RunFOR_Rolling` writes its CSVs with one `putclose` at the end, so the incremental flush of §6.4
+applies to the preflight only.
+
+### 6.2 Which row carries the angle
+
+`OF_FOR` is a defined variable:
+
+```
+Definition: -( cos(FOR_AngleRad)*P_PCC(PeriodMaxP) + sin(FOR_AngleRad)*Q_PCC(PeriodMaxP) )
+```
+
+so the angle reaches the matrix through **`OF_FOR_definition`**, which is *not* the objective row —
+`FOR_VertexCont` minimizes `OF_FOR_cont`. Per direction the sweep rewrites two coefficients of that
+row and re-solves.
+
+The sign convention of the generated row is **read back rather than assumed**: the instance is
+generated at 45°, where both coefficients are non-zero, and `GMP::Coefficient::Get` is divided by
+`cos`/`sin`. If the ratio is not ±1 the procedure halts. A wrong sign would mirror the region with
+no visible symptom, so this check is what makes the rewrite safe.
+
+### 6.3 The committed baseline from the same instance
+
+`MinImports` and `FOR_VertexCont` both declare `Constraints: NotTobeExcluded_constraints` and
+`Variables: NotTobeExcluded_variables`, so they generate the same matrix; and `OFminImports` and
+`OF_FOR_cont` are both defined variables, so both objective-definition rows are already present.
+Switching objective is therefore switching a column (`GMP::Column::SetAsObjective`), which removes
+the second generation per period.
+
+Two details make it exact:
+
+- **The slot-1 dispatch** moves from `.nonvar` to `GMP::Column::FreezeMulti`. `.nonvar` is a
+  property of the *model* and is read when the matrix is built, so setting it after generation has
+  no effect. `FreezeMulti` sets the column's lower and upper bound to the same value on the
+  *instance*, which is equivalent and does take effect:
+
+  ```
+  GMP::Column::FreezeMulti( RollGMP, bat, BattP_Chg(bat,'1'), RollChgExec(bat) );
+  ```
+
+- **Fairness rows are deactivated rather than regenerated.** The baseline deliberately runs with the
+  criterion off (`FairActive = 0`) and the sweep with it on, and the fairness constraints are gated
+  by `IndexDomain: ... and (FairActive or FairBaseline)`. Generating under one setting and solving
+  under the other is therefore not possible with a single matrix — unless the rows can be removed
+  from the problem after the fact, which is what `GMP::Row::DeactivateMulti` does:
+
+  ```
+  ! generated with FairActive = 1, so the fairness rows are in the matrix
+  if FairMode = 1 then GMP::Row::DeactivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
+  if FairMode = 2 then GMP::Row::DeactivateMulti( RollGMP, a,   FairProportional_Aggregator(a) );  endif;
+  GMP::Column::SetAsObjective( RollGMP, OFminImports );
+  GMP::Instance::Solve( RollGMP );                        ! baseline: criterion absent
+  ...
+  if FairMode = 1 then GMP::Row::ActivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
+  if FairMode = 2 then GMP::Row::ActivateMulti( RollGMP, a,   FairProportional_Aggregator(a) );  endif;
+  GMP::Column::SetAsObjective( RollGMP, OF_FOR_cont );    ! sweep: criterion present
+  ```
+
+  A deactivated row stays in the instance but is not passed to the solver, so the baseline sees
+  exactly the problem it saw before. This is what lets one matrix per period serve **every**
+  `FairMode`, not only 0. The prosumer-level criteria are indexed over `bat` and the
+  aggregator-level ones over `a`, so both index families are exercised.
+
+There is one coupling worth knowing about: `MinOFminImports` sets `Bound_Tolerance := 1e-006` as a
+**session** option before its solve, which the sweep then inherits. Solving the baseline from the
+shared instance skips that procedure, so the option is set explicitly in the generate block to keep
+the whole period on the same numerical settings.
+
+### 6.4 Incremental CSV flush
+
+The preflight CSV is declared `Mode: append` and closed after each vertex, so an interrupted run
+keeps the rows it already produced. Because `File.Mode` is a declaration attribute and cannot be
+assigned at runtime, the procedure deletes the file before writing the header. Measured cost on the
+reduced TR9 bed: **~5 ms per vertex, +0.2 s of non-solver time over a full run**, with every column
+except `time` byte-identical.
+
+---
+
+## 7. Results of the GMP phase
+
+### 7.1 Production TR9 — 1,728 vertices, three criteria
+
+`RunTR9_GMP_Chain`: `FairMode` 0, 1 and 2, 48 periods × 12 directions each, with SOC carried forward.
+Compared with `scripts/compare_FOR_runs.py` against a prior run of each case. Those reference CSVs
+are git-ignored like all model output, so reproducing the comparison means generating the baseline
+first — `RunTR9` for case A, `RunTR9_FairL1` / `RunTR9_FairL2` for the other two.
+
+| Case | `max │delta proj│` | Status | P,Q slide | Result |
+|---|---|---|---|---|
+| `FairMode = 0` | 1.0e-06 | 576/576 → 576/576 Optimal | 0.01 kW | **PASS** |
+| `FairMode = 1` | 1.0e-06 | 576/576 → 576/576 Optimal | 0.03 kW | **PASS** |
+| `FairMode = 2` | **0.000e+00** | 576/576 → 576/576 Optimal | 0.03 kW | **PASS** |
+
+Tolerance is 2e-06, and the CSV prints six decimals, so 1e-06 p.u. is one unit of the last printed
+digit — 1 W at Sb = 1 MW. The P,Q movements are flat-face slides, which the criterion allows by
+design (§4).
+
+**Wall-clock for the three runs: 9 h 37 min, against 12 h 17 min for the same three without the
+flags — a 22 % reduction.**
+
+Per-vertex solve time moves in the opposite direction on this bed (14.65 s → 17.30 s at
+`FairMode = 0`, 17.57 s → 16.91 s at `FairMode = 2`); the generation saved outweighs it. On the
+reduced network generation is a small share of the total, so this is the conservative end of what
+the change buys — see §7.3.
+
+### 7.2 Reduced bed — 2,304 vertices
+
+Four runs of the micro test bed (`FairMode` 0 and 1, with and without the flags), all four generated
+under the same AIMMS build so the comparison isolates the change:
+
+| Comparison | Result |
+|---|---|
+| `FairMode = 0` | PASS — 2 of 5,184 physical cells moved, both at 0°, where `proj = P` and `Q` is tangent |
+| `FairMode = 1` | PASS — 6 of 5,184, largest 1.7e-05 |
+
+The preflight A/B on reduced TR9 gives `max |delta proj| = 0.000e+00` with a byte-identical matrix
+for the sweep change alone.
+
+### 7.3 Full feeder
+
+The whole-feeder preflight is where generation dominates. Per vertex, linearized configuration —
+the "without" row comes from an earlier measurement of the same procedure, since that run's CSV is
+not retained:
+
+| | Wall | Solver | Reconstruction |
+|---|---|---|---|
+| Without the flags | 844–904 s | 183–238 s | ~665 s |
+| With `PreflightUseGMP` | **~240 s** | 236 s | **~0** |
+
+Wall converges to solver time, i.e. the per-direction reconstruction is gone — about **3.6×**.
+
+Instance size and memory at that scale, from `PreflightGMPProbe`:
+
+| Formulation | Rows | Columns | Nonzeros | Instance |
+|---|---|---|---|---|
+| Exact (`FOR_PolyS = 0`, `FOR_LinearizeVmax = 0`) | 7,534,679 | 6,095,687 | 26,929,278 | 904.91 Mb |
+
+The generated instance is under 1 GB; the generator's own working memory is far larger and is
+released per period by `GMP::Instance::Delete`, so the peak does not accumulate across periods.
+
+That exact-formulation sweep completed **12/12 Optimal at 287.24 s of solver per vertex**, with
+`VmaxTrue` at most 1.10000 and `OVviol` at 1.9e-10, and no solve near the 3,000 s limit — so the
+exact formulation is tractable at whole-feeder scale, not only on the reduced network.
+
+The runs behind §7 are `RunTR9_GMP_Chain` (§7.1), `RunMicro_GMP_Validate` (§7.2), and
+`RunFullFeeder_PreflightGMP` / `RunFullFeeder_PreflightExact1Slot` (§7.3).
+
+---
+
+## 8. Running AIMMS without the GUI
+
+Useful for scripting a run and watching it from outside:
+
+```
+AimmsCmd.exe --run-only <ProcedureName> <path>\OPF.aimms
+```
+
+It wraps `aimms.exe --as-server --ignore-dialogs --hidden` and runs **in-process**: no separate
+`aimms.exe` appears, so the process to watch is `AimmsCmd`. Errors go to `log/aimms.err`,
+`log/aimmsRunOnly.err` and `log/messages.log`.
+
+Worth knowing:
+
+- A procedure that does not set `nPeriods` first fails, because `Time` is `ElementRange(1,nPeriods)`
+  and a cold session starts at 0. The `Run*` entry points set it themselves.
+- The exit code reports startup, not execution: a procedure that fails still returns 0 with
+  `Error: Procedure run failed` on stdout, while a *compilation* error returns −1.
+- `--run-only MainInitialization` on a copy of the project checks that the model compiles in about
+  20 seconds without running anything.
+- Batch mode does not save the project, so the `.ams` can be edited while a run is in progress.

@@ -31,6 +31,8 @@
 
 % ---------------------------------------------------------------- mark of what is new
 \newcommand{\nw}[1]{\textcolor{uaired}{#1}}
+\definecolor{propblue}{HTML}{1F4E79}  % petrol blue: proposed, not yet implemented
+\newcommand{\prop}[1]{\textcolor{propblue}{#1}}
 \newtcolorbox{nuevo}{
   enhanced, breakable, colback=white, colframe=uaired,
   boxrule=0pt, leftrule=1.6pt, arc=0pt, outer arc=0pt,
@@ -112,7 +114,7 @@ and the resulting mathematical formulation\par}
 Universidad Adolfo Ibáñez \quad\textbf{\textcolor{rule}{|}}\quad Collaboration with Simon Fraser University\par}
 
 \vspace{4mm}
-{\color{faint}30 July 2026\par}
+{\color{faint}30 July 2026 \quad\textbf{\textcolor{rule}{|}}\quad revised 5 August 2026\par}
 
 \vfill
 
@@ -121,12 +123,16 @@ Universidad Adolfo Ibáñez \quad\textbf{\textcolor{rule}{|}}\quad Collaboration
 inherited formulation. The rest is reproduced unchanged and is included so that the model is
 explicit from beginning to end. Part~1 does not alter any equation --- it is exclusively
 orchestration and performance, and its output is bit-identical to that of the previous model.
+
+\vspace{2pt}
+\textbf{\prop{In blue}} is what is \prop{proposed and not yet implemented}: it is included so that it can be discussed, and it is not part of any measured result in this document.
 \end{keybox}
 
 \vspace{3mm}
 {\footnotesize\color{faint}
 Unbalanced three-phase current-injection OPF model, in AIMMS with CPLEX.
 Case study: low-voltage feeder, transformer TR9.\par}
+
 
 \newpage
 
@@ -302,14 +308,127 @@ turns the argument of the maximum into a segment, and the returned point may leg
 \end{keybox}
 
 \vspace{2pt}
+
+
+\vspace{2pt}
 The real bottleneck was not the data reading but the \textbf{generation of the mathematical
 program}: on TR9 each generation of a QCP with 90 batteries and 341 buses costs of the order of
 30\,s, and \nw{(A)} removes 12 generations per period on top of 12 solves.
 
+\subsection{\nw{Second phase: one matrix generation per period}}
+
+\begin{nuevo}
+\textbf{\nw{New.}} The first phase exposed the dominant remaining cost: \textbf{generating} the
+mathematical program. A \texttt{solve} statement in AIMMS does two things --- it walks the algebraic
+model and expands it into explicit matrix rows, and only then calls the solver --- and that
+generation happens on \emph{every} \texttt{solve}, whether or not the data changed, because no
+matrix is cached between statements. On the whole feeder that expansion is 7.5 million rows and
+costs $\sim$665\,s, against $\sim$200\,s of actual solving.
+
+The \textbf{GMP} library (\emph{Generated Mathematical Program}) makes it possible to generate that
+matrix once and keep it in memory to work on: it can be modified and re-solved without being rebuilt.
+Since the 12 directions of a period \textbf{share one feasible region} and differ only in the
+objective, one generation can serve all 12 solves: per direction only the two coefficients of the row
+defining $\mathrm{OF}_{\mathrm{FOR}}$ are rewritten.
+\end{nuevo}
+
+\textbf{Three interventions.} \nw{(G)} the sweep is served by a matrix generated once per period;
+\nw{(B)} the committed dispatch is solved on \emph{that same} instance by switching the objective
+column, which removes the second generation of the period; \nw{(F)} the results file is closed after
+every vertex, so an interruption keeps what has already been solved.
+
+Two details make \nw{(B)} exact. The slot-1 dispatch moves from the \texttt{.nonvar} property ---
+which belongs to the \emph{model} and is read when the matrix is built, so setting it afterwards has
+no effect --- to fixing the bounds of the \emph{instance}. And the fairness rows, which the sweep must
+see and the committed dispatch must not, are \textbf{deactivated} for the dispatch solve and
+reactivated for the sweep: a deactivated row stays in the instance but is not passed to the solver,
+which is exactly what regenerating without it used to achieve. That is what lets one matrix per
+period serve \emph{any} fairness level, not only the case with no criterion.
+
+\subsection{\nw{Results of the second phase}}
+
+\textbf{Production TR9.} The three measured criteria, 48 periods $\times$ 12 directions each, with the
+state of charge carried forward between periods:
+
+\begin{center}\small
+\begin{tabular}{l r r r}
+\toprule
+Criterion & $\max|\Delta\,\mathrm{proj}|$ & Status & Result \\
+\midrule
+$m=0$ (no fairness)   & $1.0\mathrm{e}{-}06$ & 576/576 optimal & \nw{equivalent} \\
+$m=1$ (prosumers)     & $1.0\mathrm{e}{-}06$ & 576/576 optimal & \nw{equivalent} \\
+$m=2$ (aggregators)   & $\mathbf{0.000\mathrm{e}{+}00}$ & 576/576 optimal & \nw{equivalent} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The tolerance is $2\mathrm{e}{-}06$ and the file prints six decimals, so $1\mathrm{e}{-}06$ p.u. is
+\emph{one} unit of the last printed digit: 1\,W at $S_b=1$\,MW. In time, the three runs together go
+from \textbf{12\,h\,17\,m} to \textbf{9\,h\,37\,m}, a \textbf{$-22$\,\%}. Accumulated with the first
+phase, a production run of TR9 goes from $\sim$28\,h to $\sim$3\,h\,10\,m.
+
+\vspace{2mm}
+\textbf{\nw{Whole feeder.}} This is the underlying question --- whether the model can be run over the
+entire network --- and it is where generation dominates, because it scales with problem size while
+the solver does not scale in the same proportion:
+
+\begin{center}\small
+\begin{tabular}{l r r r}
+\toprule
+& \textbf{Wall/vertex} & \textbf{Solver} & \textbf{Reconstruction} \\
+\midrule
+Without \nw{(G)} & 844--904 s & 183--238 s & $\sim$665 s \\
+With \nw{(G)}    & \textbf{$\sim$240 s} & 236 s & \nw{$\sim$0} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Wall-clock converges to solver time: the per-direction reconstruction disappears, a factor
+$\sim3.6\times$. That in turn makes the cost of the \textbf{exact} formulation on the whole feeder
+measurable, which is the one production uses:
+
+\begin{center}\small
+\begin{tabular}{l r r r r}
+\toprule
+& & & \multicolumn{2}{c}{\textbf{Simulated day (48 periods)}}\\
+\cmidrule(l){4-5}
+Formulation & Solver/vertex & Generation & \nw{(G)} only & \nw{(G)}+\nw{(B)} \\
+\midrule
+Linearized & $\sim$236 s & $\sim$665 s & $\sim$2.4 days & $\sim$2.1 days \\
+\nw{Exact} & \nw{287.24 s} & \nw{$\sim$1\,005 s} & \nw{$\sim$3.5 days} & \nw{$\sim$2.9 days} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{-1mm}
+The whole-feeder measurement was taken with \nw{(G)} alone, which is what removes the 11 redundant
+reconstructions of the sweep. \nw{(B)} additionally removes the generation of the committed dispatch
+--- the only one left in the period --- and is therefore worth a further \textbf{$-15$\,\% to
+$-16$\,\%} depending on the formulation. The last two columns are projections over 48 periods.
+
+\begin{keybox}
+\textbf{\nw{The exact formulation solves on the whole feeder.}} 12 of 12 directions optimal, no solve
+near the time limit, with true $V_{\max}=1.10000$ p.u. and overvoltage violation at numerical zero.
+The matrix is 7\,534\,679 rows, 6\,095\,687 columns and 26\,929\,278 nonzeros. It costs $+22$\,\% per
+vertex over the linearized one and $+43$\,\% per period once generation is counted: \textbf{a
+fraction, not a multiple}.
+
+This matters because the linearized variant relaxes the voltage limit --- its tangent plane admits
+points the exact constraint rejects --- and on the same period it \textbf{overstates the region by
+between 0.9\,\% and 1.4\,\%}, in the optimistic direction. The simulated-day figures are projections
+from representative periods, not complete runs.
+\end{keybox}
+
+\vspace{2pt}
+As a practical consequence, the model's procedures can be launched \textbf{from the terminal} without
+opening the interface (\texttt{AimmsCmd.exe -{}-run-only <Procedure> <project>.aimms}), which makes
+these long runs scriptable and observable from outside.
+
+
 \newpage
 
 % ================================================================= PART 2
-\section{Formulation: multiple aggregators and fairness at two levels}
+\section{Formulation: multiple aggregators and fairness criteria}
 
 Unbalanced three-phase current-injection model, with linearization of the load and generation
 injections around a point $(\vre_0,\vim_0)$ and exact quadratic constraints for maximum voltage and
@@ -492,10 +611,7 @@ further that the bound is \textbf{reached} ---$\max|\zeta|=1.0000$--- and never 
 effective facet of the feasible region, not slack.}
 
 \smallskip
-\nw{\textbf{Warning for $m=3$ and $m=4$.} The argument requires the normalising capacity to be
-\emph{the same quantity} that bounds the left-hand side. Once the criterion moves to the prosumer
-exchange and the normalisation is no longer $\overline{P}_b$, the bound stops coming for free and
-will have to be re-derived ---possibly as an explicit constraint after all.}
+\nw{\textbf{Warning for $m=3$ and $m=4$.} The argument requires the normalising capacity to be \emph{the same quantity} that bounds the left-hand side. When the criterion moves to the prosumer's export the normalisation is no longer $\overline{P}_b$ and the bound no longer comes for free: it is re-derived in \S\ref{sec:exchange}, where it survives on one side only.}
 \end{nuevo}
 
 \subsection{\nw{The gate $\chi$}}
@@ -513,6 +629,122 @@ objective of the baseline contains no service term at $\tstar$ --- by constructi
 participating in it.
 \end{keybox}
 
+\subsection{\nw{Fairness on the exchange: $m=3$ and $m=4$}}\label{sec:exchange}
+
+\begin{nuevo}
+\textbf{\nw{New.}} Levels 1 and 2 share out the \emph{battery balance}. The review of 31-Jul-2026
+proposed applying the same proportional criterion to the \textbf{prosumer's exchange with the
+network}, which is the quantity a flexibility market actually observes: consumption minus PV
+generation, plus charge and minus discharge.
+
+\nw{Let $x_b$ be the \textbf{net exchange of prosumer $b$ with the network} at the service block,
+positive towards \emph{export}. With $g_{b,t}$ and $c_{b,t}$ the prosumer's PV generation and
+consumption --- both input data --- and $p_{b,t}$ the battery balance already defined in \S2.4:}
+
+\vspace{-4mm}
+\begin{equation}
+\nw{x_{b}\ =\ \underbrace{g_{b,\tstar}-c_{b,\tstar}}_{\text{passive surplus}}
+\ -\ \underbrace{p_{b,\tstar}}_{=\ \pch_{b,\tstar}-\pdis_{b,\tstar}}}
+\label{eq:xb}
+\end{equation}
+
+\nw{Charging the battery ($p_{b,\tstar}>0$) reduces what the prosumer delivers to the network and
+discharging increases it. The criterion is then written on $x_b$ instead of on $p_{b,\tstar}$:}
+
+\vspace{-3mm}
+\begin{align}
+\nw{x_{b}} &\ \nw{=\ \zeta\, s_b} &&\nw{\forall b\in\Bset,}
+&&\nw{\text{if } m=3 \ \text{and}\ \chi=1} \label{eq:c1pe}\\[2pt]
+\nw{\sum_{b:\,a(b)=\alpha} x_{b}} &\ \nw{=\ \zeta \!\!\sum_{b:\,a(b)=\alpha}\!\! s_b}
+&&\nw{\forall \alpha\in\Aset,} &&\nw{\text{if } m=4 \ \text{and}\ \chi=1} \label{eq:c1ae}
+\end{align}
+
+\nw{With $m\ge3$ the reference capacity is no longer just the battery nameplate but the export
+capability available at the service instant, $s_b=\overline{P}_b+g_{b,\tstar}$, which is the quantity
+homogeneous with $x_b$.}
+\end{nuevo}
+
+\textbf{\nw{A consequence that is not a defect: the criterion can be infeasible.}} Under $m=1$ the
+value $\zeta=0$ parks the fleet and is always admissible, so the criterion only contracts the region.
+Under $m=3$ that no longer holds: the passive net load enters as a \textbf{different constant for
+each prosumer}, so $\zeta=0$ requires the battery to offset its own net consumption exactly, which it
+cannot always do.
+
+\begin{keybox}
+\textbf{\nw{Measured evidence}} (micro bed, 3-Aug-2026). In the 22:00 block all twelve directions come
+out infeasible: one battery at its state-of-charge floor, with no discharge headroom and 0.93\,kW of
+its own consumption, imposes $\zeta\le-0.1315$ on the \emph{whole} fleet, and no single $\zeta$
+satisfies the rest simultaneously. \textbf{It is a result about the criterion, not a numerical
+failure.}
+
+\nw{The derived bound also changes shape.} Under $m=1$ and $m=2$, $|\zeta|\le1$ holds by construction.
+Under $m=3$ and $m=4$ only one side survives: export is bounded by $g_{b,\tstar}+\overline{P}_b\le
+s_b$, hence $\zeta\le1$; but import is load plus battery power, and a prosumer whose consumption
+exceeds its generation plus its battery can push $\zeta$ below $-1$. It is worth reporting the
+realised range rather than assuming it.
+\end{keybox}
+
+\subsection{\prop{Proposal: fairness on the available range ($m=5$ and $m=6$)}}
+
+\begin{nuevo}
+\textbf{\prop{Proposed, not yet implemented.}} \prop{Criteria $m=1$ to $m=4$ share out in proportion
+to what is \emph{installed}. The problem is that the nameplate does not know what the prosumer can do
+at this instant: a full battery has full nameplate and zero import capability, and the equality asks
+it for something impossible --- which is the origin of the infeasibility of $m=3$.}
+
+\prop{The proposal shares out in proportion to the \textbf{exchange range each prosumer can actually
+traverse} at the service block. Since the slot-1 dispatch is already committed when the sweep runs,
+both ends of that range are \emph{parameters}:}
+
+\vspace{-2mm}
+\begin{align}
+\prop{x_b} &\ \prop{\in\ [\,\underline{x}_b,\ \overline{x}_b\,]}, &&
+\prop{\underline{x}_b = -\bigl(n_b + \kappa_b\bigr)}, &&
+\prop{\overline{x}_b = \delta_b - n_b} \nonumber
+\end{align}
+\vspace{-6mm}
+\begin{align}
+\prop{x_b} &\ \prop{=\ \underline{x}_b + \zeta\,\bigl(\overline{x}_b - \underline{x}_b\bigr)}
+&&\prop{\forall b\in\Bset,} &&\prop{\text{if } m=5 \ \text{and}\ \chi=1} \label{eq:c1range}\\[4pt]
+\prop{\sum_{b:\,a(b)=\alpha} x_b} &\ \prop{=\ \sum_{b:\,a(b)=\alpha}\underline{x}_b
+\ +\ \zeta \!\!\sum_{b:\,a(b)=\alpha}\!\! \bigl(\overline{x}_b-\underline{x}_b\bigr)}
+&&\prop{\forall \alpha\in\Aset,} &&\prop{\text{if } m=6 \ \text{and}\ \chi=1} \label{eq:c1rangeagg}
+\end{align}
+
+\prop{with $n_b = c_{b,\tstar}-g_{b,\tstar}$ the net consumption, and $\kappa_b$ and $\delta_b$ the
+charge and discharge headroom the state of charge allows in that block --- all three are
+\emph{parameters}, because the slot-1 dispatch is already committed when the sweep runs.}
+
+\prop{Now $\zeta$ is not the fraction of the nameplate but the \textbf{relative position within each
+prosumer's own feasible range}, common to the whole fleet. Under $m=6$ the aggregator must reach that
+same position \emph{in aggregate}, while the split among its own prosumers stays free --- the same
+relation $m=2$ has with $m=1$.}
+\end{nuevo}
+
+\begin{keybox}
+\prop{\textbf{Why it closes the gap.}} \prop{For any $\zeta\in[0,1]$ the resulting $x_b$ falls inside
+the interval by construction, so it is \textbf{never infeasible} and no block is lost. It remains an
+\textbf{equality for everyone}, with no one-sided rows and no exceptions that apply only when
+convenient. It is \textbf{linear}: the ends are parameters and $\zeta$ multiplies a constant, with no
+binaries. The bound $0\le\zeta\le1$ is again \textbf{derived} rather than imposed. And the exclusion
+of whoever cannot participate \textbf{emerges from the formulation}: if a prosumer cannot move,
+$\overline{x}_b=\underline{x}_b$ and its row reads $x_b=\underline{x}_b$ whatever $\zeta$ is, so it
+neither constrains nor is constrained.}
+
+\prop{\textbf{It is a different definition of fairness, not a correction.}} \prop{$m=1$ to $m=4$ share
+out in proportion to what is installed; $m=5$ and $m=6$, to what is available. That is why they are
+proposed as \emph{new} criteria and do not replace the earlier ones: with the three families
+implemented the comparison can be shown measured rather than argued.}
+\end{keybox}
+
+\vspace{2pt}
+\prop{The alternative route --- patching $m=3$ --- was explored and set aside. Excluding whoever
+cannot participate resolves the hard infeasibility but does not cover whoever can do little; relaxing
+the row to a one-sided inequality binds from below but does not prevent exporting beyond one's share,
+so the criterion would end up applying only when convenient; and making it depend on the sign of
+$\zeta$ --- which is an outcome of the solve --- would require a disjunction, that is binaries and a
+mixed-integer problem. The answer is a different normalisation, not a better patch.}
+
 \subsection{Cases and nesting}
 
 \begin{center}\small
@@ -523,6 +755,10 @@ $m$ & Case & Constraint active at $\tstar$\\
 $0$ & No fairness (reference) & --- no row generated\\
 $1$ & \nw{Proportional between prosumers} & \nw{\eqref{eq:c1p}}\\
 $2$ & \nw{Proportional between aggregators} & \nw{\eqref{eq:c1a}}\\
+$3$ & \nw{On the exchange, between prosumers} & \nw{\eqref{eq:c1pe}}\\
+$4$ & \nw{On the exchange, between aggregators} & \nw{\eqref{eq:c1ae}}\\
+$5$ & \prop{On the available range, between prosumers} & \prop{\eqref{eq:c1range}}\\
+$6$ & \prop{On the available range, between aggregators} & \prop{\eqref{eq:c1rangeagg}}\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -542,7 +778,13 @@ an aggregator, \eqref{eq:c1a} is obtained with the same $\zeta$. Therefore
 which is the acceptance test: a constraint cannot enlarge the feasible set, and any
 violation is a defect and not a result.
 
-\subsection{Results on the micro network}
+\nw{The nesting holds within each family.} Levels 1--2 share out the battery balance and levels 3--4
+the prosumer's exchange: they are different quantities, so $m=3$ is not a special case of $m=1$ nor
+the other way round, and their regions are not comparable by inclusion. Within the exchange family,
+summing \eqref{eq:c1pe} over the prosumers of an aggregator does return \eqref{eq:c1ae} with the
+same $\zeta$, so $\mathcal{X}(m{=}3)\subseteq\mathcal{X}(m{=}4)$ as before.
+
+\subsection{Results on the micro network ($m=1$, $m=2$)}
 
 Full verification on the 576 vertices: the reference case reproduces the previous model with
 exact $\Delta=0$ and byte-identical state of charge; the nesting holds without exception; and the
@@ -577,5 +819,80 @@ data the proportional criterion coincides numerically with the egalitarian one. 
 it innocuous: the network is radial, and two prosumers with the same battery at different electrical
 positions cannot inject the same amount without producing different voltage rises. The
 heterogeneity that makes C1 bind is \textbf{locational}, not equipment.
+
+
+\subsection{Results on TR9 in production}
+
+The same metrics on the production case --- TR9, 90 prosumers, 48 periods $\times$ 12 directions ---
+measured against the $m=0$ reference case of the same run:
+
+\begin{center}\small
+\begin{tabular}{l r r}
+\toprule
+& $m=1$ \textbf{prosumers} & $m=2$ \textbf{aggregators}\\
+\midrule
+Vertices with contraction & 554 / 576 \ (96.2\,\%) & 476 / 576 \ (82.6\,\%)\\
+Maximum projection loss & 315.9 kW & 23.6 kW\\
+Area loss --- median & 35.8\,\% & 2.3\,\%\\
+Area loss --- maximum & 90.1\,\% & 6.8\,\%\\
+Observed $\max|\zeta|$ & 1.000 & 1.000\\
+Non-optimal vertices & 0 / 576 & 0 / 576\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The structure repeats at production scale and sharpens: level~1 contracts almost every vertex and
+costs a median area loss of 35.8\,\%, whereas level~2 --- which only ties the per-aggregator sums ---
+stays at 2.3\,\%. The bound $|\zeta|\le1$ is reached and never exceeded in either, as on the micro
+network.
+
+\subsection{Results with the criterion on the exchange ($m=3$, $m=4$)}
+
+On the micro bed, against the same reference case:
+
+\begin{center}\small
+\begin{tabular}{l r r}
+\toprule
+& $m=3$ \textbf{prosumers} & $m=4$ \textbf{aggregators}\\
+\midrule
+Vertices with contraction & 564 / 564 \ (100\,\%) & 560 / 576 \ (97.2\,\%)\\
+Maximum projection loss & 39.7 kW & 18.2 kW\\
+Area loss --- median & 38.7\,\% & 15.5\,\%\\
+Area loss --- maximum & 95.5\,\% & 35.0\,\%\\
+Observed $\zeta$ --- range & $[-1.014,\ 0.865]$ & $[-1.038,\ 0.938]$\\
+\textbf{Infeasible} vertices & \textbf{12 / 576} & 0 / 576\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{keybox}
+\textbf{The two warnings of \S\ref{sec:exchange}, measured.} The 12 infeasible vertices of $m=3$ are
+\emph{the twelve directions of a single block}, the 22:00 one --- not scattered failures, but a whole
+block the criterion leaves without a region. And the bound stops being symmetric: $\zeta\le1$ holds
+with room to spare in both, but $\zeta$ drops to $-1.014$ and $-1.038$, below $-1$. This is exactly
+what the argument anticipates --- export is bounded by $s_b$, import is not --- and it is why the
+realised range is worth reporting rather than assuming.
+\end{keybox}
+
+
+\section{Next steps}
+
+\begin{enumerate}[leftmargin=*,itemsep=3pt]
+
+\item \textbf{Whole-feeder run, without fairness.} This is the validation still missing: a complete
+day of 48 periods over the entire network, with $m=0$, to replace the $\sim$2.9-day projections of
+\S1.7 with measurement and to confirm optimality and results at that scale. No 48-period run on the
+whole feeder has been completed so far; what has been measured are representative periods. It is also
+worth carrying the incremental flush \nw{(F)} over to the production sweep beforehand, since its
+results file is currently closed only at the end and an interruption of a multi-day run would leave
+nothing.
+
+\item \prop{\textbf{Implement $m=5$ and $m=6$.}} \prop{The formulation of \S2.9 is defined but not
+built. With the three families available --- proportional to the nameplate (\mbox{$m=1,2$}), on the
+exchange (\mbox{$m=3,4$}) and on the available range (\mbox{$m=5,6$}) --- the comparison between
+definitions of fairness can be shown measured rather than argued, which is what allows it to be
+decided on evidence rather than preference.}
+
+\end{enumerate}
 
 \end{document}
