@@ -4,7 +4,7 @@ Working agreement for the UAI–SFU collaboration on this repository.
 
 The central constraint that shapes everything below:
 
-> **`MainProject/OPF.ams` is a single ~4,200-line file, and AIMMS rewrites it wholesale
+> **`MainProject/OPF.ams` is a single ~5,900-line file, and AIMMS rewrites it wholesale
 > on save.** A three-line edit can produce a several-hundred-line diff. Two people
 > editing it on long-lived parallel branches will produce a merge that is painful at
 > best and unresolvable at worst.
@@ -247,9 +247,22 @@ Recommended validation ladder, cheapest first:
 
 ```
 MainInitialization  ->  Load_data_dsn         (plumbing: ODBC -> Access)
-RunReducedTest_RollingMicro                   (12 batteries — minutes)
-RunTR9                                        (90 prosumers — long)
+RunReducedTest_RollingMicro                   (12 batteries — ~10 min)
+RunTR9                                        (90 prosumers — ~3 h 40 min)
+RunFOR_RollingPreflight, PreflightReduce = 0  (whole feeder, 3 slots — hours)
 ```
+
+Every reference number above is **per transformer** (`ReduceNetwork = 1`), in the exact
+formulation. A whole-feeder 48-period run has not been completed; the preflight is the rung
+that covers that scale. `docs/network-scope.md` sets out what each scope and formulation
+covers and what they cost.
+
+Two things are worth recording alongside a result, so it stays self-describing: the network
+scope (`ReduceNetwork` / `DetailTagCSV`) and the formulation (`FOR_PolyS` /
+`FOR_LinearizeVmax`) with the observed maximum `OVviol`. The linearized configuration relaxes
+the voltage cap, so it reports `OVviol > 0` by construction and its regions come out slightly
+larger than the exact ones — useful for timing and smoke tests, and worth naming as such when
+the numbers travel.
 
 ---
 

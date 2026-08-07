@@ -1,117 +1,502 @@
-# Rolling-horizon FOR — runtime notes and options to reduce wall-clock time
+# Rolling-horizon FOR — runtime
 
-Based on a profiling audit of the production rolling-FOR run, this note summarizes where
-the wall-clock time goes and lists a few avenues that could reduce it **without changing
-the optimization itself** — same feasible region, same objective, same results. These are
-options to consider, not decisions; none has been implemented.
+Two sources of per-direction overhead were removed from the rolling FOR sweep. **Neither touches
+the optimization**: no constraint was added or removed, no objective was modified. On the
+production TR9 case the run went from **~28 h to 3 h 40 min** and every recorded number is
+unchanged.
 
-**Scope:** the production per-transformer path
-`RunTRk` → `RunTrafoFOR(tag)` → `RunFOR_Rolling` in `MainProject/OPF.ams`
-(section `RollingHorizonFOR`), which writes `FOR_rolling_<tag>.csv` and
-`FOR_rolling_soc_<tag>.csv`.
+Both were found by profiling the existing sweep. Both are safe only because of how the sweep was
+already built — the 12 directions genuinely share one feasible region, and the un-rotated inputs are
+already frozen once per run. What changed is the placement of work that was reasonable when the
+sweep was written and no longer pays off in the configuration now used in production (a continuous
+QCP solved by barrier). **Reviewed and agreed before pushing.** The A/B evidence for "nothing moved"
+is in §3.
+
+A **second phase** builds on this one and is covered in §6–§8: the sweep matrix is generated once
+per period through the GMP library rather than once per direction, which takes on the model
+generation that §3.3 identifies as the remaining non-solver cost.
+
+**Scope:** the per-transformer path `RunTR1`…`RunTR9` → `RunTrafoFOR(tag)` → `RunFOR_Rolling` in
+`MainProject/OPF.ams` (section `RollingHorizonFOR`), which writes `FOR_rolling_<tag>.csv` and
+`FOR_rolling_soc_<tag>.csv`. §6–§8 also cover `RunFOR_RollingPreflight`, the whole-feeder entry
+point.
+
+**Formulation.** §1–§5 and §7.1–§7.2 are the exact production configuration (`FOR_PolyS = 0`,
+`FOR_LinearizeVmax = 0`). §7.3 reports both: the timing comparison there uses the linearized
+variant, which relaxes the voltage cap, and the instance-size table is the exact one. Each table
+says which. `docs/network-scope.md` covers what each configuration suits.
 
 ---
 
-## 1. Where the wall-clock time goes
+## 1. What the sweep used to do per period
 
-A representative TR9 run took roughly **35 min per period** over the 48 periods, of which
-about a third was spent inside the solver and about two thirds in per-period scaffolding
-(model generation, data reloading, I/O). The rate was flat from the first period to the
-last (early ≈ late), so the time sits in **structural overhead per solve**, not in a model
-that gets harder over the day or in CPU contention.
+Per half-hour period, `RunFOR_Rolling`:
 
-That profile follows directly from the structure of `RunFOR_Rolling`. Per period it:
+1. solves the committed self-consumption baseline once (`MinImports`), which produces the executed
+   slot-1 dispatch and advances the realised SOC; then
+2. sweeps `FOR_nAngles = 12` directions for the service slot.
 
-1. solves the committed self-consumption baseline once (`MinOFminImports`);
-2. sweeps `FOR_nAngles = 12` directions for the service slot; and
-3. advances the realised SOC to the next period.
+The 48 periods are sequential (the rolling horizon carries SOC forward), but the 12 directions
+inside a period are **independent and share an identical feasible region**: same reset, same
+rotated inputs, same initial SOC, and the committed slot-1 dispatch fixed to the same values via
+`BattP_Chg/Dis(bat,'1').nonvar := 1`. Only the sweep objective changes with the angle.
 
-The 48 periods are **sequential** (the rolling horizon carries SOC forward), while the 12
-directions inside a period are **independent**: they share exactly the same feasible region
-(network, battery and SOC constraints, plus the committed slot-1 dispatch fixed via
-`BattP_Chg/Dis(bat,'1').nonvar := 1`); only the sweep objective (`FOR_Angle`) changes.
-
-Inside the direction loop, each angle runs the full sequence:
+Each direction ran the full sequence:
 
 ```
 empty allvariables
-run Load_data_dsn        ! re-reads the Access DB tables + OpData.xls (ReadExcelFile)
+run Load_data_dsn        ! re-reads the Access tables + OpData.xls (ReadExcelFile)
 <re-rotate inputs onto the window, re-fix the committed slot-1 dispatch>
-run MainExecution
+run MainExecution        ! a full solve of MinImportsMaxReverseP
 solve FOR_VertexCont
 ```
 
-The dominant piece of overhead is that **`Load_data_dsn` runs on every direction**. It reads
-the DB tables (buses, lines, transformers, loads/PV, batteries) **and** `OpData.xls` via
-`ReadExcelFile`, then re-derives per-unit values, tap-linearization coefficients and the
-warm-start voltage seed. That is ≈ 1 (baseline) + 12 (directions) = **13 full DB+Excel
-reloads per period**, ≈ **624 over a 48-period run** — even though the underlying static
-data never changes (the un-rotated inputs are already frozen once at the top of
-`RunFOR_Rolling` into `P0raw / Q0raw / GenP0raw / Irrraw`).
+That is **25 solves and 13 full data loads per period**.
+
+### 1.1 The per-direction warm-start solve
+
+`run MainExecution` solves `MinImportsMaxReverseP`. That program and `FOR_VertexCont` both declare
+`Constraints: NotTobeExcluded_constraints` and `Variables: NotTobeExcluded_variables`, so they
+generate a **row-for-row identical matrix** and differ only in the objective column. Its objective
+value and status go to `ConvFlag`/`ConvTime`, neither of which the sweep reads or writes to CSV —
+only its variable levels survived, as a starting point for the vertex solve.
+
+Its purpose was to seed the vertex solve with a starting point. Two things prevent it from doing so
+in the production configuration:
+
+- **`OFminImportsmaxReverseP` does not depend on the sweep angle.** Combined with the shared
+  feasible region, the 12 `MainExecution` solves of one period are *the same optimization problem
+  solved 12 times*, returning the same answer, discarded each time.
+- **The starting point they leave cannot be used.** In production configuration (`UseBattComp=0`,
+  `FOR_PolyS=0`, `FOR_LinearizeVmax=0`) the program is a continuous convex QCP, which CPLEX solves
+  with barrier. AIMMS passes variable levels to CPLEX as a start only on the MIP path; barrier
+  takes an advanced basis instead, and the first solve — being barrier itself — produces no basis
+  to hand over.
+
+Measured, the starting point it left also slowed the vertex solve down: the cost-min optimum is an
+extreme point of the feasible set, hugging the boundary and poorly centred, which is the opposite of
+what an interior-point method wants. Removing it makes the remaining vertex solves **2.0–3.6×
+faster** (§3).
+
+### 1.2 The repeated data load
+
+`Load_data_dsn` mixed **static reads** — the Access tables and `OpData.xls`, identical across all
+directions and all periods — with per-solve resets that are genuinely needed (the `Qinv` fix, the
+fixed transformer taps, the flat-start voltage seed). Running the whole thing per direction meant
+1 + 12 = **13 full DB+Excel reloads per period, 624 per 48-period run**, even though the
+un-rotated inputs are frozen once at the top of `RunFOR_Rolling` into `P0raw / Q0raw / GenP0raw /
+Irrraw` — and the reload's output was overwritten two statements later by the rotation.
 
 ---
 
-## 2. Options, ranked by benefit / effort — all preserve the model's results
+## 2. What changed
 
-### (A) Reuse the generated model across the 12 directions
+### 2.1 `Load_data_dsn` split into a static half and a per-solve reset
 
-Within a period the 12 solves share an identical constraint system; only the objective
-coefficients change with the sweep angle. Generating and loading the data **once per
-period** and then re-solving with only the objective changed would avoid rebuilding the
-math program 12 times for one feasible region. Optionally, each angle could warm-start from
-the previous one (directions are 30° apart, so their optima are close). Same feasible
-region, same vertices — purely computational.
+```
+Load_data_static   Access tables + OpData.xls + kW->p.u. + VmultLV + tap coefficients mlin/nlin
+Load_data_reset    Qinv fix + fixed taps + flat-start Vre/Vim + the Vre0/Vim0 linearization point
+Load_data_dsn      run Load_data_static; run Load_data_reset; [ApplyNetworkReduction]
+```
 
-A practical note: part of `Load_data_dsn` is a genuine per-solve reset (Qinv fix, voltage
-warm-start seed, tap coefficients), so a refactor here would keep those resets and drop only
-the redundant reads.
+`Load_data_dsn` remains a wrapper **in the original statement order**, so all 33 existing callers
+behave exactly as before. Inside `RunFOR_Rolling` only, the four in-loop loads call
+`Load_data_reset`, which removes 623 of the 624 full reloads.
 
-### (E) Hoist the static data read out of the loop — highest leverage
+This is safe by construction: **every write target of `Load_data_static` is a Set, Parameter,
+ElementParameter or StringParameter — none is a Variable**, so hoisting it out of the loop cannot
+leave variable state unrestored. Of everything the loader touched, only `Qinv`, `Vre` and `Vim` are
+Variables (i.e. wiped by `empty allvariables`), and all three are in `Load_data_reset`.
+`Load_data_reset` also writes nothing indexed by `d`, so it is safe to call on the reduced network.
 
-This is the concrete form of (A)'s largest cost. `Load_data_dsn` mixes **static reads**
-(DB tables + `OpData.xls`, identical across all directions and all periods) with the
-per-solve resets that are genuinely needed. Splitting it into a one-time static load plus a
-light per-solve reset would remove the ~624 redundant reloads without touching the
-optimization. This is the lowest-effort, highest-return option.
+### 2.2 `FOR_SweepWarmStart` — the per-direction solve is off by default
 
-### (C) Solver threads and algorithm
+New parameter, **`Default: 0`** (production). `1` reproduces the legacy behaviour. The three guards
+in `RunFOR_Rolling` read:
 
-No explicit `option Threads` is set in `OPF.ams`; the QCP solves use
-`method := 'deterministic concurrent'`. It is worth confirming, from the solver log, how
-many threads are actually used, and whether pinning `Threads` to the core count (or a barrier
-method) helps. The gain is bounded (the solver is only about a third of the time) but nearly
-free, and the results are unchanged.
+```
+if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
+    run MainExecution;
+endif;
+```
 
-### (D) Parallelize the 12 directions
+The `or UseBattComp = 1` matters: with the complementarity binary the program is a MIQCP, where
+variable levels **are** a genuine CPLEX start channel. The MIQCP cross-checks
+(`RunMicro_BattComp`, `RunFullTR9_BattComp`) therefore keep `MainExecution` automatically. That
+path is unmeasured, and leaving it unchanged is the conservative choice.
 
-The directions are independent, so in principle they can run on separate cores or processes;
-the periods cannot (sequential SOC). AIMMS runs the `for` loop in a single process, so this
-would need multiple AIMMS instances or a redesign. There is also an easier parallel axis
-already available: the per-transformer runs (`RunTR1`…`RunTR9`) are independent and could be
-launched concurrently, which captures much of the benefit with far less rework. The
-mathematics is unchanged throughout.
+`RunReducedTest_RollingMicro_LegacyWarm` re-runs the micro test bed with the legacy behaviour, for
+re-checking the A/B after any change to the sweep or a solver upgrade.
 
-### Already efficient
+### 2.3 Unchanged
 
-CSV output is already **append-style**, not a per-period rewrite: `FOR_RollCSV` and
-`FOR_RollSOCCSV` are opened once, written line-by-line with `put`, and `putclose`d at the end
-of the run. No change needed here.
+The committed self-consumption baseline (`MinImports`, one solve per period over the whole rotated
+window) is untouched, and so is everything downstream of it: the executed slot-1 dispatch, the SOC
+carry-forward, and `FOR_rolling_soc_<tag>.csv`. The 19 other `run MainExecution` call sites in the
+model are untouched. Per period the sweep now runs **13 solves and 1 data load** instead of 25 and
+13.
 
 ---
 
-## 3. A suggested order
+## 3. Results
 
-1. **(E) + (A)** together: hoist the static DB/Excel read out of the per-direction loop and
-   reuse the generated model across the 12 angles, keeping the necessary per-solve resets.
-   Biggest benefit, results unchanged.
-2. **(C)**: check and, if useful, tune solver threading — quick and independent.
-3. **(D)**: consider running the per-transformer jobs concurrently before attempting
-   intra-period parallelism.
+### 3.1 Micro test bed — `RunReducedTest_RollingMicro` (TR9_two, 12 batteries)
 
-## 4. Notes
+48 periods × 12 directions = 576 rows.
 
-- Every option above preserves the model's results (same feasible region and objective); they
-  target only how the run is scaffolded and solved, not the formulation.
-- The model formulation is the owner's domain; any change would go through the normal review.
-- Re-running the standard TR9 validation after a change is a simple safety net to confirm the
-  numbers are untouched.
+| | legacy | default | |
+|---|---|---|---|
+| Wall-clock | 41 min 22 s | **10 min 12 s** | **4.06×** |
+| Vertex solve time | 731.0 s | 358.7 s | −50.9 % |
+| Per solve | 1.27 s | **0.62 s** | 2.05× |
+| Solve status | 576/576 Optimal | 576/576 Optimal | |
+| `max \|delta proj\|` | — | **0.000e+00** | |
+
+Also compared against a pre-refactor run of the same test bed: identical. All three runs agree.
+
+### 3.2 Production case — `RunTR9` (90 prosumers)
+
+Against a prior reference run of the same study case (`v1_baseline`). Model output is git-ignored,
+so the reference is regenerated rather than checked out.
+
+| | reference | current | |
+|---|---|---|---|
+| **Wall-clock** | ~28 h | **3 h 40 min** | **~7.6×** |
+| **Vertex solve time** | **30,213.4 s** (8.39 h) | **8,440.7 s** (2.34 h) | **−72.1 %** |
+| Per solve | 52.45 s | **14.65 s** | 3.58× |
+| Solve status | 576/576 Optimal | **576/576 Optimal** | |
+| `max \|delta proj\|` | — | **0.000e+00** | |
+| P,Q movement | — | **0.00 kW** | |
+
+**Every recorded column is identical** — `now`, `target`, `angle_deg`, `P`, `Q`, `proj`, `status`,
+`VminTrue`, `VmaxTrue`, `UVviol`, `OVviol`, `LinErr`. Only `time` differs, which is a wall-clock
+measurement. **`FOR_rolling_soc_TR9.csv` is byte-identical** across all 4,320 rows.
+
+The six validation metrics of `CONTRIBUTING.md` §7, rebuilt with `scripts/build_workbook.py`:
+
+```
+PV generated 2241.2 kWh/day   demand 643.1   exported 1550.5   imported 13.6
+SCR 30.8 %                    SSR 97.9 %     |net|<50W 57.5 %
+```
+
+All match the reference exactly.
+
+> **On the ~7.6×:** the reference wall-clock is soft — it comes from a run timed only as "roughly
+> 35 min per period". The firm figure, measured on both sides with the same instrument, is the
+> **−72.1 % in vertex solve time**.
+
+Working back from 2,100 s/period (reference) to 275 s/period (current), of the ~1,825 s/period
+removed roughly 454 s were the vertex solves running slowly from the bad starting point and
+~1,371 s were the 12 `MainExecution` solves and their math-program generations — about **114 s
+each, ~2.2× the cost of the vertex solve they were meant to help**.
+
+### 3.3 Where the remaining time goes
+
+The earlier profiling note in this file estimated about a third of the wall-clock inside the solver
+and two thirds in scaffolding. That was measured by summing the CSV `time` column, which is
+`FOR_VertexCont.SolutionTime` only — it excluded the 12 `MainExecution` solves per period and
+reclassified them as scaffolding. **The solver was ~62 %, not a third.**
+
+Data loading was never the bottleneck. Profiled directly, one full `Load_data_dsn` costs **0.619 s**
+(`Load_data_static` ~0.12 s, `Load_data_reset` ~0.42 s), so the split saves
+`623 × (0.619 − 0.424) ≈ 121 s` per run — around 5 % of the micro run and ~0.1 % of TR9. It is kept
+because it removes real redundant work and makes the 12 in-loop calls cheap, but the win came from
+§2.2.
+
+What remains per period is the 13 solves plus the generation of their math programs. Model
+generation, not I/O, is the largest remaining non-solver cost — measured later at ~665 s per
+generation on the whole feeder. **§6 addresses it**, by generating once per period instead of
+thirteen times.
+
+---
+
+## 4. Verifying a change to the sweep
+
+Use **`scripts/compare_FOR_runs.py`**, which aligns two `FOR_rolling*.csv` files on
+`(now, angle_deg)`:
+
+```
+py -3 scripts/compare_FOR_runs.py OLD.csv NEW.csv
+```
+
+The acceptance criterion is **`proj`, not P/Q equality**. The sweep maximises a linear objective
+over a convex feasible set, so the optimal *value* `proj = cos(theta)·P + sin(theta)·Q` is unique,
+but the argmax need not be: where the FOR boundary has a flat face perpendicular to the sweep
+direction the optimum is a segment, and a different starting point or tolerance may legitimately
+return a different point on that same face. The script fails only on `proj` outside tolerance
+(default 2e-6) or on a changed solve status, and reports P/Q movement as informational.
+
+Measured on the committed TR9 boundary, 15 % of directions have a near-flat face at the run's own
+`Feasibility_Tolerance` of 1e-3, the widest spanning 0.18 MW of Q — so the allowance is real, even
+though in this change nothing moved.
+
+Time the **run**, not the CSV `time` column: that column covers `FOR_VertexCont.SolutionTime` only
+and sees neither the removed solve nor the scaffolding.
+
+---
+
+## 5. Runtime of the fairness runs
+
+Added later, on top of the accelerated sweep. **This section is about cost, not correctness:** the
+fairness constraints (`FairMode = 1` / `2`, section `BatteryModel` → `Fairness`) *do* change the
+results, by design — see `results/TR9_fairness.md`. Nothing in sections 1–4 is affected; case A
+below is the same run measured in §3.2, re-used unchanged.
+
+TR9, study case `v1_baseline`, 48 periods × 12 directions = 576 vertices each.
+
+| Run | Wall-clock | Vertex solve time | solver / wall | median | max | Status |
+|---|---|---|---|---|---|---|
+| **A** — `FairMode=0` (reference) | 3 h 40 min | 8,440.7 s | 64 % | 14.50 s | 22.42 s | 576/576 Optimal |
+| **L1** — `FairMode=1`, per prosumer | 3 h 49 min 12 s | 8,440.5 s (**+0.0 %**) | 61.4 % | 14.49 s | 23.59 s | 576/576 Optimal |
+| **L2** — `FairMode=2`, per aggregator | 4 h 47 min 57 s | 10,118.6 s (**+19.9 %**) | 58.6 % | 15.59 s | 46.13 s | 576/576 Optimal |
+
+Rebuild the table with `scripts/run_timing.py` (sum of the CSV `time` column, plus wall-clock from
+the file mtime and `--inicio`). The same caveat as §4 applies: that column is
+`FOR_VertexCont.SolutionTime` only.
+
+**Level 1 is free; level 2 costs 20 % — although level 2 constrains less.** Level 1 adds 90 equality
+rows and collapses the fleet to **one effective degree of freedom** (`x_i = zeta * s_i`), which
+makes the barrier's job easier: the vertex solve time is unchanged to the first decimal and the
+worst vertex moves by 1.2 s. Level 2 adds only **3** equality rows and leaves all 90 columns free
+inside them, so the feasible set stays 90-dimensional but heavily coupled — a large degenerate set,
+which is the expensive case for an interior-point method. Its worst vertex nearly doubles, 22.4 s
+to 46.1 s.
+
+Case A was not re-run under the fairness build. With `FairMode = 0` both constraints have an empty
+`IndexDomain` and generate zero rows, verified on the micro bed with `max |delta proj| = 0` and a
+byte-identical SOC CSV — the same acceptance criterion used in §3.
+
+The `FairMode = 0` production path therefore carries no measurable cost from this addition, and the
+figures in §3.2 remain the reference for it.
+
+---
+
+## 6. Generating the sweep matrix once per period
+
+A second acceleration, added on top of §1–§4 and measured against it. As before, **nothing in the
+optimization changes**: no constraint added or removed, no objective modified.
+
+### 6.1 What GMP is, and why it applies here
+
+A `solve` statement in AIMMS does two things: it **generates** the math program — walking the
+algebraic model and expanding every indexed constraint into explicit matrix rows — and then hands
+that matrix to the solver. Generation happens on **every** `solve`, whether or not anything changed,
+because AIMMS holds no cached matrix between statements. On the whole feeder that expansion is
+7.5 M rows and takes ~665 s, against ~200 s of actual solving.
+
+The **GMP library** (Generated Mathematical Program) exposes that matrix as an object with a handle,
+so it can be generated once and then modified in place:
+
+```
+RollGMP := GMP::Instance::Generate( FOR_VertexCont, "FORrollsweep" );
+...                                   ! modify coefficients / bounds / rows / objective
+GMP::Instance::Solve( RollGMP );      ! solves without regenerating
+GMP::Instance::Delete( RollGMP );     ! releases it
+```
+
+This fits the sweep because the 12 directions of a period **share one feasible region** (§1) and
+differ only in the objective: same reset, same rotated inputs, same initial SOC, same committed
+slot-1 dispatch. Only the angle changes, and it reaches the matrix through two coefficients of a
+single row. So one generation can serve all 12 solves.
+
+The calls used, all on AIMMS 26.2:
+
+| Call | Purpose |
+|---|---|
+| `GMP::Instance::Generate` / `Solve` / `Delete` | build, solve and release the instance |
+| `GMP::Coefficient::Get` / `Set` | read and rewrite the two objective-row coefficients |
+| `GMP::Column::SetAsObjective` | switch which column is minimized |
+| `GMP::Column::FreezeMulti` | pin a column at a value — the instance-level equivalent of `.nonvar` |
+| `GMP::Row::DeactivateMulti` / `ActivateMulti` | take rows out of the problem and put them back |
+| `GMP::Solution::GetProgramStatus` / `SendToModel` | read the status, copy the solution into model identifiers |
+| `GMP::Instance::GetNumberOfRows` / `Columns` / `Nonzeros` / `GetMemoryUsed` | inspect the instance (`PreflightGMPProbe`) |
+
+Two notes on the API, since they shape the code: `GMP::Coefficient::Get/Set` and the `Row`/`Column`
+calls take **symbolic references** (`OF_FOR_definition`, `P_PCC(PeriodMaxP)`), not row or column
+numbers; and the `*Multi` variants take a binding domain, so an indexed family is one call rather
+than one per element.
+
+Both entry points support it, behind flags that **default to the previous behaviour**:
+
+| Flag | Default | Effect |
+|---|---|---|
+| `RollUseGMP` | 0 | `RunFOR_Rolling`: the 12 sweep directions share one generated matrix |
+| `RollGMPBaseline` | 0 | `RunFOR_Rolling`: the committed baseline is solved from that same instance. Needs `RollUseGMP = 1`; on its own it is inert |
+| `PreflightUseGMP` | 0 | same, for `RunFOR_RollingPreflight` |
+| `PreflightGMPBaseline` | 0 | same, for the preflight |
+| `PreflightGMPProbe` | 0 | writes matrix size, memory and the objective-row coefficients |
+| `PreflightFlushCSV` | 1 | closes the preflight CSV after every vertex |
+
+With `RollUseGMP` alone a period generates twice — once for the baseline, once for the sweep; with
+`RollGMPBaseline` as well, once. The flags reach the per-transformer path too, since
+`RunTR1`…`RunTR9` → `RunTrafoFOR` → `RunFOR_Rolling`.
+
+`RunFOR_Rolling` writes its CSVs with one `putclose` at the end, so the incremental flush of §6.4
+applies to the preflight only.
+
+### 6.2 Which row carries the angle
+
+`OF_FOR` is a defined variable:
+
+```
+Definition: -( cos(FOR_AngleRad)*P_PCC(PeriodMaxP) + sin(FOR_AngleRad)*Q_PCC(PeriodMaxP) )
+```
+
+so the angle reaches the matrix through **`OF_FOR_definition`**, which is *not* the objective row —
+`FOR_VertexCont` minimizes `OF_FOR_cont`. Per direction the sweep rewrites two coefficients of that
+row and re-solves.
+
+The sign convention of the generated row is **read back rather than assumed**: the instance is
+generated at 45°, where both coefficients are non-zero, and `GMP::Coefficient::Get` is divided by
+`cos`/`sin`. If the ratio is not ±1 the procedure halts. A wrong sign would mirror the region with
+no visible symptom, so this check is what makes the rewrite safe.
+
+### 6.3 The committed baseline from the same instance
+
+`MinImports` and `FOR_VertexCont` both declare `Constraints: NotTobeExcluded_constraints` and
+`Variables: NotTobeExcluded_variables`, so they generate the same matrix; and `OFminImports` and
+`OF_FOR_cont` are both defined variables, so both objective-definition rows are already present.
+Switching objective is therefore switching a column (`GMP::Column::SetAsObjective`), which removes
+the second generation per period.
+
+Two details make it exact:
+
+- **The slot-1 dispatch** moves from `.nonvar` to `GMP::Column::FreezeMulti`. `.nonvar` is a
+  property of the *model* and is read when the matrix is built, so setting it after generation has
+  no effect. `FreezeMulti` sets the column's lower and upper bound to the same value on the
+  *instance*, which is equivalent and does take effect:
+
+  ```
+  GMP::Column::FreezeMulti( RollGMP, bat, BattP_Chg(bat,'1'), RollChgExec(bat) );
+  ```
+
+- **Fairness rows are deactivated rather than regenerated.** The baseline deliberately runs with the
+  criterion off (`FairActive = 0`) and the sweep with it on, and the fairness constraints are gated
+  by `IndexDomain: ... and (FairActive or FairBaseline)`. Generating under one setting and solving
+  under the other is therefore not possible with a single matrix — unless the rows can be removed
+  from the problem after the fact, which is what `GMP::Row::DeactivateMulti` does:
+
+  ```
+  ! generated with FairActive = 1, so the fairness rows are in the matrix
+  if FairMode = 1 then GMP::Row::DeactivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
+  if FairMode = 2 then GMP::Row::DeactivateMulti( RollGMP, a,   FairProportional_Aggregator(a) );  endif;
+  GMP::Column::SetAsObjective( RollGMP, OFminImports );
+  GMP::Instance::Solve( RollGMP );                        ! baseline: criterion absent
+  ...
+  if FairMode = 1 then GMP::Row::ActivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
+  if FairMode = 2 then GMP::Row::ActivateMulti( RollGMP, a,   FairProportional_Aggregator(a) );  endif;
+  GMP::Column::SetAsObjective( RollGMP, OF_FOR_cont );    ! sweep: criterion present
+  ```
+
+  A deactivated row stays in the instance but is not passed to the solver, so the baseline sees
+  exactly the problem it saw before. This is what lets one matrix per period serve **every**
+  `FairMode`, not only 0. The prosumer-level criteria are indexed over `bat` and the
+  aggregator-level ones over `a`, so both index families are exercised.
+
+There is one coupling worth knowing about: `MinOFminImports` sets `Bound_Tolerance := 1e-006` as a
+**session** option before its solve, which the sweep then inherits. Solving the baseline from the
+shared instance skips that procedure, so the option is set explicitly in the generate block to keep
+the whole period on the same numerical settings.
+
+### 6.4 Incremental CSV flush
+
+The preflight CSV is declared `Mode: append` and closed after each vertex, so an interrupted run
+keeps the rows it already produced. Because `File.Mode` is a declaration attribute and cannot be
+assigned at runtime, the procedure deletes the file before writing the header. Measured cost on the
+reduced TR9 bed: **~5 ms per vertex, +0.2 s of non-solver time over a full run**, with every column
+except `time` byte-identical.
+
+---
+
+## 7. Results of the GMP phase
+
+### 7.1 Production TR9 — 1,728 vertices, three criteria
+
+`RunTR9_GMP_Chain`: `FairMode` 0, 1 and 2, 48 periods × 12 directions each, with SOC carried forward.
+Compared with `scripts/compare_FOR_runs.py` against a prior run of each case. Those reference CSVs
+are git-ignored like all model output, so reproducing the comparison means generating the baseline
+first — `RunTR9` for case A, `RunTR9_FairL1` / `RunTR9_FairL2` for the other two.
+
+| Case | `max │delta proj│` | Status | P,Q slide | Result |
+|---|---|---|---|---|
+| `FairMode = 0` | 1.0e-06 | 576/576 → 576/576 Optimal | 0.01 kW | **PASS** |
+| `FairMode = 1` | 1.0e-06 | 576/576 → 576/576 Optimal | 0.03 kW | **PASS** |
+| `FairMode = 2` | **0.000e+00** | 576/576 → 576/576 Optimal | 0.03 kW | **PASS** |
+
+Tolerance is 2e-06, and the CSV prints six decimals, so 1e-06 p.u. is one unit of the last printed
+digit — 1 W at Sb = 1 MW. The P,Q movements are flat-face slides, which the criterion allows by
+design (§4).
+
+**Wall-clock for the three runs: 9 h 37 min, against 12 h 17 min for the same three without the
+flags — a 22 % reduction.**
+
+Per-vertex solve time moves in the opposite direction on this bed (14.65 s → 17.30 s at
+`FairMode = 0`, 17.57 s → 16.91 s at `FairMode = 2`); the generation saved outweighs it. On the
+reduced network generation is a small share of the total, so this is the conservative end of what
+the change buys — see §7.3.
+
+### 7.2 Reduced bed — 2,304 vertices
+
+Four runs of the micro test bed (`FairMode` 0 and 1, with and without the flags), all four generated
+under the same AIMMS build so the comparison isolates the change:
+
+| Comparison | Result |
+|---|---|
+| `FairMode = 0` | PASS — 2 of 5,184 physical cells moved, both at 0°, where `proj = P` and `Q` is tangent |
+| `FairMode = 1` | PASS — 6 of 5,184, largest 1.7e-05 |
+
+The preflight A/B on reduced TR9 gives `max |delta proj| = 0.000e+00` with a byte-identical matrix
+for the sweep change alone.
+
+### 7.3 Full feeder
+
+The whole-feeder preflight is where generation dominates. Per vertex, linearized configuration —
+the "without" row comes from an earlier measurement of the same procedure, since that run's CSV is
+not retained:
+
+| | Wall | Solver | Reconstruction |
+|---|---|---|---|
+| Without the flags | 844–904 s | 183–238 s | ~665 s |
+| With `PreflightUseGMP` | **~240 s** | 236 s | **~0** |
+
+Wall converges to solver time, i.e. the per-direction reconstruction is gone — about **3.6×**.
+
+Instance size and memory at that scale, from `PreflightGMPProbe`:
+
+| Formulation | Rows | Columns | Nonzeros | Instance |
+|---|---|---|---|---|
+| Exact (`FOR_PolyS = 0`, `FOR_LinearizeVmax = 0`) | 7,534,679 | 6,095,687 | 26,929,278 | 904.91 Mb |
+
+The generated instance is under 1 GB; the generator's own working memory is far larger and is
+released per period by `GMP::Instance::Delete`, so the peak does not accumulate across periods.
+
+That exact-formulation sweep completed **12/12 Optimal at 287.24 s of solver per vertex**, with
+`VmaxTrue` at most 1.10000 and `OVviol` at 1.9e-10, and no solve near the 3,000 s limit — so the
+exact formulation is tractable at whole-feeder scale, not only on the reduced network.
+
+The runs behind §7 are `RunTR9_GMP_Chain` (§7.1), `RunMicro_GMP_Validate` (§7.2), and
+`RunFullFeeder_PreflightGMP` / `RunFullFeeder_PreflightExact1Slot` (§7.3).
+
+---
+
+## 8. Running AIMMS without the GUI
+
+Useful for scripting a run and watching it from outside:
+
+```
+AimmsCmd.exe --run-only <ProcedureName> <path>\OPF.aimms
+```
+
+It wraps `aimms.exe --as-server --ignore-dialogs --hidden` and runs **in-process**: no separate
+`aimms.exe` appears, so the process to watch is `AimmsCmd`. Errors go to `log/aimms.err`,
+`log/aimmsRunOnly.err` and `log/messages.log`.
+
+Worth knowing:
+
+- A procedure that does not set `nPeriods` first fails, because `Time` is `ElementRange(1,nPeriods)`
+  and a cold session starts at 0. The `Run*` entry points set it themselves.
+- The exit code reports startup, not execution: a procedure that fails still returns 0 with
+  `Error: Procedure run failed` on stdout, while a *compilation* error returns −1.
+- `--run-only MainInitialization` on a copy of the project checks that the model compiles in about
+  20 seconds without running anything.
+- Batch mode does not save the project, so the `.ams` can be edited while a run is in progress.

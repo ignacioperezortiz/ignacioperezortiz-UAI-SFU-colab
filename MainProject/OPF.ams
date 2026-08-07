@@ -1,4 +1,4 @@
-﻿## ams_version=1.0
+## ams_version=1.0
 
 Model Main_OPF_VI_LG {
 	Section ModelOverview {
@@ -66,7 +66,9 @@ Model Main_OPF_VI_LG {
 		Comment: "Every run switch and scenario parameter. Principle: DEFAULTS = PRODUCTION VALUES, so a fresh session reproduces the thesis results without manual assignments. Validation-only toggles (UseBattComp, FOR_ScaleInv, FOR_WarmFromLin) default off.";
 		DeclarationSection RunSettings {
 			Parameter IncludeQforMaxP {
-				Comment: "1 = battery reactive power is a decision variable at PeriodMaxP (the service slot) only; it stays fixed at 0 in every other period. Production: 1.";
+				Comment: {
+					"1 = battery reactive power is a decision variable at PeriodMaxP (the service slot) only; it stays fixed at 0 in every other period. Production: 1."
+				}
 			}
 			Parameter BattThroughputPen {
 				Default: 0.2;
@@ -85,12 +87,16 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter UseBattComp {
 				Default: 0;
-				Comment: "0 = production (pure convex QCP; the throughput penalty alone prevents simultaneous charge/discharge). 1 = enforce charge/discharge complementarity via binary BattOn (constraints ChgMode/DisMode) - makes the program a MIQCP. Kept as the VALIDATION alternative: RunMicro_BattComp / RunFullTR9_BattComp reproduce the same dispatch as the penalty formulation.";
+				Comment: {
+					"0 = production (pure convex QCP; the throughput penalty alone prevents simultaneous charge/discharge). 1 = enforce charge/discharge complementarity via binary BattOn (constraints ChgMode/DisMode) - makes the program a MIQCP. Kept as the VALIDATION alternative: RunMicro_BattComp / RunFullTR9_BattComp reproduce the same dispatch as the penalty formulation."
+				}
 			}
 			Parameter maxtanphi;
 			Parameter MaxExports;
 			Parameter PeriodMaxP {
-				Comment: "The evaluated/service period. Paper cases: 25 (12:00-12:30). Rolling FOR: 2 (the slot right after the committed one; the day is rotated so slot 1 = now). w2(PeriodMaxP) = 0 by construction: the service slot carries no self-consumption weight.";
+				Comment: {
+					"The evaluated/service period. Paper cases: 25 (12:00-12:30). Rolling FOR: 2 (the slot right after the committed one; the day is rotated so slot 1 = now). w2(PeriodMaxP) = 0 by construction: the service slot carries no self-consumption weight."
+				}
 			}
 			StringParameter ResultsFile {
 				Definition: ResultsFileRoot+PeriodMaxP+".xls";
@@ -252,10 +258,10 @@ Model Main_OPF_VI_LG {
 					"BattEcap"  	--> BattEcap(bat),
 					"etaChg"	--> etaChg(bat),
 					"etaDis"	--> etaDis(bat),
-
+					
 					"BattAgg" --> BattAgg(bat),
 					"BattTr" --> BattTr(bat),
-
+					
 					"BattAgg" --> Aggregators
 				}
 			}
@@ -359,7 +365,7 @@ Model Main_OPF_VI_LG {
 			Body: {
 				axll::CloseAllWorkBooks;
 				axll::OpenWorkBook("OpData.xls");
-
+				
 				axll::SelectSheet(SheetName:"Irradiance(t)");	!read Irradiance data
 				axll::ReadList(
 					IdentifierReference:Irradiance(t),
@@ -367,7 +373,7 @@ Model Main_OPF_VI_LG {
 					DataRange:"B2:B49",
 					ModeForUnknownElements:1,
 					MergeWithExistingData:0);
-
+				
 				axll::SelectSheet(SheetName:"P0(d,t)");	!read P0 data
 				axll::ReadTable(
 					IdentifierReference:P0(d,t),
@@ -376,7 +382,7 @@ Model Main_OPF_VI_LG {
 					DataRange:"B3:AW2432",
 					ModeForUnknownElements:1,
 					MergeWithExistingData:0);
-
+				
 				axll::SelectSheet(SheetName:"Q0(d,t)");	!read G0 data
 				axll::ReadTable(
 					IdentifierReference:Q0(d,t),
@@ -385,8 +391,8 @@ Model Main_OPF_VI_LG {
 					DataRange:"B3:AW2432",
 					ModeForUnknownElements:1,
 					MergeWithExistingData:0);
-
-
+				
+				
 				!axll::SelectSheet(SheetName:"EnergyExpPrices(t)");	!read EnergyPrices
 				!axll::ReadList(
 				!	IdentifierReference:PayExport(t),
@@ -402,12 +408,12 @@ Model Main_OPF_VI_LG {
 				!	DataRange:"B2:B49",
 				!	ModeForUnknownElements:1,
 				!	MergeWithExistingData:0);
-
-
+				
+				
 				axll::CloseAllWorkBooks;
 			}
 		}
-		Procedure Load_data_dsn {
+		Procedure Load_data_static {
 			Body: {
 				            read from table BusesData;
 				            read from table SlackGenData;
@@ -417,33 +423,23 @@ Model Main_OPF_VI_LG {
 				            !read from table GenData;
 				            !read from table CapacitorsData;
 				            read from table BatteriesData;
-
-				!            Imax(bat):=0.00368;	!16A limited inverters
-
-				            Qinv(bat,t):=0;	!without Q capabilities  
-				            Qinv(bat,t).nonvar:=1; !This variable is not allowed to change during optimization.
-
-				            if IncludeQforMaxP=1 then
-				            	Qinv(bat,PeriodMaxP).nonvar:=0; !By default, battery reactive power is disabled. But if IncludeQforMaxP = 1, then battery reactive power is allowed only during the period used to maximize/evaluate PCC active power.
-				            endif;
-
-
+				
 				            run ReadExcelFile;	!reads OpData in time for GenP, P0 and Q0 
-
+				
 				            !data input in kW, needd to be taken to pu (Sb=1MW)
 				            P0(d,t):=P0(d,t)/1000; !Active load demand at load/customer d and time t
 				            Q0(d,t):=Q0(d,t)/1000; !Reactive load demand at load/customer d and time t
 					    GenP0(d,t):=PVsize(d)*Irradiance(t)/1000; !PV/generation active power
-
+				
 				            !Cost in time
 				!            CostImport(t):=12;
 				!            PayExport(t):=4;
 				            !read from file "Costs.dat";
-
+				
 				            VmultLV:=1.037; !433/(230*sqrt(3)) (1.087) - 5% (choosing tap ratio 1.05) = 1.037 / Defines a voltage multiplier for LV buses.
 						            !for low-voltage nodes, the initial voltage magnitude is approximately 1.037 p.u.
-
-
+				
+				
 				            !Transformer tap linearization coefficients
 				            !This block defines a linear relationship between transformer tap position and tap ratio.
 				            !Tapratio(tr,t) := mlin(tr)*TapPosUnits(tr,t) + nlin(tr);
@@ -451,21 +447,41 @@ Model Main_OPF_VI_LG {
 				            	if MaxTap(tr)=19 then
 				            		mlin(tr):=-0.0167;
 				            		nlin(tr):=1.1169;
-
+				
 				            	elseif MaxTap(tr)=17 then	!Prim subst OLTC
 				            		mlin(tr):=-0.0143;
 				            		nlin(tr):=1.0715;
-
+				
 				            	elseif MaxTap(tr)=9 then !now case MaxTap(tr)=9 for LV-OLTCs (base in 230V)
 				            		mlin(tr):=-0.02;
 				            		nlin(tr):=1.16;
-
+				
 				            	else	!OffLTC secondary trafo
 				            		mlin(tr):=-0.025;
 				            		nlin(tr):=1.075;
 				            	endif;
 				            endfor;
-
+			}
+			Comment: {
+				"Static half of the loader: the Access tables, OpData.xls and everything derived from them
+				(kW->p.u. conversion, VmultLV, the tap linearization coefficients mlin/nlin). This data does not
+				change between solves, so it only has to run once per study case. Split out of Load_data_dsn so
+				that RunFOR_Rolling can load it once per run instead of once per direction (it was doing 13 full
+				DB+Excel reloads per period, ~624 per 48-period run). Every other caller still goes through
+				Load_data_dsn, which runs this and Load_data_reset back to back, in the original order."
+			}
+		}
+		Procedure Load_data_reset {
+			Body: {
+				!            Imax(bat):=0.00368;	!16A limited inverters
+				
+				            Qinv(bat,t):=0;	!without Q capabilities  
+				            Qinv(bat,t).nonvar:=1; !This variable is not allowed to change during optimization.
+				
+				            if IncludeQforMaxP=1 then
+				            	Qinv(bat,PeriodMaxP).nonvar:=0; !By default, battery reactive power is disabled. But if IncludeQforMaxP = 1, then battery reactive power is allowed only during the period used to maximize/evaluate PCC active power.
+				            endif;
+				
 				            !for trafos with fixed taps
 				            for (tr) do
 				            	if Is_OLTC(tr)=0 then	!for the HV/MV trafo - then this transformer does not change taps during optimization.
@@ -475,10 +491,10 @@ Model Main_OPF_VI_LG {
 				!            		Tapratio(tr,t).nonvar:=1;    !If want to make it change
 				            	endif;
 				            endfor;
-
+				
 				            !!warm start of variables
 				            !VmultLV:=1.03265;
-
+				
 				            for (n) do
 				            	if Vbase(n)>=6.6 then	!source bus and all MV nodes, no primary modelled - Source bus and MV buses
 				            		Vre(n,1,t):=1;
@@ -505,41 +521,63 @@ Model Main_OPF_VI_LG {
 				!            		Vim(n,3,t):= 0.866*VmultLV;		
 				            	endif;
 				            endfor;
-
-
+				
+				
 				           !For linearization
 				           !copies the initial voltage values into:
 				            Vre0(n,f,t):=Vre(n,f,t);
 				            Vim0(n,f,t):=Vim(n,f,t);
-
+			}
+			Comment: {
+				"Per-solve half of the loader. Three of its targets are Variables, which empty allvariables wipes and
+				which therefore MUST be re-established before every solve: the Qinv fix (value + nonvar) and the
+				flat-start voltage seed Vre/Vim. The rest - the fixed transformer taps TapPosUnits/Tapratio and the
+				linearization point Vre0/Vim0 - are Parameters that survive empty allvariables; they are recomputed
+				anyway because it costs nothing and keeps this procedure a self-contained reset.
+				Reads no data and touches no set, and writes nothing indexed by d, so it is safe to call on the
+				reduced network: after ApplyNetworkReduction the loops simply range over the reduced sets, and the
+				elements outside them are no longer referenced by the model. Cheap - this is what RunFOR_Rolling
+				calls per direction instead of a full DB+Excel reload."
+			}
+		}
+		Procedure Load_data_dsn {
+			Body: {
+				run Load_data_static;   ! DB tables + OpData.xls + kW->p.u. + tap linearization coefficients
+				run Load_data_reset;    ! Qinv fix, fixed taps, flat-start voltages, Vre0/Vim0
+				
 				! 1. Read network data
-				!   ↓
+				!   â†“
 				! 2. Read load/PV/battery data
-				!   ↓
+				!   â†“
 				! 3. Disable battery reactive power by default
-				!   ↓
+				!   â†“
 				! 4. Optionally allow battery Q at the target FOR period
-				!   ↓
+				!   â†“
 				! 5. Convert kW/kVAr data to p.u.
-				!   ↓
+				!   â†“
 				! 6. Define transformer tap-ratio linear models
-				!   ↓
+				!   â†“
 				! 7. Initialize fixed transformer taps
-				!   ↓
+				!   â†“
 				! 8. Initialize balanced three-phase voltages
-				!      - MV side: 1∠0°, 1∠−120°, 1∠120°
-				!      - LV side: shifted by 30° because of Dy1 transformers
-				!   ↓
+				!      - MV side: 1âˆ 0Â°, 1âˆ âˆ’120Â°, 1âˆ 120Â°
+				!      - LV side: shifted by 30Â° because of Dy1 transformers
+				!   â†“
 				! 9. Copy initial voltages into Vre0 and Vim0
-				!   ↓
+				!   â†“
 				! 10. Use Vre0 and Vim0 as the linearization point
-
+				
 				! reduce to DetailedTrafos (lump the other transformers as MV loads) when requested; no-op otherwise
 				if ReduceNetwork = 1 then
 					run ApplyNetworkReduction;
 				endif;
 			}
-			Comment: "loads as constant power (for now)";
+			Comment: {
+				"loads as constant power (for now). Thin wrapper since 2026-07-29: it runs Load_data_static then
+				Load_data_reset then the optional network reduction, which is the original statement order, so
+				every existing caller behaves exactly as before. Only the Qinv fix moved - from before the Excel
+				read to after the tap coefficients - and nothing in between touches Qinv, so that is a no-op."
+			}
 		}
 	}
 	Section NetworkModel {
@@ -764,7 +802,7 @@ Model Main_OPF_VI_LG {
 								+ R(tr)*(2*Iim_Trafo(tr,1,EndBusTr(tr),t) + Iim_Trafo(tr,2,EndBusTr(tr),t))
 								+ X(tr)*(2*Ire_Trafo(tr,1,EndBusTr(tr),t) + Ire_Trafo(tr,2,EndBusTr(tr),t)))
 					endif
-
+					
 					!if f<3 then
 					!Vim(StartBusTr(tr),f) = -(nomratio(tr)/3)*(2*Vim(EndBusTr(tr),f+1)+Vim(EndBusTr(tr),f+2)
 					!			+ R(tr)*(2*Iim_Trafo(tr,f+1,EndBusTr(tr)) + Iim_Trafo(tr,f+2,EndBusTr(tr)))
@@ -802,7 +840,7 @@ Model Main_OPF_VI_LG {
 				Definition: {
 					!constraining the primary side current per phase
 					Ire_Trafo(tr,f,StartBusTr(tr),t)^2+Iim_Trafo(tr,f,StartBusTr(tr),t)^2 <= MaxAmps(tr)^2
-
+					
 					!to not consider it
 					!Ire_Trafo(tr,f,n)^2+Iim_Trafo(tr,f,n)^2 <= MaxAmps(tr)^2*10000000000000000000000000000
 				}
@@ -811,7 +849,7 @@ Model Main_OPF_VI_LG {
 				IndexDomain: (l,f,t);
 				Definition: {
 					Ire_Line(l,f,t)^2+Iim_Line(l,f,t)^2 <= MaxCurrent(l)^2
-
+					
 					!to not consider it
 					!Ire_Line(l,f,t)^2+Iim_Line(l,f,t)^2 <= MaxCurrent(l)^2*10000000000000000000000000000000000000
 				}
@@ -826,7 +864,7 @@ Model Main_OPF_VI_LG {
 				IndexDomain: (n,f,t);
 				Definition: {
 					Vmag2approx(n,f,t) >= MinV(n)^2
-
+					
 					!Vre(n,f,t)^2 + Vim(n,f,t)^2 >= MinV(n)^2
 				}
 			}
@@ -1019,7 +1057,9 @@ Model Main_OPF_VI_LG {
 			Variable BattOn {
 				IndexDomain: (bat,t) | UseBattComp;
 				Range: binary;
-				Comment: "Charge/discharge mode binary (1 = may charge, 0 = may discharge); exists only when UseBattComp=1. With ChgMode/DisMode it forbids charging and discharging in the same period (no non-physical simultaneous cycling).";
+				Comment: {
+					"Charge/discharge mode binary (1 = may charge, 0 = may discharge); exists only when UseBattComp=1. With ChgMode/DisMode it forbids charging and discharging in the same period (no non-physical simultaneous cycling)."
+				}
 			}
 			Constraint ChgMode {
 				IndexDomain: (bat,t) | UseBattComp;
@@ -1128,9 +1168,242 @@ Model Main_OPF_VI_LG {
 				IndexDomain: bat;
 			}
 		}
+		DeclarationSection Fairness {
+			Comment: {
+				"Stage 0 fairness: criterion C1, proportional to installed capacity, applied to the ACTIVE-POWER
+				scalar at the service slot. FairMode picks the level, FairActive gates it to the directional
+				sweep, FairCap is the capacity s_i. Declared here (BatteryModel) and NOT inside NetworkModel so
+				it survives IncludeNetworkConstraints=0: fairness is an allocation rule, not a network law.
+				With FairMode=0 all FOUR constraints have an empty IndexDomain -> zero rows, and Zeta is a
+				free column with no coefficients that presolve removes. That is the mechanism by which case A
+				must reproduce the pre-fairness baseline bit-identically.
+				
+				Levels 1 and 2 allocate the BATTERY (BattP_Balance); levels 3 and 4 allocate the prosumer\'s
+				whole EXCHANGE, and for that they reference TotPcust, which lives in SelfConsumptionOPF
+				rather than here. That does NOT weaken the paragraph above: IncludeNetworkConstraints
+				excludes AllConstraints*NetworkModel, and SelfConsumptionOPF is not NetworkModel, so
+				TotPcust survives the toggle just the same. The reuse is deliberate - TotPcust already IS
+				(charge - discharge) + consumption - PV, so levels 3 and 4 add no data structure of their
+				own: no battery->load mapping, and no second copy of the bus+phase join."
+			}
+			Parameter FairMode {
+				Default: 0;
+				Comment: {
+					"Fairness level. Mutually exclusive, NOT cumulative - level 2 does not imply level 1.
+					0 = off (production, case A).
+					1 = proportional between PROSUMERS:   x_i = Zeta*FairCap(i) for every battery.
+					2 = proportional between AGGREGATORS: sum_{i in a} x_i = Zeta*sum_{i in a} FairCap(i),
+					    with the split among an aggregator\'s own prosumers left free.
+					
+					Modes 3 and 4 (Prof. Luis, 31-Jul-2026) keep exactly the structure of 1 and 2 and change
+					only WHAT is allocated: not the battery, but the prosumer\'s whole exchange with the grid.
+					3 = proportional between PROSUMERS,   on the prosumer exchange.
+					4 = proportional between AGGREGATORS, on the prosumer exchange.
+					x_i becomes -( BattP_Balance + FairNetLoad ) = the prosumer\'s net EXPORT, and the natural
+					normalisation is FairCapMode=1. See FairProportional_ProsumerExch for the sign argument."
+				}
+			}
+			Parameter FairActive {
+				Default: 0;
+				Comment: {
+					"Runtime gate, set by RunFOR_Rolling: 0 around the committed self-consumption baseline,
+					1 around the 12 directional solves.
+					
+					WHY THE GATE EXISTS. PeriodMaxP=2 in BOTH solves and MinImports uses the same constraint
+					set (AllConstraints), so an ungated fairness row would also bind in the committed baseline,
+					shift the slot-1 dispatch that is actually executed, and make the realised SOC trajectory of
+					case B diverge from case A. The A/B difference would then mix \'fairness contracts the offered
+					region\' (what the deliverable measures) with \'fairness moved the batteries somewhere else\',
+					and per-period comparison would stop being legitimate because the starting SOCs no longer
+					match. It would also violate the w2(PeriodMaxP)=0 design rule - the baseline must not
+					pre-commit value at the service slot, because that exchange IS the flexibility being offered.
+					
+					Modelling reading: the committed baseline is a pure self-consumption agent (OFminImports has
+					no w1 service term at all), i.e. a prosumer who prioritises self-consumption and provides
+					what it happens to have available when service is called - not one who spends every half hour
+					positioning for a market it might be asked to serve. See FairBaseline for the alternative."
+				}
+			}
+			Parameter FairBaseline {
+				Default: 0;
+				Comment: {
+					"EXPERIMENT toggle: 1 = impose fairness in the committed baseline solve as well (the
+					\'prosumers anticipate a fair market\' variant). 0 = production.
+					
+					Read this before using it. The baseline objective OFminImports carries NO service term (w1
+					appears only in OFminImportsmaxReverseP, which the rolling baseline does not use) and
+					w2(PeriodMaxP)=0, so switching this on constrains an agent that derives no value whatsoever
+					from market participation. Only slot 1 is carried forward (RollChgExec/RollDisExec/
+					RollSOCnext all read BattP_Balance(bat,\'1\')), so the baseline\'s slot-2 decision is discarded
+					and the effect on the executed dispatch is indirect, via the SOC coupling. Modelling genuine
+					anticipation would additionally need a service-value term in the baseline objective and a
+					model of WHICH direction the aggregator will call - both out of scope for Stage 0.
+					
+					Kept because the size of the divergence is worth measuring on the micro bed (~10 min per
+					run), not because it is the modelled default."
+				}
+			}
+			Parameter FairCap {
+				IndexDomain: bat;
+				Definition: {
+					BattMaxP(bat)
+					+ (if FairMode >= 3 then
+					       sum(d | LoadBus(d) = BattBus(bat) and LoadPhase(d) = BattPhase(bat), GenP0(d,PeriodMaxP))
+					   else 0 endif)
+				}
+				Comment: {
+					"s_i - the capacity each prosumer\'s contribution is made proportional to, in p.u. Deliberate
+					indirection: the source of s_i changes in ONE line here, and every run should record which.
+					
+					WHY BattMaxP FOR m=1/m=2. It is the battery rating and simultaneously the inverter S-circle
+					radius (MaxBattS_def / MaxBattS_poly), so \'kW of battery\' and \'kVA of inverter\' are the same
+					number in this model. NOT PVsize there: PV is a parameter driven by irradiance
+					(GenP0 := PVsize*Irradiance/1000), not a decision variable and not curtailable, so rationing
+					battery dispatch by PV size would allocate on an attribute that is not the resource shared.
+					
+					WHY BattMaxP + PVsize FOR m=3/m=4. There the resource shared is no longer the battery but
+					the prosumer\'s whole exchange, and PV stops being an irrelevant attribute: it is half of
+					what produces the export being rationed. The sum is the NAMEPLATE EXPORT CAPABILITY - the
+					most the prosumer could inject with PV at full output and the battery discharging at rated
+					power. The bus+phase join reuses the one already inside TotPcust; verified on Database.mdb
+					(v1_baseline, 3-Aug-2026) that each battery owns exactly one bus, one load and one PV array,
+					so the sum has a single term. PVsize is stored in kW against Sb = 1 MW, hence the /1000,
+					the same conversion Load_data_dsn applies when building GenP0.
+					
+					Keyed off FairMode rather than a switch of its own, so case A, L1 and L2 keep hitting
+					BattMaxP exactly and reproduce bit-identically without anyone having to remember a flag.
+					
+					CAUTION - the derived bound does NOT survive this. Under m=1/m=2, |Zeta| <= 1 follows from
+					|BattP_Balance| <= BattMaxP (see Zeta). Under m=3/m=4 only ONE side survives: export is at
+					most PVsize*Irradiance + BattMaxP <= s_i, so Zeta <= 1 holds; but import is load + BattMaxP,
+					and a prosumer whose load exceeds its PV plus battery can drive Zeta below -1. Report the
+					realised range instead of assuming it, and if a two-sided bound is ever wanted it has to be
+					an explicit row - which is exactly the caveat the formulation PDF flags.
+					
+					NOTE for the paper: unlike the battery fleet, PV here is genuinely heterogeneous - 1 to 4 kW
+					(9/101/178/170/179/142/437 prosumers at 1/1.5/2/2.5/3/3.5/4 kW), 3723.5 kW of PV against
+					4377.6 kW of battery. So under m=3/m=4 \'proportional to capacity\' stops coinciding
+					numerically with \'equal absolute\', which is precisely what it does under m=1/m=2.
+					
+					NOTE for the paper: this fleet is homogeneous (BattMaxP = 0.0036 p.u. = 3.6 kW on all 1216
+					batteries), so here \'proportional to capacity\' coincides numerically with \'equal absolute\'.
+					That does NOT make the constraint slack: the network is radial, so two prosumers with equal
+					batteries at different feeder positions cannot inject equally without different voltage rise.
+					Measured on the TR9 case-A run, dispatch spread across the 90 identical batteries averages
+					46% of BattMaxP (peak 85%), and the fleet reaches only 33% of its nameplate aggregate. The
+					heterogeneity that makes C1 bind is LOCATIONAL, not equipment."
+				}
+			}
+			Variable Zeta {
+				Range: free;
+				Comment: {
+					"The SINGLE free scalar of criterion C1 - the fleet utilisation factor, dimensionless.
+					One Zeta per solve: each of the 12 directions gets its own, which is what makes C1 a
+					one-pass criterion (max-min would instead need one Zeta* per time step, held fixed across
+					the 12 angles).
+					
+					It removes exactly ONE degree of freedom. Deliberately NOT written as n-1 pairwise
+					equalities, which would remove n-1 and overstate the cost of fairness by a factor near 2.
+					BOUND: -1 <= Zeta <= 1 holds BY CONSTRUCTION, and is deliberately NOT imposed as a row.
+					MaxBattP_Chg_def and MaxBattP_Dis_def bound every battery to |BattP_Balance| <= BattMaxP
+					with no IndexDomain condition - they stand whatever UseBattComp, FOR_PolyS, FOR_ScaleInv
+					or IncludeNetworkConstraints are set to - and FairCap = BattMaxP. Dividing the fairness
+					equality by that capacity carries the bound straight onto Zeta: directly at level 1, and
+					through the triangle inequality on the aggregator sum at level 2. Imposing it would add
+					a redundant row; imposing it as |Zeta| <= 1 would add a NONLINEAR one, which is the
+					point Prof. Luis raised on 31-Jul-2026. Do NOT rest this argument on the inverter
+					S-circle MaxBattS_def instead: that one lives in NetworkModel, switches off under
+					FOR_PolyS=1 / FOR_ScaleInv=1, and its 16-gon replacement is CIRCUMSCRIBED, so it would
+					tolerate |Zeta| a couple of percent above 1. The box bounds are the robust argument,
+					and they sit in BatteryModel next to the fairness constraints themselves.
+					Verified a posteriori by check_fairness.py: the bound comes out REACHED (1.0000) and
+					never exceeded, so it is a genuine facet of the feasible set, not slack.
+					
+					CAVEAT for the m=3/m=4 criteria (fairness on the prosumer exchange, not on the battery):
+					the derivation needs the normalising capacity to be the SAME quantity that bounds the
+					left-hand side. Normalise by anything other than BattMaxP and the bound stops coming for
+					free and has to be re-derived - possibly as an actual row.
+					
+					Zeta=0 (everyone idle) is always feasible AT LEVELS 1 AND 2, so there C1 only contracts the
+					FOR and can never render it infeasible.
+					
+					THAT GUARANTEE DOES NOT EXTEND TO LEVELS 3 AND 4, and it is not a subtlety - it was
+					observed on the micro bed on 3-Aug-2026, where m=3 made period 45 (22:00) infeasible in
+					ALL TWELVE directions. The reason is structural: at level 1 the row reads
+					BattP_Balance = Zeta*s_i, so Zeta=0 parks every battery and always works. At level 3 it
+					reads -(netload_i + BattP_Balance_i) = Zeta*s_i, i.e. BattP_Balance_i = -Zeta*s_i -
+					netload_i, and the passive net load enters as a DIFFERENT CONSTANT per prosumer. Zeta=0
+					then demands BattP_Balance_i = -netload_i exactly, which can exceed the battery rating,
+					and no other single Zeta need fit all prosumers either. Late in the evening, with the
+					batteries near their SOC floor, none does.
+					
+					So an infeasible direction under m=3/m=4 is a RESULT, not a defect to patch - the same
+					way it would be a defect under m=1/m=2. Report the affected periods."
+				}
+			}
+			Constraint FairProportional_Prosumer {
+				IndexDomain: bat | FairMode = 1 and (FairActive or FairBaseline);
+				Definition: BattP_Balance(bat,PeriodMaxP) = Zeta*FairCap(bat);
+				Comment: {
+					"C1 at PROSUMER level: every prosumer runs at the same utilisation Zeta of its own capacity.
+					Since BattP_Balance = BattP_Chg - BattP_Dis (>0 charge, <0 discharge), a single Zeta also
+					forbids one battery charging while another discharges - it removes all internal arbitrage
+					between prosumers. That is the strictest reading of the criterion and is precisely why C1
+					delivers the UPPER bound on the cost of fairness. It is not hypothetical: in the case-A run
+					the batteries do split signs (period 16: some charging at -0.99 kW while others discharge at
+					+1.91 kW), so this row binds hard."
+				}
+			}
+			Constraint FairProportional_Aggregator {
+				IndexDomain: a | FairMode = 2 and (FairActive or FairBaseline);
+				Definition: {
+					sum(bat | BattAgg(bat) = a, BattP_Balance(bat,PeriodMaxP))
+					= Zeta*sum(bat | BattAgg(bat) = a, FairCap(bat))
+				}
+				Comment: {
+					"C1 at AGGREGATOR level: each aggregator\'s total tracks the same utilisation Zeta of its own
+					installed capacity, while the split among its prosumers stays free. Uses BattAgg, the
+					database column, as the single source of truth for the aggregator index (the synthetic
+					DOE_AggOf mapping stays confined to the frozen DOE_Dispatch section).
+					
+					An aggregator left with no batteries after ApplyNetworkReduction yields 0 = Zeta*0, which is
+					trivially satisfied - there is no division here, so no epsilon guard is needed."
+				}
+			}
+			Constraint FairProportional_ProsumerExch {
+				IndexDomain: bat | FairMode = 3 and (FairActive or FairBaseline);
+				Definition: -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP) = Zeta*FairCap(bat);
+				Comment: {
+					"C1 at PROSUMER level on the EXCHANGE (Prof. Luis, 31-Jul-2026). Deliberately a PLAIN EQUALITY over every prosumer, exactly as m=1 is: CAN BE INFEASIBLE, and that is the finding rather than a defect to patch. Unlike m=1, where Zeta=0 parks the fleet and is always admissible, here the passive net load enters as a different constant per prosumer, so Zeta=0 demands BattP_Balance = -netload exactly, which a battery need not be able to deliver; late in the evening none can. Measured on the micro bed 3-Aug-2026: period 45 (22:00) infeasible in all twelve directions, with BES_TR9_two316_A on its SOC floor, zero discharge headroom and 0.93 kW of its own consumption, forcing Zeta <= -0.1315 on the whole fleet. An eligibility rule was tried and removed: relaxing the row to <= for whoever cannot discharge stops the infeasibility but does not stop that prosumer exporting past its share, so the criterion would apply only where convenient. The answer is a different normalisation, not a better patch -- see m=5/m=6 in OneDrive, criterios-m5-m6-justicia-sobre-rango-disponible-2026-08-03.md. TotPcust already IS the expression from the minutes -- (charge - discharge) + consumption - PV -- and TotPcust(BattBus(bat),BattPhase(bat),.) is the model\'s own idiom for the prosumer owning this battery, used by both cost-min objectives. SIGN: TotPcust is positive = import, so export is its negative and Zeta > 0 means the fleet exports. The feasible set does not depend on that choice - the row is an equality, so flipping the left-hand side only flips the sign of Zeta. NOT ExportedPnode: it is tied down only by TotPcust = ImportedPnode - ExportedPnode, and the directional sweep does not push the pair to a proper decomposition, so the solver could inflate both and satisfy the row while exporting nothing. EXACTNESS: TotPcust is NODAL, so this is per-prosumer only because no bus carries two batteries -- verified on Database.mdb (v1_baseline, 3-Aug-2026), where every battery also owns exactly one load and that load always has PV."
+				}
+			}
+			Constraint FairProportional_AggregatorExch {
+				IndexDomain: a | FairMode = 4 and (FairActive or FairBaseline);
+				Definition: {
+					-sum(bat | BattAgg(bat) = a,
+					     TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP))
+					= Zeta*sum(bat | BattAgg(bat) = a, FairCap(bat))
+				}
+				Comment: {
+					"C1 at AGGREGATOR level on the EXCHANGE. Stands to FairProportional_ProsumerExch as
+					FairProportional_Aggregator stands to FairProportional_Prosumer: the aggregator total tracks
+					Zeta while the split among its own prosumers stays free.
+					
+					Like m=3 it is a plain equality over every member, and it inherits the same exposure to
+					infeasibility -- though less of it, because the aggregator keeps internal freedom and can
+					rebalance around a member on its SOC floor. That is the same mechanism by which level 2
+					escaped the collapse level 1 suffered on TR9.
+					
+					An aggregator left with no batteries yields 0 = Zeta*0, trivially satisfied - no division
+					here, so no epsilon guard is needed."
+				}
+			}
+		}
 	}
 	Section SelfConsumptionOPF {
-		Comment: "The self-consumption OPF: node import/export decomposition at battery nodes, the two cost-min objectives (OFminImports = pure self-consumption, used by the rolling baseline; OFminImportsmaxReverseP = paper objective with the w1 max-reverse-flow term at PeriodMaxP), their mathematical programs and solve wrappers, and the paper case runners.";
+		Comment: {
+			"The self-consumption OPF: node import/export decomposition at battery nodes, the two cost-min objectives (OFminImports = pure self-consumption, used by the rolling baseline; OFminImportsmaxReverseP = paper objective with the w1 max-reverse-flow term at PeriodMaxP), their mathematical programs and solve wrappers, and the paper case runners."
+		}
 		DeclarationSection ObjectFunction {
 			MathematicalProgram MinImportsMaxReverseP {
 				Objective: OFminImportsmaxReverseP;
@@ -1162,7 +1435,6 @@ Model Main_OPF_VI_LG {
 				Definition: {
 					sum(d|LoadBus(d)=n and LoadPhase(d)=f,P0minGenP(d,t))
 					+ sum(bat|BattBus(bat)=n and BattPhase(bat)=f,BattP_Balance(bat,t))
-
 				}
 			}
 			Variable ImportedPnode {
@@ -1228,19 +1500,19 @@ Model Main_OPF_VI_LG {
 			Body: {
 				!CapStage(c|Is_FixedStage(c)=1):=FixedStage(c);
 				!CapStage(c|Is_FixedStage(c)=1).nonvar:=1;
-
+				
 				!TapPosUnits(tr|Is_OLTC(tr)=0):=FixedTapPos(tr);
 				!TapPosUnits(tr|Is_OLTC(tr)=0).nonvar:=1;
-
+				
 				!MinLineP.CallbackAOA := 'OuterApprox::BasicAlgorithm';
-
+				
 				option Bound_Tolerance:=1e-006;
 				solve MinImportsMaxReverseP where MIP_Relative_Optimality_Tolerance := 0.01, time_limit := 3000;
-
+				
 				ConvFlag:=MinImportsMaxReverseP.ProgramStatus;
-
+				
 				ConvTime:=MinImportsMaxReverseP.SolutionTime;
-
+				
 				!VmagExPost(n,f,t):=sqrt(Vre(n,f,t)^2+Vim(n,f,t)^2);
 			}
 		}
@@ -1248,19 +1520,19 @@ Model Main_OPF_VI_LG {
 			Body: {
 				!CapStage(c|Is_FixedStage(c)=1):=FixedStage(c);
 				!CapStage(c|Is_FixedStage(c)=1).nonvar:=1;
-
+				
 				!TapPosUnits(tr|Is_OLTC(tr)=0):=FixedTapPos(tr);
 				!TapPosUnits(tr|Is_OLTC(tr)=0).nonvar:=1;
-
+				
 				!MinLineP.CallbackAOA := 'OuterApprox::BasicAlgorithm';
-
+				
 				option Bound_Tolerance:=1e-006;
 				solve MinImports where MIP_Relative_Optimality_Tolerance := 0.01, method := 'deterministic concurrent', time_limit := 3000;
-
+				
 				ConvFlag:=MinImports.ProgramStatus;
-
+				
 				ConvTime:=MinImports.SolutionTime;
-
+				
 				!VmagExPost(n,f,t):=sqrt(Vre(n,f,t)^2+Vim(n,f,t)^2);
 			}
 		}
@@ -1268,16 +1540,16 @@ Model Main_OPF_VI_LG {
 			Body: {
 				VmagExPost(n,f,t):=sqrt(Vre(n,f,t)^2+Vim(n,f,t)^2);
 				VmagExPost_PeriodMaxP(n,f):=VmagExPost(n,f,PeriodMaxP);
-
+				
 				LineUsage_PeriodMaxP(l,f):=sqrt(Ire_Line(l,f,PeriodMaxP)^2+Iim_Line(l,f,PeriodMaxP)^2)*100/MaxCurrent(l);
 				TrafoUsage_PeriodMaxP(tr,f):=sqrt(Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)^2+Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)^2)*100/MaxAmps(tr);
-
-
+				
+				
 				ChgDis(bat,t):=BattP_Chg(bat,t)*BattP_Dis(bat,t);
-
+				
 				AllCustWithBatPtot(t):=sum(bat,TotPcust(BattBus(bat),BattPhase(bat),t));
-
-
+				
+				
 				!AllCustWithBatPtot_AggTr(a,tr,t):=sum(bat|BattAgg(bat)=a and BattTr(bat)=tr ,TotPcust(BattBus(bat),BattPhase(bat),t));
 			}
 		}
@@ -1292,18 +1564,18 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries; !,Generators
 				showprogresswindow;
 				option disable_new_mathprog_generator:=1;
-
+				
 				!settings
 				IncludeNetworkConstraints:=0; !flag to include network constraints
 				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
-
+				
 				nPeriods:=48;
 				!nPeriods:=1;
-
+				
 				PeriodMaxP := 25;
-
+				
 				!!!!!!!!!!!
-
+				
 				if IncludeNetworkConstraints=1 then
 					if IncludeQforMaxP=0 then
 						ResultsFileRoot:="NC_noQ_";
@@ -1313,57 +1585,57 @@ Model Main_OPF_VI_LG {
 				else
 					ResultsFileRoot:="noNC_";
 				endif;
-
-
-
+				
+				
+				
 				empty allvariables;
-
+				
 				run Load_data_dsn;
-
+				
 				run MainExecution;
-
+				
 				!run ComputeMetrics;
-
+				
 				!run WriteResultstoExcel;
 			}
 		}
 		Procedure RunAllCases {
 			Body: {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries; !,Generators
-
+				
 				!settings
 				IncludeNetworkConstraints:=0; !flag to include network constraints
-
-
+				
+				
 				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
-
+				
 					ResultsFileRoot:="noNC_";
-
+				
 					nPeriods:=48;
-
+				
 					PeriodMaxP := 1;
 					while (PeriodMaxP <= 48) do
 						empty allvariables;
-
+				
 						run Load_data_dsn;
-
+				
 						run MainExecution;
-
+				
 						run ComputeMetrics;
-
+				
 						run WriteResultstoExcel;
-
+				
 						PeriodMaxP:=PeriodMaxP+1;
 					endwhile;
-
-
+				
+				
 				!settings
 				IncludeNetworkConstraints:=1; !flag to include network constraints
-
+				
 				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
-
+				
 				while IncludeQforMaxP<=1 do
-
+				
 					if IncludeNetworkConstraints=1 then
 						if IncludeQforMaxP=0 then
 							ResultsFileRoot:="NC_noQ_";
@@ -1373,21 +1645,21 @@ Model Main_OPF_VI_LG {
 					else
 						ResultsFileRoot:="noNC_";
 					endif;
-
+				
 					nPeriods:=48;
-
+				
 					PeriodMaxP := 1;
 					while (PeriodMaxP <= 48) do
 						empty allvariables;
-
+				
 						run Load_data_dsn;
-
+				
 						run MainExecution;
-
+				
 						run ComputeMetrics;
-
+				
 						run WriteResultstoExcel;
-
+				
 						PeriodMaxP:=PeriodMaxP+1;
 					endwhile;
 					IncludeQforMaxP:=IncludeQforMaxP+1;
@@ -1397,29 +1669,29 @@ Model Main_OPF_VI_LG {
 		Procedure RunBAU {
 			Body: {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries; !,Generators
-
+				
 				!settings
 				IncludeNetworkConstraints:=0; !flag to include network constraints
 				IncludeQforMaxP:=0;	!flag to indicate if using Q-capabilities
 				PeriodMaxP:=0; !out of range
 				!!!!!!!!!!!
-
+				
 				if IncludeNetworkConstraints=1 then
 					ResultsFileRoot:="NC_BAU";
 				else
 					ResultsFileRoot:="noNC_BAU";
 				endif;
-
+				
 				nPeriods:=48;
-
+				
 				empty allvariables;
-
+				
 				run Load_data_dsn;
-
+				
 				run MinOFminImports;
-
+				
 				run ComputeMetrics;
-
+				
 				run WriteResultstoExcel;
 			}
 		}
@@ -1733,18 +2005,18 @@ Model Main_OPF_VI_LG {
 				TrLabel(tr) := FormatString("%e", tr);
 				TrTag(tr)   := SubString(TrLabel(tr), 7, StringLength(TrLabel(tr)));
 				DetailedTrafos := {tr | FindString("," + DetailTagCSV + ",", "," + TrTag(tr) + ",") > 0};
-
+				
 				! only act on a genuine partial selection; empty or all = leave the feeder alone
 				if card(DetailedTrafos) > 0 and card(DetailedTrafos) < card(Trafos) then
-
+				
 					! --- map every LV bus to its transformer via the name prefix ('TR9_' etc.) ---
 					empty BusTr;
 					for (tr) do
 						BusTr(n | SubString(BusLabel(n), 1, StringLength(TrTag(tr))+1) = TrTag(tr) + "_") := tr;
 					endfor;
-
+				
 					ExcludedTrafos := Trafos - DetailedTrafos;
-
+				
 					! --- lump each excluded transformer's LV demand as a per-phase load on its MV bus ---
 					for (tr | ExcludedTrafos(tr)) do
 						for (f) do
@@ -1760,29 +2032,29 @@ Model Main_OPF_VI_LG {
 							GenP0(AggElem,t)   := AggGen(tr,f,t);
 						endfor;
 					endfor;
-
+				
 					! --- snapshot what to keep, then shrink the network sets ---
 					MVBuses   := {n | SubString(BusLabel(n),1,3) = "MV_"};
 					KeepBuses := MVBuses + {n | DetailedTrafos(BusTr(n))}
 					                     + {n | exists(tr | DetailedTrafos(tr) and EndBusTr(tr) = n)};
-
+				
 					! optional sub-cluster filter (micro-test): keep only LV buses whose label contains DetailLoadPattern
 					if StringLength(DetailLoadPattern) > 0 then
 						KeepBuses := MVBuses
 						           + {n | exists(tr | DetailedTrafos(tr) and EndBusTr(tr) = n)}
 						           + {n | DetailedTrafos(BusTr(n)) and FindString(BusLabel(n), DetailLoadPattern) > 0};
 					endif;
-
+				
 					KeepLines := {l | KeepBuses(StartBus(l)) and KeepBuses(EndBus(l))};
 					KeepLoads := {d | KeepBuses(LoadBus(d))};
 					KeepBatts := {bat | KeepBuses(BattBus(bat))};
-
+				
 					Buses      := KeepBuses;
 					Lines      := KeepLines;
 					Trafos     := DetailedTrafos;
 					LoadsAndPV := KeepLoads;
 					Batteries  := KeepBatts;
-
+				
 				endif;
 			}
 			Comment: {
@@ -1791,7 +2063,9 @@ Model Main_OPF_VI_LG {
 		}
 	}
 	Section RollingHorizonFOR {
-		Comment: "PRODUCTION: the MPC-style daily rolling FOR. Each half-hour the 48-point day is rotated so now = slot 1; the committed self-consumption baseline is solved (MinImports), slot-1 dispatch is executed to advance the realised SOC, then 12 directions are swept for the service slot (slot 2) with the slot-1 battery dispatch fixed. RunTR1..RunTR9 are the per-transformer entry points.";
+		Comment: {
+			"PRODUCTION: the MPC-style daily rolling FOR. Each half-hour the 48-point day is rotated so now = slot 1; the committed self-consumption baseline is solved (MinImports), slot-1 dispatch is executed to advance the realised SOC, then 12 directions are swept for the service slot (slot 2) with the slot-1 battery dispatch fixed. RunTR1..RunTR9 are the per-transformer entry points."
+		}
 		DeclarationSection RollingHorizon {
 			Comment: {
 				"RunFOR_Rolling: MPC-style daily rolling FOR. Each half-hour \'now\' the day is rotated so \'now\' is slot 1, the battery starts from its realised SOC (BattSOCstart), a cyclic self-consumption day is solved (MinImports), the slot-1 dispatch is executed to advance the SOC (and stored in RollChgExec/RollDisExec), and the direction sweep maps the flexibility region for slot 2 (= now+1) with slot 1 fixed to that committed dispatch; results go to FOR_rolling.csv."
@@ -1855,11 +2129,23 @@ Model Main_OPF_VI_LG {
 			StringParameter RollFileSuffix {
 				Comment: "Appended to FOR_rolling / FOR_rolling_soc filenames so per-transformer runs write distinct files (e.g. \'_TR9\' -> FOR_rolling_TR9.csv). Empty (default) keeps the original filenames, so single-feeder runs are unchanged.";
 			}
+			StringParameter FairFileTag {
+				Comment: {
+					"Appended AFTER RollFileSuffix so the case tag and the transformer tag compose:
+					RollFileSuffix=\'_TR9\' + FairFileTag=\'_fairL2\' -> FOR_rolling_TR9_fairL2.csv. Kept as a
+					SEPARATE string on purpose: RunTrafoFOR overwrites RollFileSuffix with \'_\'+TrafoTag on
+					every call, so a fairness wrapper that set RollFileSuffix itself would lose its tag the
+					moment it called RunTR9. Empty (default) reproduces the original filenames exactly."
+				}
+			}
 			StringParameter FOR_RollCSVName {
-				Definition: "FOR_rolling" + RollFileSuffix + ".csv";
+				Definition: "FOR_rolling" + RollFileSuffix + FairFileTag + ".csv";
 			}
 			StringParameter FOR_RollSOCCSVName {
-				Definition: "FOR_rolling_soc" + RollFileSuffix + ".csv";
+				Definition: "FOR_rolling_soc" + RollFileSuffix + FairFileTag + ".csv";
+			}
+			StringParameter FOR_RollFairCSVName {
+				Definition: "FOR_rolling_fair" + RollFileSuffix + FairFileTag + ".csv";
 			}
 			File FOR_RollCSV {
 				Name: FOR_RollCSVName;
@@ -1867,8 +2153,35 @@ Model Main_OPF_VI_LG {
 			File FOR_RollSOCCSV {
 				Name: FOR_RollSOCCSVName;
 			}
+			File FOR_RollFairCSV {
+				Name: FOR_RollFairCSVName;
+				Comment: {
+					"Stage 0 fairness log, written by RunFOR_Rolling: one row per (period, direction,
+					aggregator). A THIRD file on purpose - the schemas of FOR_rolling.csv and
+					FOR_rolling_soc.csv must not change, because compare_FOR_runs.py and build_workbook.py
+					parse them and the case-A no-regression test compares them byte-for-byte against the
+					pre-fairness baseline. Written for every FairMode including 0, so case A supplies the
+					reference split against which the contraction and dispersion metrics are computed."
+				}
+			}
+			StringParameter BaseDetailPattern {
+				Comment: {
+					"Sub-cluster filter that RunFOR_Rolling_Baseline passes to DetailLoadPattern. Empty
+					(default) = the original full-TR9 reduction, so the produced baseline is unchanged.
+					Set to \'_two\' to compute the all-idle trajectory on the SAME reduced network as the
+					micro test bed - necessary because with \'_two\' the TR9 buses outside the sub-cluster are
+					DROPPED rather than lumped, so the micro network carries less passive load and its
+					all-idle PCC is genuinely a different point."
+				}
+			}
+			StringParameter BaseFileTag {
+				Comment: "Appended to the baseline filename so a micro-consistent baseline does not overwrite the feeder one that combine_FOR_pertrafo.py consumes. Empty (default) keeps FOR_rolling_baseline.csv exactly as before.";
+			}
+			StringParameter FOR_RollBaseCSVName {
+				Definition: "FOR_rolling_baseline" + BaseFileTag + ".csv";
+			}
 			File FOR_RollBaseCSV {
-				Name: "FOR_rolling_baseline.csv";
+				Name: FOR_RollBaseCSVName;
 			}
 			Parameter PerTrafoN {
 				Comment: "Number of transformers captured at full-feeder load by RunFOR_Rolling_PerTrafo (drives PerTrafoIdx).";
@@ -1892,7 +2205,9 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter RelaxCyclicBand {
 				Default: 0.05;
-				Comment: "EXPERIMENT toggle: the value RunFOR_Rolling assigns to CyclicSOCBand. Default 0.05 = production (unchanged). Set to 1.0 (via RunTR9_RelaxCyclic) to make the cyclic band non-binding so batteries may end the day discharged; the SOC floor (MinSOC_def) and Emax stay enforced.";
+				Comment: {
+					"EXPERIMENT toggle: the value RunFOR_Rolling assigns to CyclicSOCBand. Default 0.05 = production (unchanged). Set to 1.0 (via RunTR9_RelaxCyclic) to make the cyclic band non-binding so batteries may end the day discharged; the SOC floor (MinSOC_def) and Emax stay enforced."
+				}
 			}
 			Parameter BaselineOnly {
 				Default: 0;
@@ -1900,7 +2215,53 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter SOCFloorOverride {
 				Default: -1;
-				Comment: "EXPERIMENT toggle: >=0 overrides every battery's BattSOCmin (the MinSOC_def floor) with this value AFTER each Load_data_dsn reset inside RunFOR_Rolling, e.g. 0.0 = allow full discharge. -1 (default) = off, DB floor untouched (production).";
+				Comment: "EXPERIMENT toggle: >=0 overrides every battery\'s BattSOCmin (the MinSOC_def floor) with this value AFTER each Load_data_dsn reset inside RunFOR_Rolling, e.g. 0.0 = allow full discharge. -1 (default) = off, DB floor untouched (production).";
+			}
+			Parameter FOR_SweepWarmStart {
+				Default: 0;
+				Comment: {
+					"PERFORMANCE toggle for the direction sweep in RunFOR_Rolling. 0 = production (DEFAULT since
+					2026-07-29, measured): solve FOR_VertexCont directly from the flat start left by Load_data_reset.
+					1 = legacy: first run MainExecution (a full solve of MinImportsMaxReverseP), leaving the cost-min
+					optimum as the starting point. Kept as the way back, and it is also forced ON whenever
+					UseBattComp=1 (see below).
+					
+					MEASURED on the TR9_two micro test bed, 48 periods x 12 directions, 2026-07-29:
+					
+					                         warm start ON     warm start OFF
+					  wall-clock                41m 22s           10m 12s      -> 4.06x faster
+					  vertex solve time         731.0 s           358.7 s      -> 2.05x faster per solve
+					  max |delta proj|                  0.000e+00 (bit-identical)
+					  solve status              576/576 Optimal   576/576 Optimal
+					
+					Every recorded column is IDENTICAL, and FOR_rolling_soc is byte-identical, so this is a pure
+					runtime change. Three effects compound: 12 solves per period removed, their 12 math-program
+					generations removed, and - the surprise - the 12 remaining vertex solves run 2.05x faster.
+					That last one means MainExecution was actively HARMFUL: the cost-min optimum is an extreme
+					point of the feasible set, hugging the boundary and poorly centred, which is the opposite of
+					what an interior-point method wants. A badly centred primal point can be worse than a cold
+					start, and here it was, by about double.
+					
+					Why it was inert as a warm start: the two programs declare the SAME constraint and variable sets
+					(NotTobeExcluded_*), so they generate a row-for-row identical matrix and differ only in the
+					objective column. The first solve\'s objective value and status go to ConvFlag/ConvTime, which the
+					sweep never reads nor writes to CSV - only its variable levels survive. But AIMMS passes variable
+					levels to CPLEX as a start only on the MIP path, and in production config (UseBattComp=0,
+					FOR_PolyS=0, FOR_LinearizeVmax=0) the program is a continuous convex QCP solved by barrier, which
+					takes no advanced basis - and the first solve, being barrier too, produces no basis to hand over.
+					
+					EXCEPTION - the MIQCP validations. With UseBattComp=1 (RunMicro_BattComp, RunFullTR9_BattComp)
+					the program IS a MIP, where variable levels are a genuine start channel. The guards therefore
+					read \'FOR_SweepWarmStart = 1 or UseBattComp = 1\', so those cross-checks keep MainExecution
+					automatically and nobody has to remember to flip this back. That path is UNMEASURED; leaving it
+					as it was is the conservative choice.
+					
+					Acceptance test for any future A/B: \'proj\' must reproduce to ~2e-6 p.u. Do NOT require P/Q
+					equality - a flat face perpendicular to the sweep direction makes the argmax a segment, so the
+					returned point may legitimately slide (measured exposure on TR9: median 0.65 kW, worst ~15 kW,
+					with one real 179 kW face at period 36 / 0 deg). Use scripts/compare_FOR_runs.py, which checks
+					proj and status and reports P/Q movement as informational."
+				}
 			}
 			Parameter EnableRollDiag {
 				Comment: {
@@ -1974,8 +2335,45 @@ Model Main_OPF_VI_LG {
 			StringParameter FOR_RollPreflightName {
 				Definition: "FOR_rolling_preflight" + PreflightSuffix + ".csv";
 			}
+			File FOR_PreProgress {
+				Name: "FOR_rolling_preflight_progress.txt";
+				Comment: {
+					"Externally observable progress of RunFOR_RollingPreflight, rewritten and closed after
+					every vertex so the flush actually reaches disk.
+
+					It exists because AIMMS buffers a put file until its final putclose, and the 36-row
+					preflight CSV never fills a page: it stays at ZERO BYTES for the entire run. On the full
+					feeder that meant hours with no way to tell a slow solve from a hung one, and nothing to
+					show for it if the run was cancelled. Overwritten rather than appended - the current
+					state is what matters, and truncating keeps it to one page so it always flushes."
+				}
+			}
 			File FOR_RollPreflightCSV {
 				Name: FOR_RollPreflightName;
+				Mode: append;
+				Comment: {
+					"append, NOT replace, so the file can be closed after every row and reopened for the
+					next one (see PreflightFlushCSV) - a closed file is a file that survives a crash.
+					Mode is a declaration-only attribute in AIMMS and cannot be assigned at runtime, so
+					the run instead DELETES the file before writing the header. Without that delete each
+					run would append to the previous one's rows."
+				}
+			}
+			Parameter PreflightFlushCSV {
+				Default: 1;
+				Comment: {
+					"1 (default) = close the CSV after every vertex, so an interrupted run keeps the rows it
+					already produced. 0 = original behaviour: one putclose at the very end.
+
+					Default is ON because the original behaviour loses everything. AIMMS buffers a put file
+					until its final putclose and the preflight CSV never fills a page, so it sits at 3 bytes
+					- the BOM - for the whole run. On 2026-08-04 a full-feeder run died after 13 vertices and
+					~4 h and left exactly those 3 bytes.
+
+					Costs one extra small-file flush per vertex, on top of the one FOR_PreProgress already
+					does. Measured on TR9 reduced against the same case with this off: no measurable
+					difference in wall clock, and the CSV is byte-identical."
+				}
 			}
 			Parameter Preflight_TotalTime {
 				Comment: "Pre-flight diagnostic: cumulative Gurobi solve time (seconds) across all directions actually solved. Use to extrapolate the full-day runtime.";
@@ -1985,6 +2383,171 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter Preflight_nFail {
 				Comment: "Pre-flight diagnostic: number of directions that did NOT return Optimal/LocallyOptimal. Should be 0 before launching the full run.";
+			}
+			Parameter PreflightGMPProbe {
+				Default: 0;
+				Comment: {
+					"EXPERIMENT: 1 = at the END of RunFOR_RollingPreflight, generate the sweep program once
+					through the GMP library and record its size, its memory and the two objective-row
+					coefficients, to FOR_gmp_probe<suffix>.txt. Default 0 = untouched production behaviour.
+
+					This is the baseline for the GMP migration of the sweep: the migrated version must
+					reproduce filas/columnas/no-ceros exactly, and the sign of coef P_PCC / coef Q_PCC is
+					what says whether GMP::Coefficient::Set takes cos/sin or -cos/-sin. AIMMS moves all
+					variables to the left and OF_FOR carries a leading minus, so the sign is NOT obvious,
+					and getting it wrong mirrors the vertices with no visible symptom."
+				}
+			}
+			ElementParameter PreflightGMP {
+				Range: AllGeneratedMathematicalPrograms;
+				Comment: "Handle of the instance generated by the PreflightGMPProbe block. Deleted again at the end of the probe.";
+			}
+			Parameter Preflight_Rows;
+			Parameter Preflight_Cols;
+			Parameter Preflight_Nz;
+			Parameter Preflight_Mem {
+				Comment: "GMP probe: memory of the generated instance, in Mb. The plan calls for measuring this on the reduced network before committing hours to the full feeder.";
+			}
+			Parameter Preflight_ObjRow;
+			Parameter RollGMPBaseline {
+				Default: 0;
+				Comment: {
+					"1 = solve the committed self-consumption baseline from the SAME instance as the sweep,
+					instead of generating a second matrix for MinImports. Requires RollUseGMP = 1. Default 0.
+
+					MinImports and FOR_VertexCont declare the same NotTobeExcluded_* sets, so they generate the
+					same matrix, and OFminImports and OF_FOR_cont are both defined variables, so both objective
+					definition rows are already present. Swapping the objective is swapping a column.
+
+					The one thing that genuinely differs is fairness: the baseline must not see the criterion
+					(FairActive = 0 in the original code) while the sweep must. That is handled by generating
+					WITH the fairness rows and DEACTIVATING them for the baseline solve
+					(GMP::Row::DeactivateMulti), then reactivating them. So this works at every FairMode, not
+					only at 0 - deactivating a row is what regenerating without it used to buy.
+
+					The slot-1 dispatch moves from .nonvar to GMP::Column::FreezeMulti for the same reason: with
+					the matrix already generated, the fix has to be applied to the instance, not to the model.
+
+					Worth one generation per period - about 665 s on the full feeder in the linearized
+					configuration and about 1005 s in the exact one. Validate against a RollUseGMP = 0 run with
+					scripts/compare_FOR_runs.py, at FairMode = 0 and at least one fairness level."
+				}
+			}
+			Parameter RollGMPLive {
+				Comment: "Working: 1 when the current period's instance was already generated by the RollGMPBaseline block, so the sweep reuses it instead of generating its own.";
+			}
+			Parameter RollUseGMP {
+				Default: 0;
+				Comment: {
+					"0 = original behaviour: `solve FOR_VertexCont` per direction, so AIMMS regenerates the whole
+					matrix 12 times per period even though only the objective changes. 1 = generate the program
+					ONCE per period through the GMP library and rewrite only the two coefficients of the
+					OF_FOR_definition row per direction.
+
+					Same change as PreflightUseGMP, and safe for the same reason: inside one period the 12
+					directions share one feasible region by construction - Load_data_reset is deterministic, the
+					rotation uses the same RollMap, the slot-1 dispatch is fixed to the same
+					RollChgExec/RollDisExec, and every toggle that gates an IndexDomain is pinned before the loop.
+
+					TWO DIFFERENCES from the preflight. First, the instance is generated AFTER FairActive := 1,
+					so the fairness rows are part of the swept matrix; that is also why the committed baseline is
+					NOT solved from this instance the way PreflightGMPBaseline does it, since the baseline
+					deliberately runs with FairActive = 0 and would need a different matrix. Second, the
+					EnableRollDiag retries keep their own plain solves: they change the data on purpose (relaxed
+					cyclic band, scaled PV), so they are a different problem and must generate their own matrix.
+
+					Validate against a RollUseGMP = 0 run of the same case with scripts/compare_FOR_runs.py: the
+					invariant is proj, not P/Q."
+				}
+			}
+			ElementParameter RollGMP {
+				Range: AllGeneratedMathematicalPrograms;
+				Comment: "Handle of the per-period sweep instance when RollUseGMP = 1. Deleted at the end of each period.";
+			}
+			ElementParameter Roll_SolState {
+				Range: AllSolutionStates;
+				Comment: "Solve status of the current direction in RunFOR_Rolling, from whichever path ran: the math program suffix when RollUseGMP = 0, the GMP solution status when 1.";
+			}
+			Parameter Roll_SignP {
+				Comment: "Sign convention of P_PCC in the generated OF_FOR_definition row, read back from the matrix rather than assumed.";
+			}
+			Parameter Roll_SignQ {
+				Comment: "As Roll_SignP, for Q_PCC.";
+			}
+			Parameter PreflightUseGMP {
+				Default: 0;
+				Comment: {
+					"0 = original behaviour: `solve FOR_VertexCont` per direction, which makes AIMMS
+					regenerate the whole matrix 12 times per slot even though only the objective changes.
+					1 = generate the program ONCE per slot through the GMP library and rewrite only the two
+					coefficients of the OF_FOR_definition row per direction.
+
+					Safe because the 12 directions share one feasible region by construction: Load_data_reset
+					is deterministic (so the linearization point Vre0/Vim0 is identical), the rotation uses the
+					same RollMap inside a slot, the slot-1 dispatch is fixed to the same RollChgExec/RollDisExec,
+					and every toggle that gates an IndexDomain is pinned before the loop.
+
+					Validate with scripts/compare_FOR_runs.py against a PreflightUseGMP=0 run of the same case:
+					the invariant is proj, not P/Q - on a flat face of the FOR the argmax is a segment."
+				}
+			}
+			ElementParameter Preflight_SolState {
+				Range: AllSolutionStates;
+				Comment: "Solve status of the current direction, from whichever path ran: the math program suffix when PreflightUseGMP=0, the GMP solution status when 1. Downstream branches read this so both paths share one set of conditions.";
+			}
+			Parameter Preflight_SignP {
+				Comment: "Sign convention of P_PCC in the generated OF_FOR_definition row, read back from the matrix rather than assumed. See the generate block in RunFOR_RollingPreflight.";
+			}
+			Parameter Preflight_SignQ {
+				Comment: "As Preflight_SignP, for Q_PCC.";
+			}
+			Parameter Preflight_CoefP;
+			Parameter Preflight_CoefQ;
+			Parameter PreflightGMPBaseline {
+				Default: 0;
+				Comment: {
+					"1 = solve the committed self-consumption baseline from the SAME generated instance as the
+					sweep, by swapping the objective column with GMP::Column::SetAsObjective, instead of
+					generating a second matrix for MinImports. Requires PreflightUseGMP = 1. Default 0.
+
+					Rests on the same fact as the sweep migration: MinImports and FOR_VertexCont both declare
+					Constraints: NotTobeExcluded_constraints and Variables: NotTobeExcluded_variables, so they
+					generate a row-for-row identical matrix and differ only in which defined-variable column is
+					the objective. OFminImports and OF_FOR_cont are both in AllVariables, so BOTH definition
+					rows are present in either program's matrix.
+
+					The slot-1 dispatch is handled with GMP::Column::Freeze instead of .nonvar: the instance is
+					generated with those columns FREE (which the baseline needs), and they are frozen at the
+					committed dispatch afterwards, for the sweep only.
+
+					Worth ~665 s per slot on the full feeder - about 9 h per simulated day. MUST be A/B'd on the
+					reduced network before use: it changes how the committed dispatch is computed, and the
+					committed dispatch drives the entire sweep."
+				}
+			}
+			Parameter PreflightExact {
+				Default: 0;
+				Comment: {
+					"0 (default) = the preflight's usual LINEARIZED configuration: FOR_PolyS=1 (16-gon inverter
+					capability) and FOR_LinearizeVmax=1 (tangent-plane voltage cap). 1 = the EXACT production
+					formulation, FOR_PolyS=0 and FOR_LinearizeVmax=0.
+
+					Why this exists: the linearized preflight RELAXES the voltage limit, so its vertices can and
+					do report VmaxTrue above 1.1 p.u. with OVviol > 0. Those numbers are a solver smoke test, not
+					reportable hosting capacity. Setting this to 1 prices the formulation that is actually
+					reportable - expect it to be slower and to need more memory, since both toggles ADD conic
+					rows rather than removing them."
+				}
+			}
+			Parameter PreflightSlotOnly {
+				Default: 0;
+				Comment: "0 (default) = sweep the usual three slots t=12/25/40. A value 1..nPeriods = sweep ONLY that slot, for pricing a single slot cheaply.";
+			}
+			StringParameter FOR_GMPProbeName {
+				Definition: "FOR_gmp_probe" + PreflightSuffix + ".txt";
+			}
+			File FOR_GMPProbeTxt {
+				Name: FOR_GMPProbeName;
 			}
 		}
 		Procedure RunFOR_Rolling {
@@ -1998,14 +2561,14 @@ Model Main_OPF_VI_LG {
 				! the 48x13 solves until an out-of-memory abort at ~step 37/48 on TR9 (2026-07-03).
 				! Required for the exact QCP; matches RunFOR_TR9_Exact.
 				option disable_new_mathprog_generator := 0;
-
+				
 				! Exact-QCP barrier robustness (mirrors RunFOR_TR9_Exact): a looser acceptable
 				! error and stronger scaling so the barrier completes cleanly on every vertex
 				! (without these the exact solve raised CPLEX feasibility / status-13 warnings).
 				option Feasibility_Tolerance         := 1.0e-3;
 				option Barrier_Convergence_Tolerance := 1.0e-2;
 				option Scaling_Flag                  := 2;
-
+				
 				! production config: EXACT quadratic inverter S-circle + exact Vmax (convex QCP, CPLEX barrier);
 				! tractable per transformer on the reduced network. Set both toggles to 1 for the linearized
 				! (polygon + tangent-Vmax) variant used in the historical whole-feeder runs.
@@ -2021,7 +2584,11 @@ Model Main_OPF_VI_LG {
 				CyclicSOCBand             := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! PRODUCTION band 0.05 (via RelaxCyclicBand default); RunTR9_RelaxCyclic sets RelaxCyclicBand:=1.0 to relax it. Strict (=0) was numerically fragile (2026-06-11: 16 vs 119 fails on identical reruns). Must match the restore in the diag block below.
 				PeriodMaxP                := 2;   ! service slot is always window position 2 (= now+1)
 				FOR_TieEps                := 0;   ! pin the vertex tiebreaker: pure directional objective, independent of session history
-
+				! UseBattComp is deliberately NOT pinned here. Every production wrapper (RunTrafoFOR, RunCoupledFOR,
+				! RunTR9_RelaxCyclic, RunTR9_RelaxFloor) already sets it to 0, and RunMicro_BattComp /
+				! RunFullTR9_BattComp set it to 1 on purpose before calling in - pinning it here would silently
+				! downgrade those MIQCP validations to the production QCP while still writing *_comp.csv.
+				
 				! load DB+Excel once and freeze the un-rotated inputs + the starting SOC
 				empty allvariables;
 				run Load_data_dsn;
@@ -2030,27 +2597,34 @@ Model Main_OPF_VI_LG {
 				GenP0raw(d,t)     := GenP0(d,t);
 				Irrraw(t)         := Irradiance(t);
 				BattSOCstart(bat) := BattSOCini(bat);
-
-				! CSV headers (both files stay open; switch the active one with 'put <file>')
-				FOR_RollCSV.PageWidth    := 32767;
-				FOR_RollSOCCSV.PageWidth := 32767;
+				
+				! CSV headers (all files stay open; switch the active one with 'put <file>')
+				FOR_RollCSV.PageWidth     := 32767;
+				FOR_RollSOCCSV.PageWidth  := 32767;
+				FOR_RollFairCSV.PageWidth := 32767;
 				put FOR_RollCSV;
 				put "now,target,angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr" / ;
 				put FOR_RollSOCCSV;
 				put "now,battery,SOC_start,Pexec,Chg1,Dis1,base_status,TotPV1_pu" / ;
+				! Stage 0 fairness log: one row per (period, direction, aggregator). Written for EVERY
+				! FairMode including 0, so case A provides the reference split for the contraction and
+				! dispersion metrics. util = realised utilisation of the aggregator's installed capacity;
+				! under FairMode=1 or 2 every aggregator's util must equal Zeta, which is the check.
+				put FOR_RollFairCSV;
+				put "now,target,angle_deg,FairMode,zeta,status,aggregator,n_batt,cap_pu,sumP_pu,util,util_min,util_max" / ;
 				if EnableRollDiag = 1 then
 					FOR_RollDiagCSV.PageWidth := 32767;
 					put FOR_RollDiagCSV;
 					put "now,target,angle_deg,pass,status,P,Q,proj,time" / ;
 				endif;
-
+				
 				for (t) do
 					RollNow     := ord(t);
 					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
-
+				
 					! ---- committed self-consumption dispatch = the point the battery actually realises ----
 					empty allvariables;
-					run Load_data_dsn;                          ! warm-start, taps, Qinv fix; inputs back to raw
+					run Load_data_reset;                        ! warm-start, taps, Qinv fix; inputs back to raw (static data already loaded)
 					P0(d,tt)        := P0raw(d, RollMap(tt));    ! rotate the day onto slot order (slot 1 = now)
 					Q0(d,tt)        := Q0raw(d, RollMap(tt));
 					GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
@@ -2059,7 +2633,61 @@ Model Main_OPF_VI_LG {
 					if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;   ! EXPERIMENT: re-apply floor override after the Load_data_dsn reset
 					BattP_Chg(bat,'1').nonvar := 0;              ! slot-1 dispatch is free ONLY in this baseline solve
 					BattP_Dis(bat,'1').nonvar := 0;
-					run MinOFminImports;                         ! PURE self-consumption baseline (MinImports; no max-export term at the service slot)
+					! GMP path with RollGMPBaseline: generate ONE matrix for this period and serve both the
+					! baseline and the sweep from it. Generated with FairActive = 1 so the fairness rows exist;
+					! they are deactivated for the baseline solve below, which is what FairActive = 0 used to
+					! achieve by regenerating.
+					RollGMPLive := 0;
+					if RollUseGMP = 1 and RollGMPBaseline = 1 then
+						FairActive := 1;
+						FOR_Lambda := 1;
+						option MIP_Relative_Optimality_Tolerance := 0.01;
+						option method     := 'deterministic concurrent';
+						option time_limit := 3000;
+						option Bound_Tolerance := 1e-006;   ! MinOFminImports sets this as a SESSION option and the
+						                                    ! sweep inherits it; skipping that procedure would drop it.
+						FOR_AngleRad := 4*arctan(1) / 4;
+						RollGMP := GMP::Instance::Generate( FOR_VertexCont, "FORrollsweep" );
+						Roll_SignP := GMP::Coefficient::Get( RollGMP, OF_FOR_definition, P_PCC(PeriodMaxP) ) / cos(FOR_AngleRad);
+						Roll_SignQ := GMP::Coefficient::Get( RollGMP, OF_FOR_definition, Q_PCC(PeriodMaxP) ) / sin(FOR_AngleRad);
+						if abs(abs(Roll_SignP) - 1) > 1e-6 or abs(abs(Roll_SignQ) - 1) > 1e-6 then
+							halt with "GMP: OF_FOR_definition does not carry +/-cos and +/-sin as expected.";
+						endif;
+
+						! ---- committed baseline on this instance: fairness rows off, objective = OFminImports ----
+						if FairMode = 1 then GMP::Row::DeactivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
+						if FairMode = 2 then GMP::Row::DeactivateMulti( RollGMP, a,   FairProportional_Aggregator(a) ); endif;
+						if FairMode = 3 then GMP::Row::DeactivateMulti( RollGMP, bat, FairProportional_ProsumerExch(bat) ); endif;
+						if FairMode = 4 then GMP::Row::DeactivateMulti( RollGMP, a,   FairProportional_AggregatorExch(a) ); endif;
+						GMP::Column::SetAsObjective( RollGMP, OFminImports );
+						GMP::Instance::Solve( RollGMP );
+						Roll_SolState := GMP::Solution::GetProgramStatus( RollGMP, 1 );
+						if Roll_SolState <> 'Optimal' and Roll_SolState <> 'LocallyOptimal' then
+							option numeric_focus       := 3;
+							option barrier_homogeneous := 1;
+							GMP::Instance::Solve( RollGMP );
+							Roll_SolState := GMP::Solution::GetProgramStatus( RollGMP, 1 );
+							option numeric_focus       := 0;
+							option barrier_homogeneous := 0;
+						endif;
+						ConvFlag := Roll_SolState;
+						if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
+							GMP::Solution::SendToModel( RollGMP, 1 );   ! the bookkeeping below reads BattP_* from the model
+						endif;
+						if FairMode = 1 then GMP::Row::ActivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
+						if FairMode = 2 then GMP::Row::ActivateMulti( RollGMP, a,   FairProportional_Aggregator(a) ); endif;
+						if FairMode = 3 then GMP::Row::ActivateMulti( RollGMP, bat, FairProportional_ProsumerExch(bat) ); endif;
+						if FairMode = 4 then GMP::Row::ActivateMulti( RollGMP, a,   FairProportional_AggregatorExch(a) ); endif;
+						GMP::Column::SetAsObjective( RollGMP, OF_FOR_cont );
+						RollGMPLive := 1;
+					endif;
+
+					FairActive := 0;                             ! fairness OFF in the committed baseline: it must not pre-commit
+					                                             ! the service slot, and case B must inherit case A's SOC path.
+					                                             ! FairBaseline=1 overrides this (see FairActive's comment).
+					if RollGMPLive = 0 then
+						run MinOFminImports;                     ! PURE self-consumption baseline (MinImports; no max-export term at the service slot)
+					endif;
 					if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
 						! baseline rescue: a silent NoSolution here would execute a zeros (do-nothing) dispatch -- feasible but not the SC trajectory
 						solve MinImports
@@ -2070,12 +2698,18 @@ Model Main_OPF_VI_LG {
 							       time_limit          := 3000;
 						ConvFlag := MinImports.ProgramStatus;
 					endif;
-
+				
 					! record realised state; stage the SOC advance from the executed slot-1 (now) dispatch
 					RollSOCtraj(bat,t)      := BattSOCstart(bat);
 					RollDispatchExec(bat,t) := BattP_Balance(bat,'1');
 					RollChgExec(bat)        := BattP_Chg(bat,'1');   ! committed slot-1 dispatch; the sweep below fixes the batteries to this
 					RollDisExec(bat)        := BattP_Dis(bat,'1');
+					if RollGMPLive = 1 then
+						! The sweep needs slot 1 pinned to what the baseline just committed. Freeze replaces .nonvar:
+						! the matrix already exists, so the fix goes to the instance, not to the model.
+						GMP::Column::FreezeMulti( RollGMP, bat, BattP_Chg(bat,'1'), RollChgExec(bat) );
+						GMP::Column::FreezeMulti( RollGMP, bat, BattP_Dis(bat,'1'), RollDisExec(bat) );
+					endif;
 					RollSOCnext(bat)        := BattSOCini(bat)
 						+ (BattP_Chg(bat,'1')*etaChg(bat) - BattP_Dis(bat,'1')/etaDis(bat))*DeltaT/BattEcap(bat);
 					put FOR_RollSOCCSV;
@@ -2083,16 +2717,77 @@ Model Main_OPF_VI_LG {
 						put RollNow:3:0, ",", bat:24, ",", BattSOCstart(bat):12:6, ",", RollDispatchExec(bat,t):14:6, ",",
 						    RollChgExec(bat):14:6, ",", RollDisExec(bat):14:6, ",", ConvFlag, ",", sum(d, GenP0(d,'1')):14:6 / ;
 					endfor;
-
+				
 					if BaselineOnly = 0 then   ! EXPERIMENT: baseline-only runs skip the 12-direction sweep
 					! ---- sweep directions: region offered for the service slot (now+1) ----
+					FairActive := 1;           ! fairness ON for every directional solve (incl. the diagnostic retries below)
+
+					! ---- GMP path: hoist the direction-INDEPENDENT setup out of the sweep and generate the
+					! ---- matrix once for this period. Generated HERE, AFTER FairActive := 1, so the fairness
+					! ---- rows are part of the swept matrix - which is also why the committed baseline is not
+					! ---- solved from this instance: it deliberately runs with FairActive = 0.
+					if RollUseGMP = 1 and RollGMPLive = 0 then
+						empty allvariables;
+						run Load_data_reset;
+						P0(d,tt)        := P0raw(d, RollMap(tt));
+						Q0(d,tt)        := Q0raw(d, RollMap(tt));
+						GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+						Irradiance(tt)  := Irrraw(RollMap(tt));
+						BattSOCini(bat) := BattSOCstart(bat);
+						if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;
+						BattP_Chg(bat,'1') := RollChgExec(bat);
+						BattP_Chg(bat,'1').nonvar := 1;
+						BattP_Dis(bat,'1') := RollDisExec(bat);
+						BattP_Dis(bat,'1').nonvar := 1;
+						FOR_Lambda := 1;                  ! must hold at generation: it scales OF_FOR inside OF_FOR_cont
+
+						! The where-clause options of the solve become SESSION options: they must be in force when
+						! the instance is generated and solved, and `method` is element-valued, which the numeric
+						! GMP::Instance::SetOptionValue cannot carry.
+						option MIP_Relative_Optimality_Tolerance := 0.01;
+						option method     := 'deterministic concurrent';
+						option time_limit := 3000;
+
+						! Generate at 45 deg on purpose: both objective coefficients are non-zero there, so the sign
+						! convention is READ BACK off the generated row instead of assumed. A wrong sign mirrors the
+						! FOR with no visible symptom.
+						FOR_AngleRad := 4*arctan(1) / 4;
+						RollGMP := GMP::Instance::Generate( FOR_VertexCont, "FORrollsweep" );
+
+						Roll_SignP := GMP::Coefficient::Get( RollGMP, OF_FOR_definition, P_PCC(PeriodMaxP) ) / cos(FOR_AngleRad);
+						Roll_SignQ := GMP::Coefficient::Get( RollGMP, OF_FOR_definition, Q_PCC(PeriodMaxP) ) / sin(FOR_AngleRad);
+						if abs(abs(Roll_SignP) - 1) > 1e-6 or abs(abs(Roll_SignQ) - 1) > 1e-6 then
+							halt with "GMP: OF_FOR_definition does not carry +/-cos and +/-sin as expected - refusing to write coefficients into a row that is not what we think it is.";
+						endif;
+					endif;
 					put FOR_RollCSV;
 					for (ia) do
 						FOR_Angle    := FOR_AngleDeg(ia);
 						FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
-
+				
+						if RollUseGMP = 1 then
+							! Only the objective row differs between directions; the matrix generated above is reused
+							! untouched. This is the whole point of the migration.
+							GMP::Coefficient::Set( RollGMP, OF_FOR_definition, P_PCC(PeriodMaxP), Roll_SignP*cos(FOR_AngleRad) );
+							GMP::Coefficient::Set( RollGMP, OF_FOR_definition, Q_PCC(PeriodMaxP), Roll_SignQ*sin(FOR_AngleRad) );
+							GMP::Instance::Solve( RollGMP );
+							Roll_SolState := GMP::Solution::GetProgramStatus( RollGMP, 1 );
+							if Roll_SolState <> 'Optimal' and Roll_SolState <> 'LocallyOptimal' then
+								! Same rescue as the non-GMP path. As session options these are STICKY - the where
+								! clause used to scope them to one solve - so they are restored right after.
+								option numeric_focus       := 3;
+								option barrier_homogeneous := 1;
+								GMP::Instance::Solve( RollGMP );
+								Roll_SolState := GMP::Solution::GetProgramStatus( RollGMP, 1 );
+								option numeric_focus       := 0;
+								option barrier_homogeneous := 0;
+							endif;
+							if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
+								GMP::Solution::SendToModel( RollGMP, 1 );   ! P_PCC/Q_PCC/Vre/Vim are read from the model below
+							endif;
+						else
 						empty allvariables;
-						run Load_data_dsn;                          ! same proven reset as the time-family scan
+						run Load_data_reset;                        ! same proven reset as the time-family scan (static data already loaded)
 						P0(d,tt)        := P0raw(d, RollMap(tt));
 						Q0(d,tt)        := Q0raw(d, RollMap(tt));
 						GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
@@ -2103,14 +2798,16 @@ Model Main_OPF_VI_LG {
 						BattP_Chg(bat,'1').nonvar := 1;             ! executed dispatch so the region offered for slot 2 is reachable
 						BattP_Dis(bat,'1') := RollDisExec(bat);
 						BattP_Dis(bat,'1').nonvar := 1;
-						run MainExecution;
-
+						if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
+							run MainExecution;                      ! cost-min start point; ~30% of wall-clock. See FOR_SweepWarmStart
+						endif;
+				
 						FOR_Lambda := 1;
 						solve FOR_VertexCont
 							where  MIP_Relative_Optimality_Tolerance := 0.01,
 							       method     := 'deterministic concurrent',
 							       time_limit := 3000;
-
+				
 						if FOR_VertexCont.ProgramStatus <> 'Optimal' and
 						   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
 							solve FOR_VertexCont
@@ -2120,11 +2817,13 @@ Model Main_OPF_VI_LG {
 								       barrier_homogeneous := 1,
 								       time_limit          := 3000;
 						endif;
-
-						FOR_StatCur := FOR_VertexCont.ProgramStatus;
-
-						if FOR_VertexCont.ProgramStatus = 'Optimal' or
-						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+							Roll_SolState := FOR_VertexCont.ProgramStatus;
+						endif;
+				
+						FOR_StatCur := Roll_SolState;
+				
+						if Roll_SolState = 'Optimal' or
+						   Roll_SolState = 'LocallyOptimal' then
 							FOR_Pcur    := P_PCC(PeriodMaxP);
 							FOR_Qcur    := Q_PCC(PeriodMaxP);
 							FOR_VmaxCur := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
@@ -2144,28 +2843,60 @@ Model Main_OPF_VI_LG {
 							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
 							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
 						endif;
-
+				
+						! ---- fairness log: one row per aggregator for this direction ----
+						! Reported for every FairMode, so case A (FairMode=0) supplies the unconstrained split
+						! that the contraction and dispersion metrics are measured against. util_min/util_max
+						! are the extreme per-prosumer utilisations inside the aggregator: under FairMode=1 they
+						! collapse onto util, under FairMode=2 they are free to spread while the total tracks Zeta.
+						!
+						! The conditional below picks the quantity ACTUALLY being allocated, so that util == Zeta stays
+						! the check at every level: the battery for m<=2, the prosumer export for m>=3. Written
+						! inline rather than as a parameter on purpose - it must add no identifier and no row, and
+						! with FairMode<=2 it reduces to BattP_Balance, so A/L1/L2 log exactly what they logged
+						! before m=3/m=4 existed. The sign matches the constraints: export positive.
+						put FOR_RollFairCSV;
+						for (a) do
+							put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+							    FairMode:2:0, ",", Zeta:14:6, ",", FOR_StatCur, ",",
+							    a:8, ",", (sum(bat | BattAgg(bat) = a, 1)):4:0, ",",
+							    (sum(bat | BattAgg(bat) = a, FairCap(bat))):14:6, ",",
+							    (sum(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							     else BattP_Balance(bat,PeriodMaxP) endif))):14:6, ",",
+							    (sum(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							     else BattP_Balance(bat,PeriodMaxP) endif))
+							        / max(sum(bat | BattAgg(bat) = a, FairCap(bat)), 1e-9)):14:6, ",",
+							    (min(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6, ",",
+							    (max(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+							     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6 / ;
+						endfor;
+						put FOR_RollCSV;   ! restore the active file for the next direction
+				
 						! ---- diagnostic retry for failed directions (Pass 1: cyclic relaxed; Pass 2: + PV scaled) ----
 						if EnableRollDiag = 1 and
 						   FOR_StatCur <> 'Optimal' and
 						   FOR_StatCur <> 'LocallyOptimal' then
-
+				
 							put FOR_RollDiagCSV;
-
+				
 							! --- Pass 1: cyclic SOC band relaxed to DiagCyclicBand ---
 							empty allvariables;
-							run Load_data_dsn;
+							run Load_data_reset;
 							P0(d,tt)        := P0raw(d, RollMap(tt));
 							Q0(d,tt)        := Q0raw(d, RollMap(tt));
 							GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
 							Irradiance(tt)  := Irrraw(RollMap(tt));
 							BattSOCini(bat) := BattSOCstart(bat);
+							if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;   ! EXPERIMENT: retry under the SAME floor as the direction that failed (explicit since the loader split; the old full reload used to silently restore the DB floor here)
 							BattP_Chg(bat,'1') := RollChgExec(bat);     ! keep the committed slot-1 fix in the diagnostic retries too
 							BattP_Chg(bat,'1').nonvar := 1;
 							BattP_Dis(bat,'1') := RollDisExec(bat);
 							BattP_Dis(bat,'1').nonvar := 1;
 							CyclicSOCBand   := DiagCyclicBand;
-							run MainExecution;
+							if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
+								run MainExecution;                  ! keep the diagnostic retries on the same footing as the direction that failed
+							endif;
 							FOR_Lambda := 1;
 							solve FOR_VertexCont
 								where  MIP_Relative_Optimality_Tolerance := 0.01,
@@ -2189,21 +2920,24 @@ Model Main_OPF_VI_LG {
 								    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
 								    FOR_VertexCont.SolutionTime:12:2 / ;
 							endif;
-
+				
 							! --- Pass 2: cyclic relaxed + PV scaled by (1 - DiagPVcutFrac) ---
 							empty allvariables;
-							run Load_data_dsn;
+							run Load_data_reset;
 							P0(d,tt)        := P0raw(d, RollMap(tt));
 							Q0(d,tt)        := Q0raw(d, RollMap(tt));
 							GenP0(d,tt)     := GenP0raw(d, RollMap(tt)) * (1 - DiagPVcutFrac);
 							Irradiance(tt)  := Irrraw(RollMap(tt));
 							BattSOCini(bat) := BattSOCstart(bat);
+							if SOCFloorOverride >= 0 then BattSOCmin(bat) := SOCFloorOverride; endif;   ! EXPERIMENT: retry under the SAME floor as the direction that failed (explicit since the loader split; the old full reload used to silently restore the DB floor here)
 							BattP_Chg(bat,'1') := RollChgExec(bat);     ! keep the committed slot-1 fix in the diagnostic retries too
 							BattP_Chg(bat,'1').nonvar := 1;
 							BattP_Dis(bat,'1') := RollDisExec(bat);
 							BattP_Dis(bat,'1').nonvar := 1;
 							CyclicSOCBand   := DiagCyclicBand;
-							run MainExecution;
+							if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
+								run MainExecution;                  ! keep the diagnostic retries on the same footing as the direction that failed
+							endif;
 							FOR_Lambda := 1;
 							solve FOR_VertexCont
 								where  MIP_Relative_Optimality_Tolerance := 0.01,
@@ -2227,25 +2961,31 @@ Model Main_OPF_VI_LG {
 								    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
 								    FOR_VertexCont.SolutionTime:12:2 / ;
 							endif;
-
+				
 							! --- restore the production band and switch put target back to main CSV for next direction ---
 							CyclicSOCBand := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! must match the config block at the top of this procedure
 							put FOR_RollCSV;
 						endif;
-					endfor;
-					endif;   ! EXPERIMENT: end BaselineOnly sweep-skip guard
+						endfor;
 
+						if RollUseGMP = 1 then
+							GMP::Instance::Delete( RollGMP );   ! one instance per period; the next period generates its own
+						endif;
+					endif;   ! EXPERIMENT: end BaselineOnly sweep-skip guard
+				
 					! advance the realised SOC to the next step (executed slot-1 dispatch)
 					BattSOCstart(bat) := RollSOCnext(bat);
 				endfor;
-
+				
 				putclose FOR_RollCSV;
 				putclose FOR_RollSOCCSV;
+				putclose FOR_RollFairCSV;
 				if EnableRollDiag = 1 then
 					putclose FOR_RollDiagCSV;
 				endif;
 				RollCyclicSOC := 0;   ! leave the model in its normal (non-rolling) state
 				CyclicSOCBand := 0;   ! defensive: clear band so subsequent runs see strict cyclic if they re-enable it
+				FairActive    := 0;   ! defensive: leave the fairness gate closed so a later non-fairness run is unaffected
 				BattP_Chg(bat,t).nonvar := 0;   ! defensive: free the slot-1 fixes so later runs see normal variables
 				BattP_Dis(bat,t).nonvar := 0;
 				display RollSOCtraj;
@@ -2267,10 +3007,10 @@ Model Main_OPF_VI_LG {
 				run RunFOR_Rolling;
 				RollFileSuffix    := "";
 			}
+			Comment: "Single per-transformer rolling FOR runner (replaces the nine per-TR copy-paste procedures). BattThroughputPen is NOT set here: the production value is the declared default (0.2). Use the one-click wrappers RunTR1..RunTR9.";
 			StringParameter TrafoTag {
 				Property: Input;
 			}
-			Comment: "Single per-transformer rolling FOR runner (replaces the nine per-TR copy-paste procedures). BattThroughputPen is NOT set here: the production value is the declared default (0.2). Use the one-click wrappers RunTR1..RunTR9.";
 		}
 		Procedure RunCoupledFOR {
 			Arguments: (TagList);
@@ -2292,10 +3032,10 @@ Model Main_OPF_VI_LG {
 				run RunFOR_Rolling;
 				RollFileSuffix    := "";
 			}
+			Comment: "Coupled multi-transformer rolling FOR (the transformers in TagList detailed together, rest lumped passive). For the coupling-gap validation of the Minkowski decomposition: pass a comma list such as TR3,TR4 and compare with the decomposed sum of the same pair. Historical (linearized, 2026-06): TR3+TR4 gap 0.2-3%, TR5+TR6 gap 0.7-4%, outer bound held.";
 			StringParameter TagList {
 				Property: Input;
 			}
-			Comment: "Coupled multi-transformer rolling FOR (the transformers in TagList detailed together, rest lumped passive). For the coupling-gap validation of the Minkowski decomposition: pass a comma list such as TR3,TR4 and compare with the decomposed sum of the same pair. Historical (linearized, 2026-06): TR3+TR4 gap 0.2-3%, TR5+TR6 gap 0.7-4%, outer bound held.";
 		}
 		Procedure RunTR9_RelaxCyclic {
 			Body: {
@@ -2317,7 +3057,9 @@ Model Main_OPF_VI_LG {
 				BaselineOnly      := 0;     ! restore production defaults
 				RelaxCyclicBand   := 0.05;
 			}
-			Comment: "EXPERIMENT (one click): TR9 rolling self-consumption dispatch, cyclic-SOC band relaxed (RelaxCyclicBand=1.0) and FOR sweep skipped (BaselineOnly=1). Fast (~48 baseline solves). Output FOR_rolling_soc_TR9_relaxcyc.csv; production TR9 files untouched. Tests whether prosumer import -> 0 when batteries are freed from net-zero daily energy.";
+			Comment: {
+				"EXPERIMENT (one click): TR9 rolling self-consumption dispatch, cyclic-SOC band relaxed (RelaxCyclicBand=1.0) and FOR sweep skipped (BaselineOnly=1). Fast (~48 baseline solves). Output FOR_rolling_soc_TR9_relaxcyc.csv; production TR9 files untouched. Tests whether prosumer import -> 0 when batteries are freed from net-zero daily energy."
+			}
 		}
 		Procedure RunTR9_RelaxFloor {
 			Body: {
@@ -2340,7 +3082,9 @@ Model Main_OPF_VI_LG {
 				BaselineOnly      := 0;     ! restore production defaults
 				SOCFloorOverride  := -1;
 			}
-			Comment: "EXPERIMENT (one click): TR9 rolling self-consumption dispatch with the SOC floor lowered to 0 (SOCFloorOverride=0.0) and FOR sweep skipped (BaselineOnly=1). Cyclic band at production 0.05. Fast (~48 baseline solves). Output FOR_rolling_soc_TR9_floor0.csv; production TR9 files untouched. Tests how far prosumer import falls when batteries may finish the day fully discharged.";
+			Comment: {
+				"EXPERIMENT (one click): TR9 rolling self-consumption dispatch with the SOC floor lowered to 0 (SOCFloorOverride=0.0) and FOR sweep skipped (BaselineOnly=1). Cyclic band at production 0.05. Fast (~48 baseline solves). Output FOR_rolling_soc_TR9_floor0.csv; production TR9 files untouched. Tests how far prosumer import falls when batteries may finish the day fully discharged."
+			}
 		}
 		Procedure RunTR1 {
 			Body: {
@@ -2396,6 +3140,80 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "One click: rolling FOR for TR9 -> FOR_rolling_TR9.csv + FOR_rolling_soc_TR9.csv.";
 		}
+		Procedure RunMicro_GMP_L2_Smoke {
+			Body: {
+				! SMOKE TEST del camino de m=2 con GMP. Existe porque la desactivacion de filas de
+				! fairness usa el indice de AGREGADORES (a) para m=2/m=4 y el de BATERIAS (bat) para
+				! m=1/m=3: son ramas distintas y la de agregadores nunca se ejecuto. ~10 min en el banco
+				! micro, contra las ~4 h que costaria descubrir el fallo dentro de la cadena de TR9.
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "_two";
+				UseBattComp       := 0;
+				FairMode := 2;
+				RollUseGMP := 0;  RollGMPBaseline := 0;  RollFileSuffix := "_mL2ref";
+				run RunFOR_Rolling;
+				RollUseGMP := 1;  RollGMPBaseline := 1;  RollFileSuffix := "_mL2gmp";
+				run RunFOR_Rolling;
+				FairMode := 0;  RollUseGMP := 0;  RollGMPBaseline := 0;
+				RollFileSuffix := "";  DetailLoadPattern := "";
+			}
+			Comment: "SMOKE TEST del camino m=2 con GMP sobre el banco micro (~10 min). Valida la rama de desactivacion de filas indexada por AGREGADOR, que m=1 no ejercita. Escribe FOR_rolling_mL2ref.csv y FOR_rolling_mL2gmp.csv.";
+		}
+		Procedure RunTR9_GMP_Chain {
+			Body: {
+				! CADENA DE VALIDACION: los tres criterios medidos de TR9, uno tras otro, con GMP.
+				! Cada uno tiene referencia historica en el repo, asi que las tres dan A/B:
+				!   FOR_rolling_TR9_gmp.csv       vs FOR_rolling_TR9.csv
+				!   FOR_rolling_TR9_gmpL1.csv     vs FOR_rolling_TR9_fairL1.csv
+				!   FOR_rolling_TR9_gmpL2.csv     vs FOR_rolling_TR9_fairL2.csv
+				! ~11 h. m=3 y m=4 quedan fuera a proposito: no tienen referencia de TR9 y m=3 es
+				! infactible en algunos periodos, lo que mezclaria validar la migracion con explorar
+				! un criterio nuevo.
+				UseBattComp       := 0;
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+
+				FairMode := 0;   RollFileSuffix := "_TR9_gmp";    run RunFOR_Rolling;
+				FairMode := 1;   RollFileSuffix := "_TR9_gmpL1";  run RunFOR_Rolling;
+				FairMode := 2;   RollFileSuffix := "_TR9_gmpL2";  run RunFOR_Rolling;
+
+				FairMode          := 0;
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+				RollFileSuffix    := "";
+			}
+			Comment: "CADENA DE VALIDACION de la migracion GMP sobre TR9 produccion: FairMode 0, 1 y 2 uno tras otro, ~11 h. Escribe FOR_rolling_TR9_gmp / _gmpL1 / _gmpL2 (mas sus CSV de SOC y de fairness), sin tocar las referencias. Los tres se comparan con scripts/compare_FOR_runs.py contra FOR_rolling_TR9.csv, _fairL1 y _fairL2.";
+		}
+		Procedure RunTR9_GMP {
+			Body: {
+				! A/B PARTNER of RunTR9: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR9_gmp.csv and
+				! FOR_rolling_soc_TR9_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR9.csv FOR_rolling_TR9_gmp.csv
+				! 48 periods x 12 directions = 576 vertices, against the 36 of the preflight A/B. This is
+				! the full-coverage check of the migration, and unlike the preflight it exercises the SOC
+				! carry-forward between periods.
+				! Cuerpo de RunTrafoFOR replicado a proposito: alli el argumento fija a la vez el tag de
+				! reduccion de red y el sufijo de archivo, y aca hacen falta distintos - la red es TR9,
+				! la salida no debe pisar FOR_rolling_TR9.csv.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR9_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR9: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR9_gmp.csv. Compare against FOR_rolling_TR9.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Exercises the SOC carry-forward, which the 3-slot preflight A/B does not.";
+		}
 		Procedure RunFOR_Rolling_PerTrafo {
 			Body: {
 				! PER-TRANSFORMER rolling FOR. For each TRk: keep TRk detailed, lump every other transformer
@@ -2448,7 +3266,7 @@ Model Main_OPF_VI_LG {
 				IncludeQforMaxP           := 0;
 				nPeriods                  := 48;
 				ReduceNetwork             := 1;     ! reduced net still carries the FULL passive load -> all-idle PCC ~ true B, and is tractable (full feeder is not)
-				DetailLoadPattern         := "";
+				DetailLoadPattern         := BaseDetailPattern;   ! "" = original full-TR9 reduction; "_two" = match the micro bed
 				DetailTagCSV              := "TR9";
 				RollFileSuffix            := "";
 				FOR_PolyS                 := 0;   ! match production (exact); irrelevant here anyway: batteries fixed to zero, limits relaxed below
@@ -2499,8 +3317,15 @@ Model Main_OPF_VI_LG {
 				! ----   per-direction timing so the full-day runtime can be extrapolated.
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
-				option disable_new_mathprog_generator := 0;   ! NEW generator for the exact quadratic constraints (see RunFOR_Rolling)
-
+				option disable_new_mathprog_generator := 0;   ! NEW generator; kept even though this run linearizes
+				! Barrier robustness, identical to RunFOR_Rolling. These are SESSION options in AIMMS, not
+				! solve attributes: unpinned, the preflight inherited whatever the last procedure left, so its
+				! timings were not reproducible. Production pins them because the exact solve otherwise raised
+				! CPLEX feasibility / status-13 warnings.
+				option Feasibility_Tolerance         := 1.0e-3;
+				option Barrier_Convergence_Tolerance := 1.0e-2;
+				option Scaling_Flag                  := 2;
+				
 				! ---- toggles: identical to the full-feeder leg of RunCompareWithPaperT25 ----
 				ReduceNetwork             := PreflightReduce;   ! default 0 = FULL feeder; PreflightReduce=1 for a reduced (per-transformer) preflight
 				DetailTagCSV              := PreflightDetailTag;   ! default "" = full feeder; e.g. "TR9" when reduced
@@ -2510,20 +3335,42 @@ Model Main_OPF_VI_LG {
 				nPeriods                  := 48;
 				ResultsFileRoot           := "FOR_";
 				AllowChargeAtPmax         := 1;
-				FOR_PolyS                 := 0;        ! exact inverter S-circle -- match RunFOR_Rolling production config
-				FOR_LinearizeVmax         := 0;        ! exact quadratic Vmax -- same
+				if PreflightExact = 1 then
+					FOR_PolyS             := 0;        ! exact inverter S-circle
+					FOR_LinearizeVmax     := 0;        ! exact voltage cap - no relaxation, so OVviol is meaningful
+				else
+					FOR_PolyS             := 1;        ! 16-gon inverter capability (LINEARIZED). Production uses 0
+					FOR_LinearizeVmax     := 1;        ! tangent-plane Vmax (LINEARIZED). Production uses 0.
+				endif;
+				! Both toggles differ from production ON PURPOSE at full-feeder scale, so this is a solver
+				! smoke test rather than a faithful rehearsal of the production formulation. And it does NOT
+				! remove the dominant conic block: I2maxLines is quadratic with no toggle at all and scales
+				! with line count -- 4569 lines on the full feeder against 339 on reduced TR9.
 				FOR_nAngles               := 12;       ! every 30 deg
 				RollCyclicSOC             := 1;
 				CyclicSOCBand             := PreflightBand;     ! default 0.05 = production; PreflightBand=1.0 relaxes the cyclic band
 				PeriodMaxP                := 2;        ! service slot is window position 2
 				EnableRollDiag            := 0;
-
+				! Pinned so the preflight cannot depend on session history. Each is left behind set by some
+				! other procedure: FOR_TieEps=1e-5 by RunFOR_4Vertices, which never restores it; UseBattComp=1
+				! by RunMicro_BattComp / RunFullTR9_BattComp, whose reset comes AFTER a full rolling run, so an
+				! interruption leaves it on and silently turns this into a MIQCP; FairMode / FairActive by the
+				! fairness wrappers. This is a SOLVER smoke test: deliberately no fairness rows.
+				UseBattComp               := 0;   ! never a MIQCP here
+				FairMode                  := 0;   ! no fairness rows in a solver smoke test
+				FairActive                := 0;   ! and the gate closed, so none can appear
+				FOR_TieEps                := 0;   ! pure directional objective, independent of session history
+				
 				! ---- pick the slots to test. Edit these three lines to change coverage. ----
 				PreflightSlot(t) := 0;
-				PreflightSlot(Element(Time, 12)) := 1;     ! morning ramp
-				PreflightSlot(Element(Time, 25)) := 1;     ! midday PV peak (= paper PeriodMaxP)
-				PreflightSlot(Element(Time, 40)) := 1;     ! evening
-
+				if PreflightSlotOnly >= 1 then
+					PreflightSlot(Element(Time, PreflightSlotOnly)) := 1;   ! price a single slot
+				else
+					PreflightSlot(Element(Time, 12)) := 1;     ! morning ramp
+					PreflightSlot(Element(Time, 25)) := 1;     ! midday PV peak (= paper PeriodMaxP)
+					PreflightSlot(Element(Time, 40)) := 1;     ! evening
+				endif;
+				
 				! ---- freeze the un-rotated day so each preflight slot rotates from a clean copy ----
 				empty allvariables;
 				run Load_data_dsn;
@@ -2532,84 +3379,210 @@ Model Main_OPF_VI_LG {
 				GenP0raw(d,t)     := GenP0(d,t);
 				Irrraw(t)         := Irradiance(t);
 				BattSOCstart(bat) := BattSOCini(bat);   ! each preflight slot starts from the initial SOC
-
+				
 				! ---- CSV header (same columns as FOR_rolling.csv so existing scripts work) ----
 				FOR_RollPreflightCSV.PageWidth := 32767;
+				! The file is declared 'append' so rows can be flushed one at a time; that makes deleting
+				! it here mandatory, or this run would be appended to the previous run's rows.
+				if FileExists( FOR_RollPreflightName ) then
+					FileDelete( FOR_RollPreflightName );
+				endif;
 				put FOR_RollPreflightCSV;
 				put "now,target,angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr" / ;
+				if PreflightFlushCSV = 1 then
+					putclose FOR_RollPreflightCSV;   ! header on disk before the first solve starts
+					put FOR_RollPreflightCSV;
+				endif;
 
 				Preflight_TotalTime := 0;
 				Preflight_nSolves   := 0;
 				Preflight_nFail     := 0;
-
+				
 				for (t | PreflightSlot(t) = 1) do
 					RollNow     := ord(t);
 					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
-
-					! ---- committed self-consumption baseline for this slot (mirrors RunFOR_Rolling) ----
-					empty allvariables;
-					run Load_data_dsn;
-					P0(d,tt)        := P0raw(d, RollMap(tt));
-					Q0(d,tt)        := Q0raw(d, RollMap(tt));
-					GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
-					Irradiance(tt)  := Irrraw(RollMap(tt));
-					BattSOCini(bat) := BattSOCstart(bat);
-					BattP_Chg(bat,'1').nonvar := 0;
-					BattP_Dis(bat,'1').nonvar := 0;
-					run MinOFminImports;
-					if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
-						! baseline rescue, mirrors RunFOR_Rolling
-						solve MinImports
-							where  MIP_Relative_Optimality_Tolerance := 0.01,
-							       method              := 'deterministic concurrent',
-							       numeric_focus       := 3,
-							       barrier_homogeneous := 1,
-							       time_limit          := 3000;
-						ConvFlag := MinImports.ProgramStatus;
-					endif;
-					RollChgExec(bat) := BattP_Chg(bat,'1');
-					RollDisExec(bat) := BattP_Dis(bat,'1');
-
-					put FOR_RollPreflightCSV;
-					for (ia) do
-						FOR_Angle    := FOR_AngleDeg(ia);
-						FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
-
+				
+					! Skipped when the baseline is solved from the swept instance instead - see
+					! PreflightGMPBaseline. That is the whole saving: this block generates a SECOND
+					! full matrix per slot, as expensive as the sweep's own.
+					if PreflightUseGMP * PreflightGMPBaseline = 0 then
+						! ---- committed self-consumption baseline for this slot (mirrors RunFOR_Rolling) ----
 						empty allvariables;
-						run Load_data_dsn;
+						run Load_data_reset;                        ! static data already loaded on entry; mirrors RunFOR_Rolling
 						P0(d,tt)        := P0raw(d, RollMap(tt));
 						Q0(d,tt)        := Q0raw(d, RollMap(tt));
 						GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
 						Irradiance(tt)  := Irrraw(RollMap(tt));
 						BattSOCini(bat) := BattSOCstart(bat);
-						BattP_Chg(bat,'1') := RollChgExec(bat);     ! slot 1 fixed to the committed dispatch (mirrors RunFOR_Rolling)
-						BattP_Chg(bat,'1').nonvar := 1;
-						BattP_Dis(bat,'1') := RollDisExec(bat);
-						BattP_Dis(bat,'1').nonvar := 1;
-						run MainExecution;
-
-						FOR_Lambda := 1;
-						solve FOR_VertexCont
-							where  MIP_Relative_Optimality_Tolerance := 0.01,
-							       method     := 'deterministic concurrent',
-							       time_limit := 3000;
-
-						if FOR_VertexCont.ProgramStatus <> 'Optimal' and
-						   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
-							solve FOR_VertexCont
+						BattP_Chg(bat,'1').nonvar := 0;
+						BattP_Dis(bat,'1').nonvar := 0;
+						run MinOFminImports;
+						if ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
+							! baseline rescue, mirrors RunFOR_Rolling
+							solve MinImports
 								where  MIP_Relative_Optimality_Tolerance := 0.01,
 								       method              := 'deterministic concurrent',
 								       numeric_focus       := 3,
 								       barrier_homogeneous := 1,
 								       time_limit          := 3000;
+							ConvFlag := MinImports.ProgramStatus;
+						endif;
+						RollChgExec(bat) := BattP_Chg(bat,'1');
+						RollDisExec(bat) := BattP_Dis(bat,'1');
+					endif;
+				
+					! ---- GMP path: hoist the direction-INDEPENDENT setup out of the sweep and generate the
+					! ---- matrix once. This is exactly the block the loop below repeats 12 times; it does not
+					! ---- depend on ia, which is why one matrix serves all 12 directions.
+					if PreflightUseGMP = 1 then
+						empty allvariables;
+						run Load_data_reset;
+						P0(d,tt)        := P0raw(d, RollMap(tt));
+						Q0(d,tt)        := Q0raw(d, RollMap(tt));
+						GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+						Irradiance(tt)  := Irrraw(RollMap(tt));
+						BattSOCini(bat) := BattSOCstart(bat);
+						if PreflightGMPBaseline = 1 then
+							! The instance has to be generated with slot 1 FREE - that is exactly what the
+							! baseline solves for. It gets frozen at the committed dispatch below, for the
+							! sweep only.
+							BattP_Chg(bat,'1').nonvar := 0;
+							BattP_Dis(bat,'1').nonvar := 0;
+						else
+							BattP_Chg(bat,'1') := RollChgExec(bat);
+							BattP_Chg(bat,'1').nonvar := 1;
+							BattP_Dis(bat,'1') := RollDisExec(bat);
+							BattP_Dis(bat,'1').nonvar := 1;
+						endif;
+						FOR_Lambda := 1;                  ! must hold at generation: it scales OF_FOR inside OF_FOR_cont
+
+						! The where-clause options of the solve become SESSION options here. They have to be in
+						! force when the instance is generated and solved, and `method` is element-valued, which
+						! GMP::Instance::SetOptionValue (numeric) cannot carry.
+						option MIP_Relative_Optimality_Tolerance := 0.01;
+						option method     := 'deterministic concurrent';
+						option time_limit := 3000;
+						! MinOFminImports sets this before its solve, and it is a SESSION option, so in the
+						! original flow the sweep inherits it from the baseline that ran first. With
+						! PreflightGMPBaseline = 1 that procedure is skipped, so it has to be set here or the
+						! whole slot would run at a different tolerance than the reference.
+						option Bound_Tolerance := 1e-006;
+
+						! Generate AFTER the .nonvar fixes above, or those bounds are not in the matrix.
+						! Generate at 45 deg on purpose: both objective coefficients are then non-zero, so the
+						! sign convention can be READ BACK off the generated row instead of assumed. AIMMS moves
+						! all variables to the left and OF_FOR carries a leading minus, so the sign is not
+						! obvious - and getting it wrong mirrors the FOR with no visible symptom.
+						FOR_AngleRad := 4*arctan(1) / 4;
+						PreflightGMP := GMP::Instance::Generate( FOR_VertexCont, "FORsweep" );
+
+						Preflight_SignP := GMP::Coefficient::Get( PreflightGMP, OF_FOR_definition, P_PCC(PeriodMaxP) ) / cos(FOR_AngleRad);
+						Preflight_SignQ := GMP::Coefficient::Get( PreflightGMP, OF_FOR_definition, Q_PCC(PeriodMaxP) ) / sin(FOR_AngleRad);
+						if abs(abs(Preflight_SignP) - 1) > 1e-6 or abs(abs(Preflight_SignQ) - 1) > 1e-6 then
+							halt with "GMP: OF_FOR_definition does not carry +/-cos and +/-sin as expected - refusing to write coefficients into a row that is not what we think it is.";
 						endif;
 
-						FOR_StatCur          := FOR_VertexCont.ProgramStatus;
+						if PreflightGMPBaseline = 1 then
+							! ---- committed baseline from the SAME matrix: only the objective column changes.
+							! MinImports and FOR_VertexCont declare the same constraint and variable sets, so the
+							! row-for-row matrix is identical and both objective definition rows are already in it.
+							GMP::Column::SetAsObjective( PreflightGMP, OFminImports );
+							GMP::Instance::Solve( PreflightGMP );
+							Preflight_SolState := GMP::Solution::GetProgramStatus( PreflightGMP, 1 );
+							if Preflight_SolState <> 'Optimal' and Preflight_SolState <> 'LocallyOptimal' then
+								option numeric_focus       := 3;
+								option barrier_homogeneous := 1;
+								GMP::Instance::Solve( PreflightGMP );
+								Preflight_SolState := GMP::Solution::GetProgramStatus( PreflightGMP, 1 );
+								option numeric_focus       := 0;
+								option barrier_homogeneous := 0;
+							endif;
+							ConvFlag := Preflight_SolState;
+							GMP::Solution::SendToModel( PreflightGMP, 1 );
+							RollChgExec(bat) := BattP_Chg(bat,'1');
+							RollDisExec(bat) := BattP_Dis(bat,'1');
+
+							! Back to the sweep objective, and pin slot 1 to what the baseline just committed.
+							! Freeze replaces .nonvar here: the matrix already exists, so the fix has to be applied
+							! to the INSTANCE, not to the model - a .nonvar now would need a regeneration to matter.
+							GMP::Column::SetAsObjective( PreflightGMP, OF_FOR_cont );
+							GMP::Column::FreezeMulti( PreflightGMP, bat, BattP_Chg(bat,'1'), RollChgExec(bat) );
+							GMP::Column::FreezeMulti( PreflightGMP, bat, BattP_Dis(bat,'1'), RollDisExec(bat) );
+						endif;
+					endif;
+
+					put FOR_RollPreflightCSV;
+					for (ia) do
+						FOR_Angle    := FOR_AngleDeg(ia);
+						FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+				
+						if PreflightUseGMP = 1 then
+							! Only the objective row differs between directions; the matrix generated above is
+							! reused untouched. This is the whole point of the migration.
+							GMP::Coefficient::Set( PreflightGMP, OF_FOR_definition, P_PCC(PeriodMaxP), Preflight_SignP*cos(FOR_AngleRad) );
+							GMP::Coefficient::Set( PreflightGMP, OF_FOR_definition, Q_PCC(PeriodMaxP), Preflight_SignQ*sin(FOR_AngleRad) );
+							GMP::Instance::Solve( PreflightGMP );
+							Preflight_SolState := GMP::Solution::GetProgramStatus( PreflightGMP, 1 );
+
+							if Preflight_SolState <> 'Optimal' and Preflight_SolState <> 'LocallyOptimal' then
+								! Same rescue as the non-GMP path. As session options these are STICKY - the
+								! where clause used to scope them to one solve - so they are restored right after.
+								option numeric_focus       := 3;
+								option barrier_homogeneous := 1;
+								GMP::Instance::Solve( PreflightGMP );
+								Preflight_SolState := GMP::Solution::GetProgramStatus( PreflightGMP, 1 );
+								option numeric_focus       := 0;
+								option barrier_homogeneous := 0;
+							endif;
+
+							if Preflight_SolState = 'Optimal' or Preflight_SolState = 'LocallyOptimal' then
+								GMP::Solution::SendToModel( PreflightGMP, 1 );   ! P_PCC/Q_PCC/Vre/Vim are read from the model below
+							endif;
+						else
+							empty allvariables;
+							run Load_data_reset;                        ! same proven reset as production; the full ODBC+Excel
+							                                            ! reload once per direction was pure waste
+							P0(d,tt)        := P0raw(d, RollMap(tt));
+							Q0(d,tt)        := Q0raw(d, RollMap(tt));
+							GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
+							Irradiance(tt)  := Irrraw(RollMap(tt));
+							BattSOCini(bat) := BattSOCstart(bat);
+							BattP_Chg(bat,'1') := RollChgExec(bat);     ! slot 1 fixed to the committed dispatch (mirrors RunFOR_Rolling)
+							BattP_Chg(bat,'1').nonvar := 1;
+							BattP_Dis(bat,'1') := RollDisExec(bat);
+							BattP_Dis(bat,'1').nonvar := 1;
+							if FOR_SweepWarmStart = 1 or UseBattComp = 1 then
+								run MainExecution;                      ! cost-min start point. Measured 4.06x SLOWER in wall
+								                                        ! clock and bit-identical, hence off by default -- see
+								                                        ! FOR_SweepWarmStart. Kept for UseBattComp, where the
+								                                        ! variable levels ARE a real warm-start channel.
+							endif;
+
+							FOR_Lambda := 1;
+							solve FOR_VertexCont
+								where  MIP_Relative_Optimality_Tolerance := 0.01,
+								       method     := 'deterministic concurrent',
+								       time_limit := 3000;
+
+							if FOR_VertexCont.ProgramStatus <> 'Optimal' and
+							   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
+								solve FOR_VertexCont
+									where  MIP_Relative_Optimality_Tolerance := 0.01,
+									       method              := 'deterministic concurrent',
+									       numeric_focus       := 3,
+									       barrier_homogeneous := 1,
+									       time_limit          := 3000;
+							endif;
+
+							Preflight_SolState := FOR_VertexCont.ProgramStatus;
+						endif;
+
+						FOR_StatCur          := Preflight_SolState;
 						Preflight_nSolves    := Preflight_nSolves + 1;
 						Preflight_TotalTime  := Preflight_TotalTime + FOR_VertexCont.SolutionTime;
-
-						if FOR_VertexCont.ProgramStatus = 'Optimal' or
-						   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
+				
+						if Preflight_SolState = 'Optimal' or
+						   Preflight_SolState = 'LocallyOptimal' then
 							FOR_Pcur    := P_PCC(PeriodMaxP);
 							FOR_Qcur    := Q_PCC(PeriodMaxP);
 							FOR_VmaxCur := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
@@ -2630,22 +3603,78 @@ Model Main_OPF_VI_LG {
 							    FOR_StatCur, ",", FOR_VertexCont.SolutionTime:12:2, ",",
 							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
 						endif;
-					endfor;
-				endfor;
 
+						if PreflightFlushCSV = 1 then
+							putclose FOR_RollPreflightCSV;   ! this row is on disk now, not in a buffer
+						endif;
+
+						! ---- progress marker, flushed to disk after every vertex (see FOR_PreProgress) ----
+						put FOR_PreProgress;
+						put "slot ", RollNow:3:0, "  ->  target ", (mod(RollNow,nPeriods)+1):3:0,
+						    "   direccion ", ord(ia):3:0, " de ", FOR_nAngles:3:0,
+						    "   (", FOR_Angle:6:1, " grados)" / ;
+						put "vertices resueltos : ", Preflight_nSolves:5:0 / ;
+						put "sin resolver       : ", Preflight_nFail:5:0 / ;
+						put "solver acumulado   : ", Preflight_TotalTime:12:2, " s" / ;
+						put "ultimo vertice     : ", FOR_VertexCont.SolutionTime:12:2, " s   estado ", FOR_StatCur / ;
+						putclose FOR_PreProgress;
+						put FOR_RollPreflightCSV;   ! restore the active file for the next direction
+					endfor;
+
+					if PreflightUseGMP = 1 then
+						GMP::Instance::Delete( PreflightGMP );   ! one instance per slot; the next slot generates its own
+					endif;
+				endfor;
+				
 				putclose FOR_RollPreflightCSV;
+
+				! ---- GMP probe (PreflightGMPProbe = 1). Deliberately placed AFTER the CSV is closed and
+				! ---- BEFORE the defensive resets below: the results are already safe on disk if GMP
+				! ---- generation fails or exhausts memory, and the model state here is still the in-loop
+				! ---- one the sweep actually solved (slot-1 dispatch frozen, cyclic band on). Reading the
+				! ---- objective-row coefficients of the LAST direction is what pins down the sign
+				! ---- convention before anything writes coefficients back.
+				if PreflightGMPProbe = 1 then
+					PreflightGMP     := GMP::Instance::Generate( FOR_VertexCont, "FORprobe" );
+					Preflight_Rows   := GMP::Instance::GetNumberOfRows( PreflightGMP );
+					Preflight_Cols   := GMP::Instance::GetNumberOfColumns( PreflightGMP );
+					Preflight_Nz     := GMP::Instance::GetNumberOfNonzeros( PreflightGMP );
+					Preflight_Mem    := GMP::Instance::GetMemoryUsed( PreflightGMP );
+					Preflight_ObjRow := GMP::Instance::GetObjectiveRowNumber( PreflightGMP );
+					! The row is OF_FOR_definition, NOT the objective row: FOR_VertexCont minimizes
+					! OF_FOR_cont, and the angle only ever reaches the matrix through the defining
+					! constraint of OF_FOR. Coefficient::Get/Set take a symbolic row reference in this
+					! AIMMS version, not the row number GetObjectiveRowNumber returns.
+					Preflight_CoefP  := GMP::Coefficient::Get( PreflightGMP, OF_FOR_definition, P_PCC(PeriodMaxP) );
+					Preflight_CoefQ  := GMP::Coefficient::Get( PreflightGMP, OF_FOR_definition, Q_PCC(PeriodMaxP) );
+
+					put FOR_GMPProbeTxt;
+					put "GMP probe - estado del modelo en la ULTIMA direccion del barrido" / ;
+					put "angulo             : ", FOR_Angle:12:1, " grados" / ;
+					put "filas              : ", Preflight_Rows:12:0 / ;
+					put "columnas           : ", Preflight_Cols:12:0 / ;
+					put "no ceros           : ", Preflight_Nz:12:0 / ;
+					put "memoria            : ", Preflight_Mem:12:2, " Mb" / ;
+					put "fila objetivo      : ", Preflight_ObjRow:12:0 / ;
+					put "coef P_PCC         : ", Preflight_CoefP:16:8, "    cos(ang) = ", cos(FOR_AngleRad):16:8 / ;
+					put "coef Q_PCC         : ", Preflight_CoefQ:16:8, "    sin(ang) = ", sin(FOR_AngleRad):16:8 / ;
+					putclose FOR_GMPProbeTxt;
+
+					GMP::Instance::Delete( PreflightGMP );
+				endif;
+
 				RollCyclicSOC := 0;
 				CyclicSOCBand := 0;
 				BattP_Chg(bat,t).nonvar := 0;   ! defensive: free the slot-1 fixes so later runs see normal variables
 				BattP_Dis(bat,t).nonvar := 0;
-
+				
 				display Preflight_nSolves, Preflight_nFail, Preflight_TotalTime;
 			}
 			Comment: {
 				"FOR - PRE-FLIGHT. Smoke test for the production rolling run on the FULL feeder.
 				 Sweeps the 12 directions at 3 representative slots (t=12 morning, t=25 PV peak,
-				 t=40 evening) with the same toggles as RunFOR_Rolling (FOR_PolyS=0,
-				 FOR_LinearizeVmax=0, RollCyclicSOC=1, NC_Q). Each preflight slot starts from
+				 t=40 evening). NOTE: unlike RunFOR_Rolling it runs LINEARIZED (FOR_PolyS=1,
+				 FOR_LinearizeVmax=1), with RollCyclicSOC=1 and NC_Q. Each preflight slot starts from
 				 BattSOCini (no SOC carry-forward between preflight slots, to keep this fast),
 				 solves the same committed self-consumption baseline (MinImports) as production,
 				 and fixes slot 1 to that dispatch during the sweep.
@@ -2667,13 +3696,13 @@ Model Main_OPF_VI_LG {
 				! day to day); if the two regions coincide, the band is inert for the FOR too.
 				PreflightReduce    := 1;
 				PreflightDetailTag := "TR9";
-
+				
 				PreflightBand   := 0.05;   PreflightSuffix := "_TR9_cyc05";
 				run RunFOR_RollingPreflight;
-
+				
 				PreflightBand   := 1.0;    PreflightSuffix := "_TR9_cycOff";
 				run RunFOR_RollingPreflight;
-
+				
 				! restore production defaults
 				PreflightReduce    := 0;
 				PreflightDetailTag := "";
@@ -2681,6 +3710,133 @@ Model Main_OPF_VI_LG {
 				PreflightSuffix    := "";
 			}
 			Comment: "EXPERIMENT (one click): FOR sensitivity to the cyclic-SOC band. Runs the TR9 reduced-network preflight (3 slots x 12 directions) at band 0.05 and at band 1.0, writing FOR_rolling_preflight_TR9_cyc05.csv and _cycOff.csv for comparison. ~72 solves (~15-25 min). Production preflight behaviour is unchanged (defaults preserved).";
+		}
+		Procedure RunTR9_PreflightRef {
+			Body: {
+				! REFERENCE RUN for the GMP migration of the directional sweep (one click).
+				! Runs the 3-slot x 12-direction preflight on the REDUCED TR9 network with the
+				! production cyclic band, writing FOR_rolling_preflight_TR9_ref.csv. This is the
+				! no-GMP baseline: the GMP version must reproduce its proj column to 2e-6 and its
+				! rows/cols/nz exactly (scripts/compare_FOR_runs.py). Reduced on purpose - the full
+				! feeder has never completed a run, so there is nothing there to compare against.
+				PreflightReduce    := 1;
+				PreflightDetailTag := "TR9";
+				PreflightBand      := 0.05;
+				PreflightSuffix    := "_TR9_ref";
+				PreflightGMPProbe  := 1;        ! matrix size + memory + objective-row signs, after the CSV closes
+				run RunFOR_RollingPreflight;
+
+				! restore production defaults
+				PreflightReduce    := 0;
+				PreflightDetailTag := "";
+				PreflightBand      := 0.05;
+				PreflightSuffix    := "";
+				PreflightGMPProbe  := 0;
+			}
+			Comment: "REFERENCE RUN for the GMP migration: the TR9 reduced-network preflight (3 slots x 12 directions, ~36 vertex solves) with the production cyclic band, written to FOR_rolling_preflight_TR9_ref.csv. Establishes the pre-GMP baseline for proj and for the matrix size (rows/cols/nz), which the GMP version must match before anything is attempted on the full feeder. Production preflight defaults are restored on exit.";
+		}
+		Procedure RunTR9_PreflightGMP {
+			Body: {
+				! A/B PARTNER of RunTR9_PreflightRef (one click): the same TR9 reduced preflight with the
+				! directional sweep served by ONE generated matrix per slot instead of 12. Writes
+				! FOR_rolling_preflight_TR9_gmp.csv; compare with
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_preflight_TR9_ref.csv FOR_rolling_preflight_TR9_gmp.csv
+				! The criterion is proj within 2e-6 and no status change, NOT P/Q equality.
+				PreflightReduce    := 1;
+				PreflightDetailTag := "TR9";
+				PreflightBand      := 0.05;
+				PreflightSuffix    := "_TR9_gmp";
+				PreflightGMPProbe  := 1;        ! same matrix/size probe as the reference, for the row-count check
+				PreflightUseGMP    := 1;
+				run RunFOR_RollingPreflight;
+
+				! restore production defaults
+				PreflightReduce    := 0;
+				PreflightDetailTag := "";
+				PreflightBand      := 0.05;
+				PreflightSuffix    := "";
+				PreflightGMPProbe  := 0;
+				PreflightUseGMP    := 0;
+			}
+			Comment: "A/B PARTNER of RunTR9_PreflightRef: the same TR9 reduced preflight (3 slots x 12 directions) with PreflightUseGMP=1, so the sweep generates one matrix per slot and rewrites only the two objective coefficients per direction. Writes FOR_rolling_preflight_TR9_gmp.csv for comparison with scripts/compare_FOR_runs.py. Restores the production defaults on exit.";
+		}
+		Procedure RunTR9_PreflightGMPBase {
+			Body: {
+				! A/B de PreflightGMPBaseline: mismo caso TR9 reducido que RunTR9_PreflightRef, pero con el
+				! baseline resuelto desde la MISMA instancia generada que el barrido. Escribe
+				! FOR_rolling_preflight_TR9_gmpbase.csv.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_preflight_TR9_ref.csv FOR_rolling_preflight_TR9_gmpbase.csv
+				! Esta validacion NO es opcional: el baseline fija el despacho comprometido del slot 1, y ese
+				! despacho condiciona las 12 direcciones. Un baseline distinto mueve el FOR entero.
+				PreflightReduce      := 1;
+				PreflightDetailTag   := "TR9";
+				PreflightBand        := 0.05;
+				PreflightSuffix      := "_TR9_gmpbase";
+				PreflightGMPProbe    := 1;
+				PreflightUseGMP      := 1;
+				PreflightGMPBaseline := 1;
+				run RunFOR_RollingPreflight;
+
+				PreflightReduce      := 0;
+				PreflightDetailTag   := "";
+				PreflightSuffix      := "";
+				PreflightGMPProbe    := 0;
+				PreflightUseGMP      := 0;
+				PreflightGMPBaseline := 0;
+			}
+			Comment: "A/B de PreflightGMPBaseline sobre TR9 reducido: el baseline comprometido se resuelve intercambiando la columna objetivo de la instancia del barrido, en vez de generar una segunda matriz. Escribe FOR_rolling_preflight_TR9_gmpbase.csv para comparar con FOR_rolling_preflight_TR9_ref.csv. Vale ~665 s por slot en alimentador completo, unas 9 h por dia simulado.";
+		}
+		Procedure RunFullFeeder_PreflightExact1Slot {
+			Body: {
+				! PRECIO DE LA FORMULACION EXACTA. Un solo slot x 12 direcciones sobre alimentador completo,
+				! con FOR_PolyS=0 y FOR_LinearizeVmax=0 - o sea SIN relajar el limite de tension.
+				! Existe porque la corrida linealizada reporta VmaxTrue > 1.1 p.u. con OVviol > 0: sus
+				! vertices son un smoke test de solver, no capacidad de alojamiento reportable.
+				! OJO: ambos toggles AGREGAN filas conicas. Esperar mas tiempo Y mas memoria que la
+				! linealizada, y vigilar que los solves no toquen el time_limit de 3000 s - si lo tocan, lo
+				! medido es una cota inferior del costo, no el costo.
+				PreflightReduce      := 0;        ! alimentador completo
+				PreflightDetailTag   := "";
+				PreflightBand        := 0.05;
+				PreflightSlotOnly    := 25;       ! pico solar = PeriodMaxP del paper, el slot mas exigente
+				PreflightExact       := 1;        ! sin linealizar
+				PreflightSuffix      := "_full_exact";
+				PreflightGMPProbe    := 1;        ! tamano de matriz y memoria de la formulacion exacta
+				PreflightUseGMP      := 1;
+				PreflightGMPBaseline := 1;
+				run RunFOR_RollingPreflight;
+
+				PreflightSlotOnly    := 0;
+				PreflightExact       := 0;
+				PreflightSuffix      := "";
+				PreflightGMPProbe    := 0;
+				PreflightUseGMP      := 0;
+				PreflightGMPBaseline := 0;
+			}
+			Comment: "PRECIO DE LA FORMULACION EXACTA: un slot (25, pico solar) x 12 direcciones sobre alimentador completo con FOR_PolyS=0 y FOR_LinearizeVmax=0, con GMP y con el baseline en la misma instancia. Mide lo que cuesta la formulacion que SI es reportable, contra la linealizada que relaja el limite de tension. Escribe FOR_rolling_preflight_full_exact.csv y FOR_gmp_probe_full_exact.txt.";
+		}
+		Procedure RunFullFeeder_PreflightGMP {
+			Body: {
+				! FULL FEEDER preflight with the GMP sweep (step 3 of the migration plan). Only run this
+				! after the reduced A/B has passed - RunTR9_PreflightRef vs RunTR9_PreflightGMP compared
+				! with scripts/compare_FOR_runs.py - because the full feeder has never completed a run and
+				! there is therefore no reference here to catch a wrong answer.
+				! 3 slots x 12 directions. Writes FOR_rolling_preflight_full_gmp.csv, one row at a time
+				! (PreflightFlushCSV), so an interrupted run keeps what it already produced.
+				PreflightReduce    := 0;        ! full feeder
+				PreflightDetailTag := "";
+				PreflightBand      := 0.05;
+				PreflightSuffix    := "_full_gmp";
+				PreflightGMPProbe  := 1;        ! matrix size + memory at full scale - the number the plan wants
+				PreflightUseGMP    := 1;
+				run RunFOR_RollingPreflight;
+
+				! restore production defaults
+				PreflightSuffix    := "";
+				PreflightGMPProbe  := 0;
+				PreflightUseGMP    := 0;
+			}
+			Comment: "STEP 3 of the GMP migration: the FULL-FEEDER preflight (3 slots x 12 directions) with PreflightUseGMP=1, so the matrix is generated once per slot instead of 12 times. Writes FOR_rolling_preflight_full_gmp.csv incrementally and FOR_gmp_probe_full_gmp.txt. Run only after the reduced A/B has passed: there is no reference run on the full feeder to catch a wrong answer.";
 		}
 		Procedure RunReducedTest_RollingMicro {
 			Body: {
@@ -2691,6 +3847,24 @@ Model Main_OPF_VI_LG {
 				DetailLoadPattern := "";       ! defensive reset: back to TR9-full behaviour for subsequent runs
 			}
 			Comment: "MICRO TEST (one click): the smallest controllable test bed - isolate the TR9_two* sub-branch (12 batteries, 21 loads, 21 buses) and run the daily rolling FOR on it. Goal is understanding: small enough to hand-check SOC trajectories, predict the FOR shape, and trace what each constraint does. Back to TR9-full: leave DetailLoadPattern empty. Back to the full feeder: set ReduceNetwork:=0.";
+		}
+		Procedure RunReducedTest_RollingMicro_LegacyWarm {
+			Body: {
+				FOR_SweepWarmStart := 1;   ! legacy: run MainExecution before every vertex solve
+				run RunReducedTest_RollingMicro;
+				FOR_SweepWarmStart := 0;   ! defensive reset: back to the production default
+			}
+			Comment: {
+				"A/B PARTNER of RunReducedTest_RollingMicro (one click): the same micro test with the legacy
+				per-direction MainExecution solve switched back ON. Since 2026-07-29 the default is OFF, so this
+				is the procedure that reproduces the OLD behaviour - use it to re-run the A/B after any change to
+				the sweep or after a solver/AIMMS upgrade. Compare the two FOR_rolling.csv files with
+				scripts/compare_FOR_runs.py. Time the RUNS with a clock, not with the CSV \'time\' column - that
+				column is FOR_VertexCont.SolutionTime only and does not see the solve this toggle adds.
+				Acceptance: \'proj\' must reproduce within ~2e-6 p.u. and no direction may change solve status;
+				P/Q are allowed to slide along a flat face. Measured 2026-07-29 on TR9_two: legacy 41m22s vs
+				default 10m12s, outputs bit-identical. See FOR_SweepWarmStart."
+			}
 		}
 		Procedure RunReducedTest_RollingDiag {
 			Body: {
@@ -2703,6 +3877,155 @@ Model Main_OPF_VI_LG {
 				EnableRollDiag := 0;       ! defensive reset
 			}
 			Comment: "TEST (one click) + DIAGNOSTIC: same as RunTR9, but for each failed direction inside RunFOR_Rolling, retry with (Pass 1) cyclic-SOC band relaxed to DiagCyclicBand (default 0.05), then (Pass 2) cyclic relaxed + GenP0 scaled by (1 - DiagPVcutFrac) (default 0.50). Attribution is written to FOR_rolling_diag.csv (cols: now,target,angle_deg,pass,status,P,Q,proj,time). Use to tell apart cyclic-SOC-bound vs PV-saturation-bound vs linearization-bound failures.";
+		}
+		Procedure RunMicro_GMP_Validate {
+			Body: {
+				! A/B COMPLETO de la migracion GMP sobre el banco micro (TR9_two, 12 baterias).
+				! Corre CUATRO veces el mismo caso: referencia y GMP, sin fairness y con m=1.
+				! El par con m=1 es el que ejercita GMP::Row::Deactivate/Activate - sin el, la
+				! migracion quedaria validada solo donde las filas de fairness no existen.
+				! Las referencias se re-generan aca en vez de usar los CSV historicos, porque
+				! aquellos son de AIMMS 26.1.3.1 y estos de 26.2.3.3.
+				! ~40 min. Comparar con scripts/compare_FOR_runs.py:
+				!   FOR_rolling_mAref.csv  vs  FOR_rolling_mAgmp.csv
+				!   FOR_rolling_mL1ref.csv vs  FOR_rolling_mL1gmp.csv
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "_two";
+				UseBattComp       := 0;
+
+				FairMode := 0;
+				RollUseGMP := 0;  RollGMPBaseline := 0;  RollFileSuffix := "_mAref";
+				run RunFOR_Rolling;
+				RollUseGMP := 1;  RollGMPBaseline := 1;  RollFileSuffix := "_mAgmp";
+				run RunFOR_Rolling;
+
+				FairMode := 1;
+				RollUseGMP := 0;  RollGMPBaseline := 0;  RollFileSuffix := "_mL1ref";
+				run RunFOR_Rolling;
+				RollUseGMP := 1;  RollGMPBaseline := 1;  RollFileSuffix := "_mL1gmp";
+				run RunFOR_Rolling;
+
+				FairMode          := 0;
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+				RollFileSuffix    := "";
+				DetailLoadPattern := "";
+			}
+			Comment: "A/B completo de la migracion GMP sobre el banco micro: cuatro corridas del mismo caso (referencia y GMP, FairMode 0 y 1) escritas a _mAref/_mAgmp/_mL1ref/_mL1gmp. El par con FairMode=1 valida la desactivacion de filas de fairness, que es lo que permite resolver el baseline desde la instancia del barrido con cualquier criterio. ~40 min. Las referencias se re-generan en la misma version de AIMMS para que la comparacion no arrastre el cambio 26.1.3.1 -> 26.2.3.3.";
+		}
+		Procedure RunMicro_Baseline {
+			Body: {
+				BaseDetailPattern := "_two";       ! same reduced network as the micro test bed
+				BaseFileTag       := "_micro";     ! -> FOR_rolling_baseline_micro.csv
+				run RunFOR_Rolling_Baseline;
+				BaseDetailPattern := "";           ! defensive reset: back to the feeder-wide baseline
+				BaseFileTag       := "";
+			}
+			Comment: {
+				"STAGE 0 (one click): the ALL-IDLE trajectory B(t) for the MICRO test bed ->
+				FOR_rolling_baseline_micro.csv. Needed to express the FOR as a DEVIATION region
+				(dP = P - B_P, dQ = Q - B_Q), which is the view to use for fairness and dispatch: the
+				absolute region is dominated by the feeder\'s passive imbalance, which swings ~3.3 MW
+				across the day and which nobody controls inside the service slot.
+				
+				Why a separate baseline instead of reusing FOR_rolling_baseline.csv: that one is computed
+				with DetailLoadPattern empty, i.e. TR9 in full. Under the micro filter \'_two\' the TR9 buses
+				outside the sub-cluster are DROPPED rather than lumped (ApplyNetworkReduction only lumps
+				EXCLUDED transformers), so the micro network carries less passive load and its all-idle PCC
+				is a genuinely different point. Mixing the two would compare regions against the wrong origin.
+				
+				CHEAP: every battery is fixed to zero, so there is no optimisation left - one determined
+				power flow over the 48-period window, not a 12-direction sweep."
+			}
+		}
+		Procedure RunMicro_FairL1 {
+			Body: {
+				FairMode    := 1;          ! C1 between PROSUMERS
+				FairFileTag := "_fairL1";
+				run RunReducedTest_RollingMicro;
+				FairMode    := 0;          ! defensive reset: back to case A
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between PROSUMERS. Writes FOR_rolling_fairL1.csv (+ _soc_, + the fairness log). ~10 min. Validate case A (RunReducedTest_RollingMicro, FairMode=0) FIRST and confirm it still reproduces the baseline exactly before trusting any fairness number.";
+		}
+		Procedure RunMicro_FairL2 {
+			Body: {
+				FairMode    := 2;          ! C1 between AGGREGATORS
+				FairFileTag := "_fairL2";
+				run RunReducedTest_RollingMicro;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 (one click): micro test bed under C1 fairness between AGGREGATORS. ~10 min. The micro bed carries all three aggregators with a 1/7/4 battery split (3.6 / 25.2 / 14.4 kW), which is far more unbalanced than TR9\'s 28/32/30 - so this is the SHARPER test of level 2, not a weaker one.";
+		}
+		Procedure RunTR9_FairL1 {
+			Body: {
+				FairMode    := 1;
+				FairFileTag := "_fairL1";
+				run RunTR9;                ! sets RollFileSuffix := '_TR9'; FairFileTag composes -> FOR_rolling_TR9_fairL1.csv
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between PROSUMERS. ~3h40. Run only after the micro bed passes.";
+		}
+		Procedure RunTR9_FairL2 {
+			Body: {
+				FairMode    := 2;
+				FairFileTag := "_fairL2";
+				run RunTR9;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: "STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between AGGREGATORS. ~3h40. Expect a SMALL contraction: TR9\'s three aggregators hold 28/32/30 prosumers by design, so their capacities are nearly equal and the level-2 constraint has little to bite on. That is a finding of the deliverable, not a defect - the micro bed\'s 1/7/4 split is where level 2 shows its teeth.";
+		}
+		Procedure RunMicro_FairL3 {
+			Body: {
+				FairMode    := 3;
+				FairFileTag := "_fairL3";
+				run RunReducedTest_RollingMicro;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: {
+				"STAGE 0 (one click): micro test bed under C1 fairness between PROSUMERS on the EXCHANGE (m=3, Prof. Luis 31-Jul-2026). ~10 min. Run this BEFORE the TR9 version. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment."
+			}
+		}
+		Procedure RunMicro_FairL4 {
+			Body: {
+				FairMode    := 4;
+				FairFileTag := "_fairL4";
+				run RunReducedTest_RollingMicro;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: {
+				"STAGE 0 (one click): micro test bed under C1 fairness between AGGREGATORS on the EXCHANGE (m=4). ~10 min. The micro bed\'s 1/7/4 aggregator split makes this the sharper test of level 4, exactly as it is for level 2. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment."
+			}
+		}
+		Procedure RunTR9_FairL3 {
+			Body: {
+				FairMode    := 3;
+				FairFileTag := "_fairL3";
+				run RunTR9;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: {
+				"STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between PROSUMERS on the EXCHANGE (m=3). ~3h40-4h. Run only after RunMicro_FairL3 passes. Unlike m=1, this one has genuinely heterogeneous capacities to work with - PV runs 1 to 4 kW across the fleet while the batteries are all 3.6 kW - so \'proportional\' no longer coincides with \'equal absolute\'. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment."
+			}
+		}
+		Procedure RunTR9_FairL4 {
+			Body: {
+				FairMode    := 4;
+				FairFileTag := "_fairL4";
+				run RunTR9;
+				FairMode    := 0;
+				FairFileTag := "";
+			}
+			Comment: {
+				"STAGE 0 PRODUCTION (one click): TR9 rolling FOR under C1 fairness between AGGREGATORS on the EXCHANGE (m=4). ~3h40-4h30. Budget MORE wall-clock than m=3: level 2 cost +19.9% against level 1 because it leaves the fleet many coupled degrees of freedom instead of collapsing it to one, and m=4 stands to m=3 the same way. FairCap switches to BattMaxP + the PV of the service instant automatically (keyed off FairMode), so s_i becomes the export capability actually available then, and no flag has to be remembered. Zeta > 0 means the fleet is exporting. TWO THINGS TO EXPECT: the bound is one-sided here, Zeta <= 1 holds by construction but Zeta >= -1 does NOT, so report the realised range rather than assuming it; and the criterion CAN be infeasible in some periods - a result, not a defect, see the constraint comment."
+			}
 		}
 	}
 	Section DOE_Dispatch {
@@ -2728,7 +4051,9 @@ Model Main_OPF_VI_LG {
 			ElementParameter DOE_AggOf {
 				IndexDomain: bat;
 				Range: DOE_Aggs;
-				Comment: "Aggregator of each battery/prosumer; set by DOE_AssignAggregators.";
+				Comment: {
+					"Aggregator of each battery/prosumer; set by DOE_AssignAggregators."
+				}
 			}
 			Parameter DOE_CapAgg {
 				IndexDomain: ag;
@@ -2740,7 +4065,7 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter DOE_Now {
 				Default: 25;
-				Comment: "Chosen rolling step (1..48). The dispatch happens at that step's service slot (window slot 2 = period now+1), starting from the realised SOC reconstructed by re-committing steps 1..DOE_Now.";
+				Comment: "Chosen rolling step (1..48). The dispatch happens at that step\'s service slot (window slot 2 = period now+1), starting from the realised SOC reconstructed by re-committing steps 1..DOE_Now.";
 			}
 			Parameter DOE_TargetP {
 				Default: 0;
@@ -2752,7 +4077,9 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter DOE_PinTol {
 				Default: 0.001;
-				Comment: "Half-width of the PCC pin band (p.u.). A hair of slack keeps re-pinned FOR-boundary points numerically feasible; 0.001 p.u. = 1 kW.";
+				Comment: {
+					"Half-width of the PCC pin band (p.u.). A hair of slack keeps re-pinned FOR-boundary points numerically feasible; 0.001 p.u. = 1 kW."
+				}
 			}
 			Parameter DOE_TiePen {
 				Default: 0.0001;
@@ -2768,7 +4095,7 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter DOE_ShareB {
 				IndexDomain: bat;
-				Comment: "Level-2 fair target per prosumer: its aggregator's allocation times BattMaxP share.";
+				Comment: "Level-2 fair target per prosumer: its aggregator\'s allocation times BattMaxP share.";
 			}
 			Parameter DOE_BandLo {
 				IndexDomain: bat;
@@ -2807,7 +4134,7 @@ Model Main_OPF_VI_LG {
 			Variable DOE_OF2 {
 				Range: free;
 				Definition: sum(bat | DOE_Stage, (DOE_NetB(bat) - DOE_ShareB(bat))^2) + DOE_TiePen*sum((bat,t) | DOE_Stage, BattP_Chg(bat,t) + BattP_Dis(bat,t));
-				Comment: "Level-2 fairness: squared deviation of each prosumer from its capacity-proportional share of its aggregator's allocation, + throughput tiebreaker.";
+				Comment: "Level-2 fairness: squared deviation of each prosumer from its capacity-proportional share of its aggregator\'s allocation, + throughput tiebreaker.";
 			}
 			Constraint DOE_PinP {
 				IndexDomain: ag | DOE_Stage and ord(ag) = 1;
@@ -2860,7 +4187,7 @@ Model Main_OPF_VI_LG {
 				DOE_AggOf(bat) := Element(DOE_Aggs, ceil(Uniform(0, 1) * DOE_NAggs));
 				display DOE_CapAgg;
 			}
-			Comment: "Random prosumer->aggregator split (Bernoulli per battery, seed DOE_Seed). Run after the network is loaded/reduced so only the study transformer's batteries are assigned.";
+			Comment: "Random prosumer->aggregator split (Bernoulli per battery, seed DOE_Seed). Run after the network is loaded/reduced so only the study transformer\'s batteries are assigned.";
 		}
 		Procedure DOE_PrepWindow {
 			Body: {
@@ -2943,13 +4270,13 @@ Model Main_OPF_VI_LG {
 					       method := 'deterministic concurrent', time_limit := 3000;
 				DOE_Stage := 0;
 			}
+			Comment: "Two-stage lexicographic fair dispatch at one requested PCC point. Leaves the level-2 solution in the model variables (DOE_NetB etc.) and the level-1 allocations in DOE_AggAlloc.";
 			Parameter TgtP {
 				Property: Input;
 			}
 			Parameter TgtQ {
 				Property: Input;
 			}
-			Comment: "Two-stage lexicographic fair dispatch at one requested PCC point. Leaves the level-2 solution in the model variables (DOE_NetB etc.) and the level-1 allocations in DOE_AggAlloc.";
 		}
 		Procedure RunDOE_Dispatch {
 			Body: {
@@ -3012,7 +4339,7 @@ Model Main_OPF_VI_LG {
 				RollCyclicSOC := 0;
 				CyclicSOCBand := 0;
 			}
-			Comment: "ENTRY POINT 1 - single-point fair dispatch. Set DOE_Now + DOE_TargetP/Q (a point inside that step's FOR, from FOR_rolling_<tag>.csv), optionally DOE_Seed/DOE_NAggs/DOE_TrafoTag, then run. Writes DOE_aggregators.csv (level-1 allocations) and DOE_dispatch.csv (per-prosumer dispatch vs fair share).";
+			Comment: "ENTRY POINT 1 - single-point fair dispatch. Set DOE_Now + DOE_TargetP/Q (a point inside that step\'s FOR, from FOR_rolling_<tag>.csv), optionally DOE_Seed/DOE_NAggs/DOE_TrafoTag, then run. Writes DOE_aggregators.csv (level-1 allocations) and DOE_dispatch.csv (per-prosumer dispatch vs fair share).";
 		}
 		Procedure RunDOE_Envelope {
 			Body: {
@@ -3087,11 +4414,11 @@ Model Main_OPF_VI_LG {
 				RollCyclicSOC := 0;
 				CyclicSOCBand := 0;
 			}
+			Comment: "ENTRY POINT 2 - per-prosumer DOE bands. Probes the max-export and max-import ends of step DOE_Now\'s FOR (two directional solves, slot 1 frozen), fair-dispatches lo/mid/hi, and writes each prosumer\'s [lo,mid,hi] band to DOE_envelopes.csv: the small DOEs the DSO sends down so every prosumer knows its range.";
 			Parameter DOE_ProbeLoP;
 			Parameter DOE_ProbeLoQ;
 			Parameter DOE_ProbeHiP;
 			Parameter DOE_ProbeHiQ;
-			Comment: "ENTRY POINT 2 - per-prosumer DOE bands. Probes the max-export and max-import ends of step DOE_Now's FOR (two directional solves, slot 1 frozen), fair-dispatches lo/mid/hi, and writes each prosumer's [lo,mid,hi] band to DOE_envelopes.csv: the small DOEs the DSO sends down so every prosumer knows its range.";
 		}
 	}
 	Section Validation {
@@ -3215,11 +4542,11 @@ Model Main_OPF_VI_LG {
 			Comment: "DumpFORNumbers: per-element loss parameters and the dump_*.csv files (loads, batteries, lines, trafos, slack, voltages, currents, scalars) for spreadsheet re-derivation.";
 			Parameter FOR_DBG_LineLoss {
 				IndexDomain: l;
-				Comment: "Audit dump: per-line real loss = Σ_f (Vstart−Vend)·I at PeriodMaxP.";
+				Comment: "Audit dump: per-line real loss = Î£_f (Vstartâˆ’Vend)Â·I at PeriodMaxP.";
 			}
 			Parameter FOR_DBG_TrLoss {
 				IndexDomain: tr;
-				Comment: "Audit dump: per-transformer real loss = Σ_f Vprim·Iprim − Vsec·Isec at PeriodMaxP.";
+				Comment: "Audit dump: per-transformer real loss = Î£_f VprimÂ·Iprim âˆ’ VsecÂ·Isec at PeriodMaxP.";
 			}
 			File FOR_DLoads {
 				Name: "dump_loads.csv";
@@ -3278,14 +4605,14 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator:=1;
-
+				
 				! --- settings: network ON, battery Q at PeriodMaxP, period 25 ---
 				IncludeNetworkConstraints := 1;
 				IncludeQforMaxP           := 1;
 				nPeriods                  := 48;
 				PeriodMaxP                := 25;
 				ResultsFileRoot           := "FOR_";
-
+				
 				! relaxed FOR: batteries may also charge at PeriodMaxP so the feeder can import (0 = article = discharge-only)
 				AllowChargeAtPmax := 1;   ! 0 = article ; 1 = relaxed
 				! fully-linear model so all 36 directions solve:
@@ -3293,32 +4620,32 @@ Model Main_OPF_VI_LG {
 				! set both to 0 for the exact model (then the 4 corners return NoSolution, bounded by neighbours).
 				FOR_PolyS         := 1;
 				FOR_LinearizeVmax := 1;
-
+				
 				! 1 = also write one workbook per vertex (slow, ~37 .xls); 0 = reference only. FOR_ref_25.xls always written.
 				FOR_WriteVertexXls := 1;
-
+				
 				! tiny cost-min tiebreaker: pulls off-period dispatch to the cost-min solution so the vertex .xls are not
 				! arbitrary, while keeping the period-25 vertex P/Q optimal. set 0 for previous behaviour.
 				FOR_TieEps := 1.0e-5;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
-
+				
 				! clear last sweep
 				empty FOR_Boundary, FOR_BndStatus, FOR_BndTime, FOR_BndProj;
 				empty FOR_FixUsed, FOR_VreSeed, FOR_VimSeed, FOR_SLPIter;
 				FOR_HaveSeed := 0;
-
+				
 				! --- sweep + rescue knobs ---
 				FOR_nAngles   := 36;   ! number of scan directions (every 10 deg)
 				FOR_nSteps    := 8;    ! continuation steps used only by the rescue path
 				FOR_DampAlpha := 0.6;  ! re-linearization damping (0..1)
-
+				
 				! --- SLP knobs: linearized Vmax can sit ~0.5-1.5% over the true 1.10 cap. after each solve, if the true
 				! overvoltage exceeds FOR_OVtol, re-linearize at the solved voltages and re-solve (1-2 passes). ---
 				FOR_SLPMaxIter := 10;       ! damped steps + stall-resets need headroom
 				FOR_OVtol      := 0.0005;   ! p.u. (VmaxTrue <= ~1.1005)
-
+				
 				! --- reference solve: force the EXACT model (3 toggles -> 0), solve the same cost-min OPF at p25 and write
 				! FOR_ref_25.xls in NC_Q_25 format to check faithfulness, then restore the toggles. fully reversible. ---
 				FOR_RefSave_ACAP := AllowChargeAtPmax;
@@ -3337,37 +4664,37 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax := FOR_RefSave_ACAP;
 				FOR_PolyS         := FOR_RefSave_PolS;
 				FOR_LinearizeVmax := FOR_RefSave_LVmx;
-
+				
 				! --- directional scan: rotate the objective angle; each solve gives one boundary point of the FOR ---
 				for (ia) do
 					FOR_Angle    := FOR_AngleDeg(ia);
 					FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
-
+				
 					! attempt 1: clean baseline (Vre0/Vim0 reset to flat, warm-started from the cost-min OPF). FOR_Lambda=1 = pure direction.
 					empty allvariables;
 					run Load_data_dsn;
 					run MainExecution;
-
+				
 					FOR_Lambda := 1;
 					solve FOR_VertexCont
 						where  MIP_Relative_Optimality_Tolerance := 0.01,
 						       time_limit := 3000;
-
+				
 					FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
 					FOR_BndTime(ia)   := FOR_VertexCont.SolutionTime;
 					FOR_FixUsed(ia)   := "direct";
-
+				
 					! attempt 2: if not optimal, re-solve same model with stronger numerics
 					! (Gurobi reported numerical breakdown, NOT infeasibility, on far-from-nominal directions).
 					if FOR_VertexCont.ProgramStatus <> 'Optimal' and
 					   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
-
+				
 						solve FOR_VertexCont
 							where  MIP_Relative_Optimality_Tolerance := 0.01,
 							       numeric_focus       := 3,
 							       barrier_homogeneous := 1,
 							       time_limit          := 1500;
-
+				
 						FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
 						FOR_BndTime(ia)   := FOR_BndTime(ia)
 						                    + FOR_VertexCont.SolutionTime;
@@ -3376,23 +4703,23 @@ Model Main_OPF_VI_LG {
 							FOR_FixUsed(ia) := "numeric";
 						endif;
 					endif;
-
+				
 					! attempt 3: still stuck -> re-linearize around the last solved direction (a neighbour in scan order) and warm-start from it.
 					if (FOR_VertexCont.ProgramStatus <> 'Optimal' and
 					    FOR_VertexCont.ProgramStatus <> 'LocallyOptimal') and
 					   FOR_HaveSeed = 1 then
-
+				
 						Vre0(n,f,t) := FOR_VreSeed(n,f,t);
 						Vim0(n,f,t) := FOR_VimSeed(n,f,t);
 						Vre(n,f,t)  := FOR_VreSeed(n,f,t);
 						Vim(n,f,t)  := FOR_VimSeed(n,f,t);
-
+				
 						solve FOR_VertexCont
 							where  MIP_Relative_Optimality_Tolerance := 0.01,
 							       numeric_focus       := 3,
 							       barrier_homogeneous := 1,
 							       time_limit          := 1500;
-
+				
 						FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
 						FOR_BndTime(ia)   := FOR_BndTime(ia)
 						                    + FOR_VertexCont.SolutionTime;
@@ -3401,11 +4728,11 @@ Model Main_OPF_VI_LG {
 							FOR_FixUsed(ia) := "reseed";
 						endif;
 					endif;
-
+				
 					! record only if some attempt solved
 					if FOR_VertexCont.ProgramStatus = 'Optimal' or
 					   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
-
+				
 						! store P,Q + Tier-2 AC checks + CustPtot/Ploss. re-run inside the SLP loop so the CSV keeps the best point.
 						FOR_Boundary(ia, 'P') := P_PCC(PeriodMaxP);
 						FOR_Boundary(ia, 'Q') := Q_PCC(PeriodMaxP);
@@ -3417,7 +4744,7 @@ Model Main_OPF_VI_LG {
 						FOR_LinErrMax(ia)    := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
 						FOR_CustPtot(ia) := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
 						FOR_Ploss(ia)    := P_PCC(PeriodMaxP) - FOR_CustPtot(ia);
-
+				
 						! optional: write this vertex full dispatch as FOR_v<ord(ia)>_25.xls (the converged solve BEFORE the SLP cleanup).
 						if FOR_WriteVertexXls = 1 then
 							run ComputeMetrics;
@@ -3425,7 +4752,7 @@ Model Main_OPF_VI_LG {
 							run WriteResultstoExcel;
 							ResultsFileRoot := "FOR_";
 						endif;
-
+				
 						! SLP refinement: re-linearize toward the solved voltages to pull the true overvoltage onto the cap.
 						! damped step (move Vre0/Vim0 a fraction FOR_Alpha toward best); keep best + shrink alpha on a bad pass so it can never degrade.
 						FOR_SLPIter(ia)    := 0;
@@ -3443,17 +4770,17 @@ Model Main_OPF_VI_LG {
 							              + FOR_Alpha*(FOR_VimGood(n,f,t) - Vim0(n,f,t));
 							Vre(n,f,t)  := FOR_VreGood(n,f,t);
 							Vim(n,f,t)  := FOR_VimGood(n,f,t);
-
+				
 							solve FOR_VertexCont
 								where  MIP_Relative_Optimality_Tolerance := 0.01,
 								       numeric_focus       := 3,
 								       barrier_homogeneous := 1,
 								       time_limit          := 1500;
-
+				
 							FOR_BndTime(ia) := FOR_BndTime(ia)
 							                  + FOR_VertexCont.SolutionTime;
 							FOR_SLPIter(ia) := FOR_SLPIter(ia) + 1;
-
+				
 							if FOR_VertexCont.ProgramStatus = 'Optimal' or
 							   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
 								FOR_OVcur := max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)));
@@ -3494,12 +4821,12 @@ Model Main_OPF_VI_LG {
 								endif;
 							endif;
 						endwhile;
-
+				
 						! tag if SLP ran
 						if FOR_SLPIter(ia) > 0 then
 							FOR_FixUsed(ia) := FOR_FixUsed(ia) + "+slp";
 						endif;
-
+				
 						! seed the next direction attempt-3 with the best voltages
 						FOR_VreSeed(n,f,t) := FOR_VreGood(n,f,t);
 						FOR_VimSeed(n,f,t) := FOR_VimGood(n,f,t);
@@ -3508,7 +4835,7 @@ Model Main_OPF_VI_LG {
 						FOR_FixUsed(ia) := "FAILED";
 					endif;
 				endfor;
-
+				
 				! --- write boundary CSV for the Python plot (widen page so the 14-col rows do not wrap) ---
 				FOR_CSV.PageWidth := 32767;
 				put FOR_CSV;
@@ -3517,7 +4844,7 @@ Model Main_OPF_VI_LG {
 					put FOR_AngleDeg(ia):6:1, ",", FOR_Boundary(ia,'P'):14:6, ",", FOR_Boundary(ia,'Q'):14:6, ",", FOR_BndProj(ia):14:6, ",", FOR_BndStatus(ia), ",", FOR_BndTime(ia):12:2, ",", FOR_VminTrue(ia):10:5, ",", FOR_VmaxTrue(ia):10:5, ",", FOR_UndervoltViol(ia):10:5, ",", FOR_OvervoltViol(ia):10:5, ",", FOR_LinErrMax(ia):12:6, ",", FOR_CustPtot(ia):14:6, ",", FOR_Ploss(ia):14:6, ",", FOR_FixUsed(ia), ",", FOR_SLPIter(ia):4:0 / ;
 				endfor;
 				putclose FOR_CSV;
-
+				
 				display FOR_Boundary, FOR_BndStatus, FOR_BndTime,
 				        FOR_VminTrue, FOR_VmaxTrue, FOR_UndervoltViol,
 				        FOR_OvervoltViol, FOR_LinErrMax,
@@ -3542,11 +4869,11 @@ Model Main_OPF_VI_LG {
 				! the EXACT model is a QCP - use the NEW mathprog generator so the
 				! quadratic constraints reach Gurobi (the legacy one is LP-only here)
 				option disable_new_mathprog_generator := 0;
-
+				
 				! --- TR9 network reduction (fast): keep TR9 detailed, lump TR1-8 ---
 				ReduceNetwork := 1;
 				DetailTagCSV  := "TR9";
-
+				
 				! --- base settings (mirror RunFOR_4Vertices) ---
 				IncludeNetworkConstraints := 1;
 				IncludeQforMaxP           := 1;
@@ -3556,13 +4883,13 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax         := 1;
 				FOR_WriteVertexXls        := 0;
 				FOR_TieEps                := 1.0e-5;
-
+				
 				! --- THE EXPERIMENT: exact quadratic constraints ---
 				FOR_PolyS         := 0;   ! exact inverter S-circle: BattP_Balance^2 + Qinv^2 <= BattMaxP^2
 				FOR_LinearizeVmax := 0;   ! exact voltage cap:       Vre^2 + Vim^2 <= MaxV^2
 				FOR_ScaleInv      := 0;   ! per-unit rescaling tried (did not help) -> isolate the warm-start lever
 				FOR_WarmFromLin   := 0;   ! CPLEX solves the exact QCQP directly from cost-min; no linearized predictor needed (set 1 only for the Gurobi warm-start experiment)
-
+				
 				! --- loosen the solver "acceptable error" + scaling (Prof. Luis).
 				!     The exact QCP hit Gurobi "unrecoverable numerical difficulties"
 				!     (a numeric breakdown, NOT infeasibility). Looser tolerances and
@@ -3571,26 +4898,26 @@ Model Main_OPF_VI_LG {
 				option Feasibility_Tolerance         := 1.0e-3;
 				option Barrier_Convergence_Tolerance := 1.0e-2;
 				option Scaling_Flag                  := 2;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
-
+				
 				empty FOR_Boundary, FOR_BndStatus, FOR_BndTime, FOR_BndProj;
 				empty FOR_FixUsed, FOR_VreSeed, FOR_VimSeed, FOR_SLPIter;
 				FOR_HaveSeed := 0;
-
+				
 				FOR_nAngles := 36;   ! full scan (every 10 deg); drop to 4 for a quick smoke test
-
+				
 				! --- directional scan with the EXACT (QCQP) model + robust barrier ---
 				for (ia) do
 					FOR_Angle    := FOR_AngleDeg(ia);
 					FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
-
+				
 					! clean warm start from the cost-min OPF
 					empty allvariables;
 					run Load_data_dsn;
 					run MainExecution;
-
+				
 					! --- PREDICTOR: solve the well-conditioned LINEARIZED model for this direction,
 					!     then re-linearize the loads AT that boundary point (Vre0/Vim0 := solved Vre/Vim)
 					!     and let the exact solve below warm-start from it. Targets conditioning sources
@@ -3610,7 +4937,7 @@ Model Main_OPF_VI_LG {
 						FOR_PolyS         := 0;
 						FOR_LinearizeVmax := 0;
 					endif;
-
+				
 					FOR_Lambda := 1;
 					! robust barrier FROM the first attempt (failure mode was numeric, not infeasibility)
 					solve FOR_VertexCont
@@ -3618,11 +4945,11 @@ Model Main_OPF_VI_LG {
 						       numeric_focus       := 3,
 						       barrier_homogeneous := 1,
 						       time_limit          := 3000;
-
+				
 					FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
 					FOR_BndTime(ia)   := FOR_VertexCont.SolutionTime;
 					FOR_FixUsed(ia)   := "exact";
-
+				
 					! retry: reseed from the last solved neighbour
 					if (FOR_VertexCont.ProgramStatus <> 'Optimal' and
 					    FOR_VertexCont.ProgramStatus <> 'LocallyOptimal') and
@@ -3643,7 +4970,7 @@ Model Main_OPF_VI_LG {
 							FOR_FixUsed(ia) := "exact+reseed";
 						endif;
 					endif;
-
+				
 					! record if solved. NO SLP: the exact cap has no overshoot to refine.
 					if FOR_VertexCont.ProgramStatus = 'Optimal' or
 					   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
@@ -3665,7 +4992,7 @@ Model Main_OPF_VI_LG {
 						FOR_FixUsed(ia) := "FAILED";
 					endif;
 				endfor;
-
+				
 				! --- write the exact-run boundary to its own csv (same columns as FOR_boundary.csv) ---
 				FOR_CSV_Exact.PageWidth := 32767;
 				put FOR_CSV_Exact;
@@ -3674,14 +5001,14 @@ Model Main_OPF_VI_LG {
 					put FOR_AngleDeg(ia):6:1, ",", FOR_Boundary(ia,'P'):14:6, ",", FOR_Boundary(ia,'Q'):14:6, ",", FOR_BndProj(ia):14:6, ",", FOR_BndStatus(ia), ",", FOR_BndTime(ia):12:2, ",", FOR_VminTrue(ia):10:5, ",", FOR_VmaxTrue(ia):10:5, ",", FOR_UndervoltViol(ia):10:5, ",", FOR_OvervoltViol(ia):10:5, ",", FOR_LinErrMax(ia):12:6, ",", FOR_CustPtot(ia):14:6, ",", FOR_Ploss(ia):14:6, ",", FOR_FixUsed(ia), ",", FOR_SLPIter(ia):4:0 / ;
 				endfor;
 				putclose FOR_CSV_Exact;
-
+				
 				! --- restore production defaults (exact + full feeder) ---
 				FOR_PolyS         := 0;
 				FOR_LinearizeVmax := 0;
 				FOR_ScaleInv      := 0;
 				FOR_WarmFromLin   := 0;
 				ReduceNetwork     := 0;
-
+				
 				display FOR_Boundary, FOR_BndStatus, FOR_FixUsed, FOR_VmaxTrue, FOR_OvervoltViol;
 			}
 			Comment: "EXPERIMENT (Prof. Luis): TR9-reduced FOR scan with EXACT quadratic constraints (FOR_PolyS=0, FOR_LinearizeVmax=0) and robust Gurobi barrier from attempt 1 - no linearization, no SLP. Writes FOR_boundary_TR9_exact.csv to compare with the linearized FOR_boundary.csv. Optional commented tolerance lines loosen the acceptable error. Reversible: restores FOR_PolyS=0, FOR_LinearizeVmax=0 (production exact config), ReduceNetwork=0.";
@@ -3703,7 +5030,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator := 0;
-
+				
 				ReduceNetwork := 1;
 				DetailTagCSV  := "TR9";
 				IncludeNetworkConstraints := 1;
@@ -3714,38 +5041,38 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax         := 1;
 				FOR_WriteVertexXls        := 0;
 				FOR_TieEps                := 1.0e-5;
-
+				
 				! --- LINEARIZED capability model (the historical whole-feeder config, minus SLP) ---
 				FOR_PolyS         := 1;   ! polygon (16-gon) inverter S-cone
 				FOR_LinearizeVmax := 1;   ! tangent-plane voltage cap
 				FOR_ScaleInv      := 0;
 				FOR_WarmFromLin   := 0;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
-
+				
 				empty FOR_Boundary, FOR_BndStatus, FOR_BndTime, FOR_BndProj;
 				empty FOR_FixUsed, FOR_SLPIter;
-
+				
 				FOR_nAngles := 36;   ! every 10 deg (match the exact run)
-
+				
 				for (ia) do
 					FOR_Angle    := FOR_AngleDeg(ia);
 					FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
-
+				
 					empty allvariables;
 					run Load_data_dsn;
 					run MainExecution;
-
+				
 					FOR_Lambda := 1;
 					solve FOR_VertexCont
 						where  MIP_Relative_Optimality_Tolerance := 0.01,
 						       time_limit := 1500;
-
+				
 					FOR_BndStatus(ia) := FOR_VertexCont.ProgramStatus;
 					FOR_BndTime(ia)   := FOR_VertexCont.SolutionTime;
 					FOR_FixUsed(ia)   := "linearized";
-
+				
 					if FOR_VertexCont.ProgramStatus = 'Optimal' or
 					   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
 						FOR_Boundary(ia,'P') := P_PCC(PeriodMaxP);
@@ -3763,7 +5090,7 @@ Model Main_OPF_VI_LG {
 						FOR_FixUsed(ia) := "FAILED";
 					endif;
 				endfor;
-
+				
 				! --- write the linearized boundary (same columns as the exact run) ---
 				FOR_CSV_Lin.PageWidth := 32767;
 				put FOR_CSV_Lin;
@@ -3772,14 +5099,14 @@ Model Main_OPF_VI_LG {
 					put FOR_AngleDeg(ia):6:1, ",", FOR_Boundary(ia,'P'):14:6, ",", FOR_Boundary(ia,'Q'):14:6, ",", FOR_BndProj(ia):14:6, ",", FOR_BndStatus(ia), ",", FOR_BndTime(ia):12:2, ",", FOR_VminTrue(ia):10:5, ",", FOR_VmaxTrue(ia):10:5, ",", FOR_UndervoltViol(ia):10:5, ",", FOR_OvervoltViol(ia):10:5, ",", FOR_LinErrMax(ia):12:6, ",", FOR_CustPtot(ia):14:6, ",", FOR_Ploss(ia):14:6, ",", FOR_FixUsed(ia), ",", FOR_SLPIter(ia):4:0 / ;
 				endfor;
 				putclose FOR_CSV_Lin;
-
+				
 				! --- restore production defaults (exact) ---
 				FOR_PolyS         := 0;
 				FOR_LinearizeVmax := 0;
 				FOR_ScaleInv      := 0;
 				FOR_WarmFromLin   := 0;
 				ReduceNetwork     := 0;
-
+				
 				display FOR_Boundary, FOR_BndStatus, FOR_VmaxTrue, FOR_OvervoltViol;
 			}
 			Comment: "Linearized companion to RunFOR_TR9_Exact: same TR9-reduced/period-25/36-dir scan with the polygon S-cone + tangent Vmax (FOR_PolyS=1, FOR_LinearizeVmax=1), NO SLP -> the raw linearized (outer) boundary. Writes FOR_boundary_TR9_lin.csv (records VmaxTrue/OVviol so the import-side overshoot vs the exact run is visible). Well-conditioned (solves under Gurobi or CPLEX). For the exact-vs-linearized comparison figure.";
@@ -3789,7 +5116,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator:=1;
-
+				
 				! force the exact article model (clears any toggle state left from a previous run)
 				IncludeNetworkConstraints := 1;
 				IncludeQforMaxP           := 1;
@@ -3799,7 +5126,7 @@ Model Main_OPF_VI_LG {
 				FOR_PolyS                 := 0;
 				FOR_LinearizeVmax         := 0;
 				FOR_TieEps                := 0;     ! reference is exact cost-min; no tiebreaker
-
+				
 				empty allvariables;
 				run Load_data_dsn;
 				run MainExecution;
@@ -3815,7 +5142,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator := 1;
-
+				
 				! ---- shared paper-compatible toggles (NC-Q case) -- FULL FEEDER ----
 				ReduceNetwork             := 0;        ! FULL feeder for paper reproduction; set 1 + DetailTagCSV:="TR9" (+ DetailLoadPattern:="_two") for fast micro
 				DetailTagCSV              := "";
@@ -3830,42 +5157,42 @@ Model Main_OPF_VI_LG {
 				FOR_LinearizeVmax         := 1;        ! linearized Vmax for the same reason. Applied identically to Stage Paper and Stage Rolling so the equivalence test stays apples-to-apples.
 				EnableRollDiag            := 0;
 				ResultsFileRoot           := "FOR_";
-
+				
 				! ============ STAGE SC: self-consumption only (no service request) ============
 				empty allvariables;
 				run Load_data_dsn;
 				run MinOFminImports;                                                          ! pure self-consumption baseline
-
+				
 				Cmp_scP := P_PCC('25');                                                       ! evaluate at the same real period for the comparison
 				Cmp_scQ := Q_PCC('25');
-
+				
 				! ============ STAGE Paper: paper-style single solve at t=25 ============
 				PeriodMaxP := 25;
 				empty allvariables;
 				run Load_data_dsn;
 				run MainExecution;
-
+				
 				Cmp_paperP := P_PCC(PeriodMaxP);
 				Cmp_paperQ := Q_PCC(PeriodMaxP);
-
+				
 				! SOC of each battery at end of t=24 (= start of t=25) under Stage Paper's optimal plan
 				Cmp_SOC_t24(bat) := BattSOCini(bat)
 					+ sum(t | ord(t) <= 24,
 					      (BattP_Chg(bat,t)*etaChg(bat)
 					       - BattP_Dis(bat,t)/etaDis(bat))
 					      * DeltaT / BattEcap(bat));
-
+				
 				! snapshot un-rotated inputs so Stage Rolling can rotate them
 				P0raw(d,t)    := P0(d,t);
 				Q0raw(d,t)    := Q0(d,t);
 				GenP0raw(d,t) := GenP0(d,t);
 				Irrraw(t)     := Irradiance(t);
-
+				
 				! ============ STAGE Rolling: rolling step at now=24, target slot 2 = real t=25 ============
 				PeriodMaxP  := 2;                                                            ! service slot inside the wrapped window
 				RollNow     := 24;
 				RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
-
+				
 				empty allvariables;
 				run Load_data_dsn;
 				P0(d,tt)        := P0raw(d, RollMap(tt));
@@ -3873,10 +5200,10 @@ Model Main_OPF_VI_LG {
 				GenP0(d,tt)     := GenP0raw(d, RollMap(tt));
 				Irradiance(tt)  := Irrraw(RollMap(tt));
 				BattSOCini(bat) := Cmp_SOC_t24(bat);                                          ! same battery state Stage Paper would have at t=24
-
+				
 				! attempt 1: standard solve (succeeds on micro and most full-feeder cases)
 				run MainExecution;
-
+				
 				! attempt 2: numeric-focus retry if Gurobi hit unrecoverable difficulties
 				! (the wrapped window starting from saturated noon SOC can be ill-conditioned)
 				if MinImportsMaxReverseP.ProgramStatus <> 'Optimal' and
@@ -3887,14 +5214,14 @@ Model Main_OPF_VI_LG {
 						       barrier_homogeneous := 1,
 						       time_limit          := 3000;
 				endif;
-
+				
 				Cmp_rollingP := P_PCC(PeriodMaxP);
 				Cmp_rollingQ := Q_PCC(PeriodMaxP);
-
+				
 				! ============ post-process: volumes of services and relative percentages ============
 				Cmp_volumeP := Cmp_paperP - Cmp_scP;
 				Cmp_volumeQ := Cmp_paperQ - Cmp_scQ;
-
+				
 				Cmp_relP := 0;
 				if abs(Cmp_paperP) > 0.000001 then
 					Cmp_relP := (Cmp_rollingP - Cmp_paperP) / abs(Cmp_paperP) * 100;
@@ -3903,7 +5230,7 @@ Model Main_OPF_VI_LG {
 				if abs(Cmp_paperQ) > 0.000001 then
 					Cmp_relQ := (Cmp_rollingQ - Cmp_paperQ) / abs(Cmp_paperQ) * 100;
 				endif;
-
+				
 				! ============ write side-by-side comparison CSV ============
 				FOR_CompareCSV.PageWidth := 32767;
 				put FOR_CompareCSV;
@@ -3928,7 +5255,7 @@ Model Main_OPF_VI_LG {
 					put bat:24, ",", Cmp_SOC_t24(bat):10:6 / ;
 				endfor;
 				putclose FOR_CompareCSV;
-
+				
 				display Cmp_scP, Cmp_paperP, Cmp_rollingP, Cmp_volumeP, Cmp_scQ, Cmp_paperQ, Cmp_rollingQ, Cmp_volumeQ;
 			}
 			Comment: {
@@ -3944,7 +5271,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator := 1;
-
+				
 				IncludeNetworkConstraints := 1;
 				IncludeQforMaxP           := 1;
 				nPeriods                  := 48;
@@ -3953,51 +5280,51 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax         := 1;   ! relaxed (same as 36-angle run)
 				FOR_PolyS                 := 1;
 				FOR_LinearizeVmax         := 1;
-
+				
 				FOR_Angle    := 180;
 				FOR_AngleRad := 180 * 4*arctan(1) / 180;
 				FOR_Lambda   := 1;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
 				run MainExecution;
-
+				
 				solve FOR_VertexCont
 					where  MIP_Relative_Optimality_Tolerance := 0.01,
 					       numeric_focus       := 3,
 					       barrier_homogeneous := 1,
 					       time_limit          := 1500;
-
+				
 				FOR_StatCur := FOR_VertexCont.ProgramStatus;
-
+				
 				if FOR_VertexCont.ProgramStatus = 'Optimal' or
 				   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
-
+				
 					! ---- (b) component decomposition at PeriodMaxP ----
 					FOR_LB_D := sum(d, P0(d,PeriodMaxP));
 					FOR_LB_G := sum(d, GenP0(d,PeriodMaxP));
 					FOR_LB_B := sum(bat, BattP_Balance(bat,PeriodMaxP));
-
+				
 					! ---- (a) coverage : model sum vs all-node sum ----
 					FOR_LB_CustBat := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
 					FOR_LB_CustAll := sum((n,f), TotPcust(n,f,PeriodMaxP));
-
+				
 					FOR_LB_Ppcc     := P_PCC(PeriodMaxP);
 					FOR_LB_PlossRes := FOR_LB_Ppcc - FOR_LB_CustBat;
-
+				
 					! ---- (c) independent branch loss = sum (Pin - Pout) ----
 					FOR_LB_LineLoss := sum((l,f),
 					      (Vre(StartBus(l),f,PeriodMaxP) - Vre(EndBus(l),f,PeriodMaxP)) * Ire_Line(l,f,PeriodMaxP)
 					    + (Vim(StartBus(l),f,PeriodMaxP) - Vim(EndBus(l),f,PeriodMaxP)) * Iim_Line(l,f,PeriodMaxP) );
-
+				
 					FOR_LB_TrLoss := sum((tr,f),
 					      ( Vre(StartBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)
 					      + Vim(StartBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP) )
 					    - ( Vre(EndBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP)
 					      + Vim(EndBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP) ) );
-
+				
 					FOR_LB_PlossBr := FOR_LB_LineLoss + FOR_LB_TrLoss;
-
+				
 					FOR_LBCSV.PageWidth := 32767;
 					put FOR_LBCSV;
 					put "quantity,value,note" / ;
@@ -4016,7 +5343,7 @@ Model Main_OPF_VI_LG {
 					put "Ploss_branch,",      FOR_LB_PlossBr:14:6,  ",independent total (should match Ploss_residual)" / ;
 					put "Loss_discrepancy,",  (FOR_LB_PlossBr-FOR_LB_PlossRes):14:6, ",~0 proves the gap is I2R loss not missed demand" / ;
 					putclose FOR_LBCSV;
-
+				
 					display FOR_LB_D, FOR_LB_G, FOR_LB_B,
 					        FOR_LB_CustAll, FOR_LB_CustBat,
 					        FOR_LB_Ppcc, FOR_LB_PlossRes,
@@ -4039,7 +5366,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator := 1;
-
+				
 				! ---- MICRO toggles (TR9_two sub-cluster, 12 batteries + 9 no-battery loads) ----
 				ReduceNetwork             := 1;
 				DetailTagCSV              := "TR9";
@@ -4052,51 +5379,51 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax         := 1;
 				FOR_PolyS                 := 1;
 				FOR_LinearizeVmax         := 1;
-
+				
 				FOR_Angle    := 180;                    ! direction of max export (most-negative P at PCC)
 				FOR_AngleRad := 180 * 4*arctan(1) / 180;
 				FOR_Lambda   := 1;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
 				run MainExecution;
-
+				
 				solve FOR_VertexCont
 					where  MIP_Relative_Optimality_Tolerance := 0.01,
 					       numeric_focus       := 3,
 					       barrier_homogeneous := 1,
 					       time_limit          := 1500;
-
+				
 				FOR_StatCur := FOR_VertexCont.ProgramStatus;
-
+				
 				if FOR_VertexCont.ProgramStatus = 'Optimal' or
 				   FOR_VertexCont.ProgramStatus = 'LocallyOptimal' then
-
+				
 					! ---- component decomposition at PeriodMaxP ----
 					FOR_LB_D := sum(d, P0(d,PeriodMaxP));
 					FOR_LB_G := sum(d, GenP0(d,PeriodMaxP));
 					FOR_LB_B := sum(bat, BattP_Balance(bat,PeriodMaxP));
-
+				
 					! ---- coverage : model sum vs all-node sum ----
 					FOR_LB_CustBat := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
 					FOR_LB_CustAll := sum((n,f), TotPcust(n,f,PeriodMaxP));
-
+				
 					FOR_LB_Ppcc     := P_PCC(PeriodMaxP);
 					FOR_LB_PlossRes := FOR_LB_Ppcc - FOR_LB_CustBat;
-
+				
 					! ---- independent branch loss = sum (Pin - Pout) ----
 					FOR_LB_LineLoss := sum((l,f),
 					      (Vre(StartBus(l),f,PeriodMaxP) - Vre(EndBus(l),f,PeriodMaxP)) * Ire_Line(l,f,PeriodMaxP)
 					    + (Vim(StartBus(l),f,PeriodMaxP) - Vim(EndBus(l),f,PeriodMaxP)) * Iim_Line(l,f,PeriodMaxP) );
-
+				
 					FOR_LB_TrLoss := sum((tr,f),
 					      ( Vre(StartBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)
 					      + Vim(StartBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP) )
 					    - ( Vre(EndBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP)
 					      + Vim(EndBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP) ) );
-
+				
 					FOR_LB_PlossBr := FOR_LB_LineLoss + FOR_LB_TrLoss;
-
+				
 					FOR_LB_MicroCSV.PageWidth := 32767;
 					put FOR_LB_MicroCSV;
 					put "quantity,value,note" / ;
@@ -4116,7 +5443,7 @@ Model Main_OPF_VI_LG {
 					put "Ploss_branch,",      FOR_LB_PlossBr:14:6,  ",independent total (should match Ploss_residual)" / ;
 					put "Loss_discrepancy,",  (FOR_LB_PlossBr-FOR_LB_PlossRes):14:6, ",~0 proves the gap is true I2R loss" / ;
 					putclose FOR_LB_MicroCSV;
-
+				
 					display FOR_LB_D, FOR_LB_G, FOR_LB_B,
 					        FOR_LB_CustAll, FOR_LB_CustBat,
 					        FOR_LB_Ppcc, FOR_LB_PlossRes,
@@ -4128,7 +5455,7 @@ Model Main_OPF_VI_LG {
 					put "status,", FOR_StatCur, ",solve did NOT reach optimal - rerun" / ;
 					putclose FOR_LB_MicroCSV;
 				endif;
-
+				
 				! ---- defensive reset ----
 				DetailLoadPattern := "";
 			}
@@ -4142,7 +5469,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator := 1;
-
+				
 				IncludeNetworkConstraints := 1;
 				IncludeQforMaxP           := 1;
 				nPeriods                  := 48;
@@ -4151,34 +5478,34 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax         := 1;
 				FOR_PolyS                 := 1;
 				FOR_LinearizeVmax         := 1;
-
+				
 				FOR_Angle    := 180;
 				FOR_AngleRad := 180 * 4*arctan(1) / 180;
 				FOR_Lambda   := 1;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
 				run MainExecution;
-
+				
 				solve FOR_VertexCont
 					where  MIP_Relative_Optimality_Tolerance := 0.01,
 					       numeric_focus       := 3,
 					       barrier_homogeneous := 1,
 					       time_limit          := 1500;
-
+				
 				FOR_StatCur := FOR_VertexCont.ProgramStatus;
-
+				
 				FOR_CG_nBat(n,f)  := sum(bat | BattBus(bat)=n and BattPhase(bat)=f, 1);
 				FOR_CG_nLoad(n,f) := sum(d   | LoadBus(d)=n  and LoadPhase(d)=f,  1);
 				FOR_CG_Tot(n,f)   := TotPcust(n,f,PeriodMaxP);
-
+				
 				FOR_CG_SumAll     := sum((n,f), FOR_CG_Tot(n,f));
 				FOR_CG_SumBat     := sum(bat, TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP));
 				FOR_CG_Dup        := sum((n,f) | FOR_CG_nBat(n,f) > 1,
 				                         (FOR_CG_nBat(n,f) - 1) * FOR_CG_Tot(n,f));
 				FOR_CG_LoadNoBat  := sum((n,f) | FOR_CG_nBat(n,f) = 0 and FOR_CG_nLoad(n,f) > 0,
 				                         FOR_CG_Tot(n,f));
-
+				
 				FOR_CGCSV.PageWidth := 32767;
 				put FOR_CGCSV;
 				put "bus,phase,nBat,nLoad,TotPcust,contrib_batsum,contrib_allsum" / ;
@@ -4195,7 +5522,7 @@ Model Main_OPF_VI_LG {
 				put "DupTerm,,,,",       FOR_CG_Dup:14:6,       ",,(over-count from nodes with >1 battery)" / ;
 				put "LoadNoBatTerm,,,,", FOR_CG_LoadNoBat:14:6, ",,(TotPcust at load nodes with NO battery)" / ;
 				putclose FOR_CGCSV;
-
+				
 				display FOR_CG_SumAll, FOR_CG_SumBat, FOR_CG_Dup, FOR_CG_LoadNoBat;
 			}
 			Comment: "FOR - AUDIT. Per-(bus,phase) dump of battery count, load count and TotPcust. Writes diag_coverage.csv. Proves the CustPtot gap is entirely no-battery consumers (DupTerm=0).";
@@ -4207,7 +5534,7 @@ Model Main_OPF_VI_LG {
 				empty  Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
 				showprogresswindow;
 				option disable_new_mathprog_generator := 1;
-
+				
 				IncludeNetworkConstraints := 1;
 				IncludeQforMaxP           := 1;
 				nPeriods                  := 48;
@@ -4216,23 +5543,23 @@ Model Main_OPF_VI_LG {
 				AllowChargeAtPmax         := 1;
 				FOR_PolyS                 := 1;
 				FOR_LinearizeVmax         := 1;
-
+				
 				FOR_Angle    := 180;
 				FOR_AngleRad := 180 * 4*arctan(1) / 180;
 				FOR_Lambda   := 1;
-
+				
 				empty allvariables;
 				run Load_data_dsn;
 				run MainExecution;
-
+				
 				solve FOR_VertexCont
 					where  MIP_Relative_Optimality_Tolerance := 0.01,
 					       numeric_focus       := 3,
 					       barrier_homogeneous := 1,
 					       time_limit          := 1500;
-
+				
 				FOR_StatCur := FOR_VertexCont.ProgramStatus;
-
+				
 				if FOR_VertexCont.ProgramStatus <> 'Optimal' and
 				   FOR_VertexCont.ProgramStatus <> 'LocallyOptimal' then
 					FOR_DScal.PageWidth := 32767;
@@ -4248,7 +5575,7 @@ Model Main_OPF_VI_LG {
 					      + Vim(StartBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP) )
 					    - ( Vre(EndBusTr(tr),f,PeriodMaxP)*Ire_Trafo(tr,f,EndBusTr(tr),PeriodMaxP)
 					      + Vim(EndBusTr(tr),f,PeriodMaxP)*Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP) ) );
-
+				
 					! ---- per-load ----
 					FOR_DLoads.PageWidth := 32767;
 					put FOR_DLoads;
@@ -4259,7 +5586,7 @@ Model Main_OPF_VI_LG {
 						    (P0(d,PeriodMaxP)-GenP0(d,PeriodMaxP)):16:8 / ;
 					endfor;
 					putclose FOR_DLoads;
-
+				
 					! ---- per-battery ----
 					FOR_DBatt.PageWidth := 32767;
 					put FOR_DBatt;
@@ -4269,7 +5596,7 @@ Model Main_OPF_VI_LG {
 						    BattP_Balance(bat,PeriodMaxP):16:8 / ;
 					endfor;
 					putclose FOR_DBatt;
-
+				
 					! ---- per-line loss ----
 					FOR_DLines.PageWidth := 32767;
 					put FOR_DLines;
@@ -4279,7 +5606,7 @@ Model Main_OPF_VI_LG {
 						    FOR_DBG_LineLoss(l):16:8 / ;
 					endfor;
 					putclose FOR_DLines;
-
+				
 					! ---- per-transformer loss ----
 					FOR_DTraf.PageWidth := 32767;
 					put FOR_DTraf;
@@ -4289,7 +5616,7 @@ Model Main_OPF_VI_LG {
 						    FOR_DBG_TrLoss(tr):16:8 / ;
 					endfor;
 					putclose FOR_DTraf;
-
+				
 					! ---- per-slack-phase (P_PCC components) ----
 					FOR_DSlack.PageWidth := 32767;
 					put FOR_DSlack;
@@ -4304,7 +5631,7 @@ Model Main_OPF_VI_LG {
 						    + Vim_PCC(SlackGenPhase(sg))*Iim_SlackGen(sg,PeriodMaxP) ):16:8 / ;
 					endfor;
 					putclose FOR_DSlack;
-
+				
 					! ---- per-bus voltages (Vre, Vim, Vmag2approx) ----
 					FOR_DVolt.PageWidth := 32767;
 					put FOR_DVolt;
@@ -4316,7 +5643,7 @@ Model Main_OPF_VI_LG {
 						    Vmag2approx(n,f,PeriodMaxP):16:8 / ;
 					endfor;
 					putclose FOR_DVolt;
-
+				
 					! ---- per-line currents (Ire_Line, Iim_Line) ----
 					FOR_DLineI.PageWidth := 32767;
 					put FOR_DLineI;
@@ -4327,7 +5654,7 @@ Model Main_OPF_VI_LG {
 						    Iim_Line(l,f,PeriodMaxP):16:8 / ;
 					endfor;
 					putclose FOR_DLineI;
-
+				
 					! ---- per-transformer currents (start & end side) ----
 					FOR_DTrafI.PageWidth := 32767;
 					put FOR_DTrafI;
@@ -4340,7 +5667,7 @@ Model Main_OPF_VI_LG {
 						    Iim_Trafo(tr,f,EndBusTr(tr),PeriodMaxP):16:8 / ;
 					endfor;
 					putclose FOR_DTrafI;
-
+				
 					! ---- per-load/gen currents (Ire/Iim_Load, Ire/Iim_Gen) ----
 					FOR_DLoadI.PageWidth := 32767;
 					put FOR_DLoadI;
@@ -4353,7 +5680,7 @@ Model Main_OPF_VI_LG {
 						    Iim_Gen(d,PeriodMaxP):16:8 / ;
 					endfor;
 					putclose FOR_DLoadI;
-
+				
 					! ---- scalar cross-checks (AIMMS-side, to verify the sheet) ----
 					FOR_DScal.PageWidth := 32767;
 					put FOR_DScal;
@@ -4368,7 +5695,7 @@ Model Main_OPF_VI_LG {
 					put "Line_loss_total,",   sum(l, FOR_DBG_LineLoss(l)):16:8 / ;
 					put "Trafo_loss_total,",  sum(tr, FOR_DBG_TrLoss(tr)):16:8 / ;
 					putclose FOR_DScal;
-
+				
 					display FOR_StatCur;
 				endif;
 			}
@@ -4376,15 +5703,17 @@ Model Main_OPF_VI_LG {
 		}
 	}
 	Section ResultsOutput {
-		Comment: "Results writers. The rolling FOR writes its CSVs directly from RunFOR_Rolling; WriteResultstoExcel builds the 11-sheet workbook for the paper cases (RunOneCase/RunAllCases/RunBAU).";
+		Comment: {
+			"Results writers. The rolling FOR writes its CSVs directly from RunFOR_Rolling; WriteResultstoExcel builds the 11-sheet workbook for the paper cases (RunOneCase/RunAllCases/RunBAU)."
+		}
 		Procedure WriteResultstoExcel {
 			Body: {
 				axll::CloseAllWorkBooks;
-
+				
 				axll::CreateNewWorkBook(
 					WorkbookFilename:ResultsFile,
 					FirstSheetName:"BattP_Balance");
-
+				
 				axll::WriteTable(
 					IdentifierReference: BattP_Balance(bat,t),	!write BattP_Balance
 					RowHeaderRange:"A2:A1216",
@@ -4394,7 +5723,7 @@ Model Main_OPF_VI_LG {
 					WriteZeros:1,
 					includeEmptyRows:1,
 					includeEmptyColumns:1);
-
+				
 				axll::CreateSheet(SheetName:"SOC");	!write SOC
 				axll::WriteTable(
 					IdentifierReference: BattSOC(bat,t),
@@ -4405,7 +5734,7 @@ Model Main_OPF_VI_LG {
 					WriteZeros:1,
 					includeEmptyRows:1,
 					includeEmptyColumns:1);
-
+				
 				axll::CreateSheet(SheetName:"BattP_Chg");	!write BattP_Chg
 				axll::WriteTable(
 					IdentifierReference: BattP_Chg(bat,t),
@@ -4416,7 +5745,7 @@ Model Main_OPF_VI_LG {
 					WriteZeros:1,
 					includeEmptyRows:1,
 					includeEmptyColumns:1);
-
+				
 				axll::CreateSheet(SheetName:"BattP_Dis");	!write BattP_Dis
 				axll::WriteTable(
 					IdentifierReference: BattP_Dis(bat,t),
@@ -4427,7 +5756,7 @@ Model Main_OPF_VI_LG {
 					WriteZeros:1,
 					includeEmptyRows:1,
 					includeEmptyColumns:1);
-
+				
 				axll::CreateSheet(SheetName:"ChgDis");	!write ChgDis
 				axll::WriteTable(
 					IdentifierReference: ChgDis(bat,t),
@@ -4439,7 +5768,7 @@ Model Main_OPF_VI_LG {
 					includeEmptyRows:1,
 					includeEmptyColumns:1
 					);
-
+				
 				axll::CreateSheet(SheetName:"Qinv");	!write Qinv
 				axll::WriteTable(
 					IdentifierReference: Qinv(bat,t),
@@ -4451,7 +5780,7 @@ Model Main_OPF_VI_LG {
 					includeEmptyRows:1,
 					includeEmptyColumns:1
 					);
-
+				
 				!axll::CreateSheet(SheetName:"TotPCust");	!write TotPCust
 				!axll::WriteTable(
 				!	IdentifierReference:TotPCust(n,f,t),
@@ -4463,7 +5792,7 @@ Model Main_OPF_VI_LG {
 				!	includeEmptyRows:1,
 				!	includeEmptyColumns:1
 				!	);
-
+				
 				axll::CreateSheet(SheetName:"AllCustWithBatPtot");	!write AllCustWithBatPtot
 				axll::WriteTable(
 					IdentifierReference:AllCustWithBatPtot(t),
@@ -4474,7 +5803,7 @@ Model Main_OPF_VI_LG {
 					WriteZeros:1,
 					includeEmptyRows:1,
 					includeEmptyColumns:1);
-
+				
 				axll::CreateSheet(SheetName:"AllCustWithBatPtot_AggTr");	!write AllCustWithBatPtot_AggTr
 				!axll::WriteTable(
 				!	IdentifierReference:AllCustWithBatPtot_AggTr(tr,t),
@@ -4485,10 +5814,10 @@ Model Main_OPF_VI_LG {
 				!	WriteZeros:1,
 				!	includeEmptyRows:1,
 				!	includeEmptyColumns:1);
-
-
-
-
+				
+				
+				
+				
 				axll::CreateSheet(SheetName:"VmagExPost_PeriodMaxP");	!write VmagExPost_PeriodMaxP
 				axll::WriteTable(
 					IdentifierReference:VmagExPost_PeriodMaxP(n,f),
@@ -4497,7 +5826,7 @@ Model Main_OPF_VI_LG {
 					DataRange:"C1:C13737",
 					AllowRangeOverflow:1,
 					WriteZeros:1);
-
+				
 				axll::CreateSheet(SheetName:"LineUsage_PeriodMaxP");	!write LineUsage_PeriodMaxP
 				axll::WriteTable(
 					IdentifierReference:LineUsage_PeriodMaxP(l,f),
@@ -4506,7 +5835,7 @@ Model Main_OPF_VI_LG {
 					DataRange:"C1:C13707",
 					AllowRangeOverflow:1,
 					WriteZeros:1);
-
+				
 				axll::CreateSheet(SheetName:"TrafoUsage_PeriodMaxP");	!write TrafoUsage_PeriodMaxP
 				axll::WriteTable(
 					IdentifierReference:TrafoUsage_PeriodMaxP(tr,f),
@@ -4515,8 +5844,8 @@ Model Main_OPF_VI_LG {
 					DataRange:"C1:C27",
 					AllowRangeOverflow:1,
 					WriteZeros:1);
-
-
+				
+				
 				axll::CloseAllWorkBooks;
 			}
 		}
@@ -4531,9 +5860,9 @@ Model Main_OPF_VI_LG {
 			Conversions: minute->s : #-># * 60;
 			Comment: {
 				"Expresses the value for the duration of periods.
-
+				
 				The unit s has been added automatically because it is a required unit for AimmsWebUI.
-
+				
 				The unit minute has been added automatically because it is a required unit for AimmsWebUI."
 			}
 		}
