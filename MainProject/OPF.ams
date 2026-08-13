@@ -2213,6 +2213,22 @@ Model Main_OPF_VI_LG {
 				Default: 0;
 				Comment: "EXPERIMENT toggle: 1 = RunFOR_Rolling skips the 12-direction FOR sweep and writes only the committed self-consumption dispatch (the soc CSV), ~48 solves. 0 = production (full sweep).";
 			}
+			Parameter BaseNoNetwork {
+				Default: 0;
+				Comment: {
+					"EXPERIMENT toggle (Prof. Luis, 2026-08): 1 = RunFOR_Rolling sets
+					IncludeNetworkConstraints to 0, so the committed self-consumption baseline is the
+					battery/energy model only - no voltage, thermal or power-flow rows. Tests whether the
+					network ever binds on the slot-1 dispatch (hypothesis: it does not - imports are
+					SOC-floor-limited and midday export is saturation-forced, with the network solve only
+					choosing Q to hold Vmax).
+
+					ONLY meaningful together with BaselineOnly = 1: the toggle is read once at the top of
+					RunFOR_Rolling, so with the sweep enabled it would strip the network from the FOR
+					directions too and the sweep would no longer measure the network-feasible region.
+					0 = production.";
+				}
+			}
 			Parameter SOCFloorOverride {
 				Default: -1;
 				Comment: "EXPERIMENT toggle: >=0 overrides every battery\'s BattSOCmin (the MinSOC_def floor) with this value AFTER each Load_data_dsn reset inside RunFOR_Rolling, e.g. 0.0 = allow full discharge. -1 (default) = off, DB floor untouched (production).";
@@ -2572,7 +2588,7 @@ Model Main_OPF_VI_LG {
 				! production config: EXACT quadratic inverter S-circle + exact Vmax (convex QCP, CPLEX barrier);
 				! tractable per transformer on the reduced network. Set both toggles to 1 for the linearized
 				! (polygon + tangent-Vmax) variant used in the historical whole-feeder runs.
-				IncludeNetworkConstraints := 1;
+				IncludeNetworkConstraints := 1 - BaseNoNetwork;   ! production 1; BaseNoNetwork=1 (baseline-only experiment) drops the NetworkModel section
 				IncludeQforMaxP           := 1;
 				nPeriods                  := 48;
 				ResultsFileRoot           := "FOR_";
@@ -3389,6 +3405,51 @@ Model Main_OPF_VI_LG {
 				RollGMPBaseline   := 0;
 			}
 			Comment: "A/B PARTNER of RunTR8: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR8_gmp.csv. Compare against FOR_rolling_TR8.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR4_Base_Net {
+			Body: {
+				! EXPERIMENT CONTROL (Prof. Luis, baseline-without-network test), step 1 of 2.
+				! Baseline-only TR4 run WITH the network: the same 48 committed self-consumption
+				! solves the production run makes, sweep skipped. Writes FOR_rolling_soc_TR4_basenet.csv
+				! only - production TR4 files are NOT touched.
+				! Purpose: prove the BaselineOnly harness reproduces the production committed dispatch
+				! (compare vs FOR_rolling_soc_TR4_gmp.csv, expect Chg1/Dis1/SOC identical), so any
+				! difference seen in RunTR4_Base_NoNet is attributable to the network constraints alone.
+				UseBattComp       := 0;
+				BaselineOnly      := 1;
+				RollFileSuffix    := "_TR4_basenet";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				BaselineOnly      := 0;
+			}
+			Comment: "EXPERIMENT CONTROL: TR4 committed baseline only (48 solves, no sweep), network constraints ON, suffix _TR4_basenet. Expect Chg1/Dis1/SOC identical to FOR_rolling_soc_TR4_gmp.csv. Run before RunTR4_Base_NoNet.";
+		}
+		Procedure RunTR4_Base_NoNet {
+			Body: {
+				! EXPERIMENT (Prof. Luis, baseline-without-network test), step 2 of 2.
+				! Same 48 committed self-consumption solves, but with BaseNoNetwork=1 so
+				! IncludeNetworkConstraints=0: battery/energy model only - no voltage, thermal or
+				! power-flow rows. Writes FOR_rolling_soc_TR4_basenonet.csv only.
+				! Hypothesis: the network never binds on the slot-1 dispatch (imports are
+				! SOC-floor-limited, midday export is saturation-forced), so Chg1/Dis1/SOC should be
+				! identical to the _basenet control. If they are, the baseline can be solved as a
+				! per-house energy problem and the network work left to the sweep.
+				UseBattComp       := 0;
+				BaselineOnly      := 1;
+				BaseNoNetwork     := 1;
+				RollFileSuffix    := "_TR4_basenonet";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				BaseNoNetwork     := 0;
+				BaselineOnly      := 0;
+			}
+			Comment: "EXPERIMENT: TR4 committed baseline only (48 solves, no sweep), network constraints OFF via BaseNoNetwork=1, suffix _TR4_basenonet. Compare against the _TR4_basenet control: identical Chg1/Dis1/SOC means the network never binds on the committed self-consumption dispatch.";
 		}
 		Procedure RunFOR_Rolling_PerTrafo {
 			Body: {
