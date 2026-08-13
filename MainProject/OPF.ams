@@ -2216,17 +2216,20 @@ Model Main_OPF_VI_LG {
 			Parameter BaseNoNetwork {
 				Default: 0;
 				Comment: {
-					"EXPERIMENT toggle (Prof. Luis, 2026-08): 1 = RunFOR_Rolling sets
-					IncludeNetworkConstraints to 0, so the committed self-consumption baseline is the
-					battery/energy model only - no voltage, thermal or power-flow rows. Tests whether the
-					network ever binds on the slot-1 dispatch (hypothesis: it does not - imports are
-					SOC-floor-limited and midday export is saturation-forced, with the network solve only
-					choosing Q to hold Vmax).
+					"EXPERIMENT toggle (Prof. Luis, 2026-08): 1 = the committed self-consumption baseline is
+					solved WITHOUT the NetworkModel section (IncludeNetworkConstraints flipped to 0 around the
+					baseline solve only, restored to 1 before the sweep instance generates). The sweep always
+					keeps the network - the FOR is the network-feasible region.
 
-					ONLY meaningful together with BaselineOnly = 1: the toggle is read once at the top of
-					RunFOR_Rolling, so with the sweep enabled it would strip the network from the FOR
-					directions too and the sweep would no longer measure the network-feasible region.
-					0 = production.";
+					Why this is sound: the only baseline outputs the sweep consumes are Chg1/Dis1 (frozen into
+					the instance), and slot-1 Qinv is fixed to 0 by Load_data_reset regardless - nothing else
+					survives the baseline solve. Validated on TR4 (2026-08-13): baseline-only A/B, network on
+					vs off, max |dP| = 2.7e-7 p.u. (0.27 W) on 35 of 2,208 rows, one battery; the 48 baseline
+					solves fell from ~6 min to ~13 s.
+
+					Forces the conventional baseline: the RollGMPBaseline=1 shared-instance path is skipped when
+					this is 1, because the shared instance carries the network rows. Works with BaselineOnly=1
+					(cheap dispatch-only test) and with the full sweep. 0 = production.";
 				}
 			}
 			Parameter SOCFloorOverride {
@@ -2588,7 +2591,7 @@ Model Main_OPF_VI_LG {
 				! production config: EXACT quadratic inverter S-circle + exact Vmax (convex QCP, CPLEX barrier);
 				! tractable per transformer on the reduced network. Set both toggles to 1 for the linearized
 				! (polygon + tangent-Vmax) variant used in the historical whole-feeder runs.
-				IncludeNetworkConstraints := 1 - BaseNoNetwork;   ! production 1; BaseNoNetwork=1 (baseline-only experiment) drops the NetworkModel section
+				IncludeNetworkConstraints := 1;   ! production 1 (the sweep always carries the network); BaseNoNetwork=1 drops it around the committed baseline solve ONLY - see the flip in the period loop
 				IncludeQforMaxP           := 1;
 				nPeriods                  := 48;
 				ResultsFileRoot           := "FOR_";
@@ -2654,7 +2657,7 @@ Model Main_OPF_VI_LG {
 					! they are deactivated for the baseline solve below, which is what FairActive = 0 used to
 					! achieve by regenerating.
 					RollGMPLive := 0;
-					if RollUseGMP = 1 and RollGMPBaseline = 1 then
+					if RollUseGMP = 1 and RollGMPBaseline = 1 and BaseNoNetwork = 0 then   ! BaseNoNetwork forces the conventional baseline: the shared instance carries the network rows
 						FairActive := 1;
 						FOR_Lambda := 1;
 						option MIP_Relative_Optimality_Tolerance := 0.01;
@@ -2701,6 +2704,9 @@ Model Main_OPF_VI_LG {
 					FairActive := 0;                             ! fairness OFF in the committed baseline: it must not pre-commit
 					                                             ! the service slot, and case B must inherit case A's SOC path.
 					                                             ! FairBaseline=1 overrides this (see FairActive's comment).
+					if BaseNoNetwork = 1 then                    ! EXPERIMENT (see BaseNoNetwork): battery/energy-only baseline.
+						IncludeNetworkConstraints := 0;          ! Safe because nothing network-side survives this solve: the sweep
+					endif;                                       ! inherits only Chg1/Dis1 (FreezeMulti below), and slot-1 Qinv is fixed to 0 by Load_data_reset.
 					if RollGMPLive = 0 then
 						run MinOFminImports;                     ! PURE self-consumption baseline (MinImports; no max-export term at the service slot)
 					endif;
@@ -2713,6 +2719,9 @@ Model Main_OPF_VI_LG {
 							       barrier_homogeneous := 1,
 							       time_limit          := 3000;
 						ConvFlag := MinImports.ProgramStatus;
+					endif;
+					if BaseNoNetwork = 1 then
+						IncludeNetworkConstraints := 1;          ! network back ON before the sweep instance generates below
 					endif;
 				
 					! record realised state; stage the SOC advance from the executed slot-1 (now) dispatch
@@ -3450,6 +3459,34 @@ Model Main_OPF_VI_LG {
 				BaselineOnly      := 0;
 			}
 			Comment: "EXPERIMENT: TR4 committed baseline only (48 solves, no sweep), network constraints OFF via BaseNoNetwork=1, suffix _TR4_basenonet. Compare against the _TR4_basenet control: identical Chg1/Dis1/SOC means the network never binds on the committed self-consumption dispatch.";
+		}
+		Procedure RunTR4_GMP_BaseNoNet {
+			Body: {
+				! EXPERIMENT (Prof. Luis, baseline-without-network), STAGE 2: the full production TR4
+				! rolling FOR - GMP sweep, network ON in every directional solve - but the committed
+				! baseline solved as the battery/energy model only (BaseNoNetwork=1).
+				! RollGMPBaseline stays 0: the baseline no longer rides the sweep instance; its own
+				! battery-only matrix generates+solves in ~0.3 s/period (measured: 48 solves in 13 s).
+				! Writes FOR_rolling_TR4_gmpnonet.csv + FOR_rolling_soc_TR4_gmpnonet.csv.
+				! A/B against the production GMP run:
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR4_gmp.csv FOR_rolling_TR4_gmpnonet.csv
+				! Expect: identical SOC (stage 1 proved Chg1/Dis1 network-independent to 0.27 W) and
+				! proj within tolerance. Any vertex infeasibility would mean the committed dispatch
+				! needs the network after all - that is the thing this stage tests.
+				UseBattComp       := 0;
+				BaseNoNetwork     := 1;
+				RollFileSuffix    := "_TR4_gmpnonet";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 0;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				BaseNoNetwork     := 0;
+			}
+			Comment: "EXPERIMENT STAGE 2: full TR4 rolling FOR (GMP sweep, network ON) with the committed baseline solved battery-only (BaseNoNetwork=1). 576 vertices -> FOR_rolling_TR4_gmpnonet.csv. Compare against FOR_rolling_TR4_gmp.csv; the invariant is proj, not P/Q.";
 		}
 		Procedure RunFOR_Rolling_PerTrafo {
 			Body: {
