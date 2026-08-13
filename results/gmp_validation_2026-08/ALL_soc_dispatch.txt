@@ -1,0 +1,103 @@
+SOC / committed-dispatch verification: pre-Nacho reference vs new GMP run
+generated 2026-08-13 15:19:00
+Columns compared: SOC_start, Pexec, Chg1, Dis1, TotPV1_pu (every row, every battery)
+==========================================================================
+
+### TR1
+header equal: True
+rows: 3696 3696
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR2
+header equal: True
+rows: 4560 4560
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR3
+header equal: True
+rows: 2352 2352
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR4
+header equal: True
+rows: 2208 2208
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR5
+header equal: True
+rows: 10272 10272
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR6
+header equal: True
+rows: 12576 12576
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR7
+header equal: True
+rows: 12432 12432
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR8
+header equal: True
+rows: 5952 5952
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00
+
+### TR9
+header equal: True
+rows: 4320 4320
+non-numeric field mismatches: 0
+  ﻿now             max|d| = 0.000e+00
+  SOC_start          max|d| = 0.000e+00
+  Pexec              max|d| = 0.000e+00
+  Chg1               max|d| = 0.000e+00
+  Dis1               max|d| = 0.000e+00
+  TotPV1_pu          max|d| = 0.000e+00

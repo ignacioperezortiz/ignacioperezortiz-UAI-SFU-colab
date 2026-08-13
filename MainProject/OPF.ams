@@ -3214,6 +3214,182 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "A/B PARTNER of RunTR9: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR9_gmp.csv. Compare against FOR_rolling_TR9.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Exercises the SOC carry-forward, which the 3-slot preflight A/B does not.";
 		}
+		Procedure RunTR1_GMP {
+			Body: {
+				! A/B PARTNER of RunTR1: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR1_gmp.csv and
+				! FOR_rolling_soc_TR1_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR1.csv FOR_rolling_TR1_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR1_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR1";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR1: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR1_gmp.csv. Compare against FOR_rolling_TR1.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR2_GMP {
+			Body: {
+				! A/B PARTNER of RunTR2: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR2_gmp.csv and
+				! FOR_rolling_soc_TR2_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR2.csv FOR_rolling_TR2_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR2_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR2";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR2: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR2_gmp.csv. Compare against FOR_rolling_TR2.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR3_GMP {
+			Body: {
+				! A/B PARTNER of RunTR3: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR3_gmp.csv and
+				! FOR_rolling_soc_TR3_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3.csv FOR_rolling_TR3_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR3: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR3_gmp.csv. Compare against FOR_rolling_TR3.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR4_GMP {
+			Body: {
+				! A/B PARTNER of RunTR4: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR4_gmp.csv and
+				! FOR_rolling_soc_TR4_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR4.csv FOR_rolling_TR4_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR4_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR4: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR4_gmp.csv. Compare against FOR_rolling_TR4.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR5_GMP {
+			Body: {
+				! A/B PARTNER of RunTR5: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR5_gmp.csv and
+				! FOR_rolling_soc_TR5_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR5.csv FOR_rolling_TR5_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR5_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR5";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR5: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR5_gmp.csv. Compare against FOR_rolling_TR5.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR6_GMP {
+			Body: {
+				! A/B PARTNER of RunTR6: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR6_gmp.csv and
+				! FOR_rolling_soc_TR6_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR6.csv FOR_rolling_TR6_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR6_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR6";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR6: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR6_gmp.csv. Compare against FOR_rolling_TR6.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR7_GMP {
+			Body: {
+				! A/B PARTNER of RunTR7: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR7_gmp.csv and
+				! FOR_rolling_soc_TR7_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR7.csv FOR_rolling_TR7_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR7_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR7";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR7: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR7_gmp.csv. Compare against FOR_rolling_TR7.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
+		Procedure RunTR8_GMP {
+			Body: {
+				! A/B PARTNER of RunTR8: the same production run with the sweep matrix generated once per
+				! period instead of once per direction. Writes FOR_rolling_TR8_gmp.csv and
+				! FOR_rolling_soc_TR8_gmp.csv, so the reference files are left untouched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR8.csv FOR_rolling_TR8_gmp.csv
+				! Clone of RunTR9_GMP with only the tag and the file suffix changed. See that procedure
+				! for why the body of RunTrafoFOR is replicated here instead of being called.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR8_gmp";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR8";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR8: same case with RollUseGMP=1, so the sweep generates one matrix per period and rewrites only the two objective coefficients per direction. 576 vertices -> FOR_rolling_TR8_gmp.csv. Compare against FOR_rolling_TR8.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q. Clone of RunTR9_GMP.";
+		}
 		Procedure RunFOR_Rolling_PerTrafo {
 			Body: {
 				! PER-TRANSFORMER rolling FOR. For each TRk: keep TRk detailed, lump every other transformer

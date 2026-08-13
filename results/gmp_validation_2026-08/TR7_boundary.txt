@@ -1,0 +1,33 @@
+TR7  boundary: pre-Nacho reference  vs  new GMP run
+generated 2026-08-13 15:17:43
+==========================================================================
+baseline : C:\Users\thc22\projects\FOR_refs_preNacho\FOR_rolling_TR7.csv   (576 rows)
+new      : FOR_rolling_TR7_gmp.csv   (576 rows)
+
+status     : baseline 576/576 optimal, new 576/576 optimal
+
+proj       : max |delta| = 8.000e-06 p.u.   (tolerance 2.0e-06)
+             median 0.000e+00, 4/576 rows over tolerance
+
+  worst directions by |delta proj|:
+    now  angle   proj_old      proj_new      |dproj|     |dP| kW   |dQ| kW
+    26   30.0       -1.438443     -1.438451  8.000e-06      0.01      0.00
+    26   240.0       1.251500      1.251495  5.000e-06      0.02      0.02
+    26   0.0        -2.085922     -2.085925  3.000e-06      0.00      0.04
+    26   120.0       1.750005      1.750007  2.000e-06      0.75      0.43
+
+P,Q slide  : max 0.86 kW, median 0.00 kW  (informational - a legitimate
+             flat-face slide does NOT fail this check)
+
+solve time : baseline  35866.3 s   new  20767.7 s   (-42.1%)
+             per solve: 62.27 s -> 36.06 s over 576 directions
+             NOTE: this column is FOR_VertexCont.SolutionTime only. It does
+             not include the MainExecution solve or any scaffolding, so it
+             will barely move for a data-loading change - time the run itself.
+
+FAIL - see above
+
+--- same comparison at the physically meaningful tolerance 1e-5 (=10 W) ---
+             will barely move for a data-loading change - time the run itself.
+
+PASS - proj reproduces within tolerance, no status change

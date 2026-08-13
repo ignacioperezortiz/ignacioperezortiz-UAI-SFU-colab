@@ -1,0 +1,78 @@
+Published headline metrics rebuilt from the new GMP dispatch
+generated 2026-08-13 15:19:45
+==========================================================================
+TR   metric                           published  recomputed   status
+TR1   PV generated kWh/day                  1797   1796.9835   ok
+TR1   demand kWh/day                       572.8    572.8416   ok
+TR1   exported kWh/day                      1201   1201.2935   ok
+TR1   imported kWh/day                      22.6     22.6366   ok
+TR1   SCR % (PV used locally)               33.1     33.1494   ok
+TR1   SSR % (demand met locally)              96     96.0484   ok
+TR1   prosumer-periods |net|<50W %          58.2     58.1981   ok
+TR1   simultaneous chg+dis rows                0      0.0000   ok
+TR2   PV generated kWh/day                  2370   2370.4029   ok
+TR2   demand kWh/day                       666.4    666.3867   ok
+TR2   exported kWh/day                      1638   1638.1683   ok
+TR2   imported kWh/day                      16.1     16.0643   ok
+TR2   SCR % (PV used locally)               30.9     30.8907   ok
+TR2   SSR % (demand met locally)            97.6     97.5893   ok
+TR2   prosumer-periods |net|<50W %          56.9     56.8860   ok
+TR2   simultaneous chg+dis rows                0      0.0000   ok
+TR3   PV generated kWh/day                  1316   1316.4418   ok
+TR3   demand kWh/day                       352.4    352.3949   ok
+TR3   exported kWh/day                     942.2    942.1892   ok
+TR3   imported kWh/day                         7      6.9944   ok
+TR3   SCR % (PV used locally)               28.4     28.4291   ok
+TR3   SSR % (demand met locally)              98     98.0152   ok
+TR3   prosumer-periods |net|<50W %          55.6     55.6122   ok
+TR3   simultaneous chg+dis rows                0      0.0000   ok
+TR4   PV generated kWh/day                  1163   1162.9915   ok
+TR4   demand kWh/day                       343.4    343.4119   ok
+TR4   exported kWh/day                       802    801.9717   ok
+TR4   imported kWh/day                      12.4     12.3535   ok
+TR4   SCR % (PV used locally)                 31     31.0423   ok
+TR4   SSR % (demand met locally)            96.4     96.4027   ok
+TR4   prosumer-periods |net|<50W %          56.8     56.8388   ok
+TR4   simultaneous chg+dis rows                0      0.0000   ok
+TR5   PV generated kWh/day                  5100   5100.2025   ok
+TR5   demand kWh/day                        1615   1615.1150   ok
+TR5   exported kWh/day                      3391   3390.8523   ok
+TR5   imported kWh/day                      40.2     40.2004   ok
+TR5   SCR % (PV used locally)               33.5     33.5153   ok
+TR5   SSR % (demand met locally)            97.5     97.5110   ok
+TR5   prosumer-periods |net|<50W %          58.9     58.9369   ok
+TR5   simultaneous chg+dis rows                0      0.0000   ok
+TR6   PV generated kWh/day                  6477   6477.2168   ok
+TR6   demand kWh/day                        1889   1888.8503   ok
+TR6   exported kWh/day                      4456   4455.8099   ok
+TR6   imported kWh/day                      56.7     56.6836   ok
+TR6   SCR % (PV used locally)               31.2     31.2080   ok
+TR6   SSR % (demand met locally)              97     96.9990   ok
+TR6   prosumer-periods |net|<50W %          57.5     57.4587   ok
+TR6   simultaneous chg+dis rows                0      0.0000   ok
+TR7   PV generated kWh/day                  6526   6525.6748   ok
+TR7   demand kWh/day                        1916   1916.1606   ok
+TR7   exported kWh/day                      4516   4516.5048   ok
+TR7   imported kWh/day                      52.9     52.8995   ok
+TR7   SCR % (PV used locally)               30.8     30.7887   ok
+TR7   SSR % (demand met locally)            97.2     97.2393   ok
+TR7   prosumer-periods |net|<50W %          57.6     57.6416   ok
+TR7   simultaneous chg+dis rows                0      0.0000   ok
+TR8   PV generated kWh/day                  3081   3081.1200   ok
+TR8   demand kWh/day                       851.2    851.1735   ok
+TR8   exported kWh/day                      2167   2166.7294   ok
+TR8   imported kWh/day                      25.8     25.7672   ok
+TR8   SCR % (PV used locally)               29.7     29.6772   ok
+TR8   SSR % (demand met locally)              97     96.9727   ok
+TR8   prosumer-periods |net|<50W %            57     56.9556   ok
+TR8   simultaneous chg+dis rows                0      0.0000   ok
+TR9   PV generated kWh/day                  2241   2241.1816   ok
+TR9   demand kWh/day                       643.1    643.0954   ok
+TR9   exported kWh/day                      1550   1550.5116   ok
+TR9   imported kWh/day                      13.6     13.5559   ok
+TR9   SCR % (PV used locally)               30.8     30.8172   ok
+TR9   SSR % (demand met locally)            97.9     97.8921   ok
+TR9   prosumer-periods |net|<50W %          57.5     57.4769   ok
+TR9   simultaneous chg+dis rows                2      2.0000   ok
+
+ALL PUBLISHED METRICS REPRODUCE
