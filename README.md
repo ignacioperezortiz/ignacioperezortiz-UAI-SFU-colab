@@ -71,7 +71,7 @@ Results are written as `FOR_rolling*.csv` in the repo root. These are **git-igno
 │   ├── Settings/          # AIMMS project settings
 │   ├── User Files/        # UI bitmaps
 │   └── WebUI/             # WebUI resources
-├── docs/                  # longer guides (section 6)
+├── docs/                  # longer guides and meeting records (section 6)
 ├── scripts/               # post-processing (see scripts/README.md)
 ├── results/               # per-transformer results (see results/README.md)
 ├── .gitignore
@@ -95,11 +95,12 @@ distributed via cloud (section 2).
 
 ## 6. Documentation
 
-This repository holds only **general, reproducible** documentation — the kind that
-works for anyone who clones it:
+This repository holds general, reproducible documentation and curated collaboration
+records that support the shared research workflow:
 
 - **Root:** `README.md`, `CONTRIBUTING.md`.
-- **`docs/`:** longer guides (setup, reproducibility, validation procedures).
+- **`docs/`:** longer guides (setup, reproducibility, validation procedures) and
+  formal meeting records.
   - `rolling-for-performance.md` — what the rolling FOR sweep costs and why, in two
     phases: the per-direction overhead removed in July, and the GMP matrix reuse.
   - `network-scope.md` — per-transformer vs whole-feeder runs and exact vs linearized
@@ -108,11 +109,14 @@ works for anyone who clones it:
     formulation with multiple aggregators and the C1 fairness criterion, typeset;
     what is new relative to the inherited model is marked in red, and what is
     proposed but not yet implemented in blue. LaTeX source in `docs/formulation-src/`.
+  - [`meetings/`](docs/meetings/README.md) — curated meeting outcomes, technical
+    decisions, action items, and editable source documents, organized by date.
 - **`scripts/README.md`, `results/README.md`:** next to what they document.
 - **`results/TR9_fairness.md`:** the production results for that formulation.
 
-Personal, machine-specific, or session-specific notes (local setup, per-run
-runbooks, working logs) are intentionally kept **outside** this repo and are not
-committed here. That includes any local `CLAUDE.md` a contributor keeps at the repo
-root to guide their own AI agent: it is personal, stays out of version control, and
-each contributor is free to document their own way.
+Personal, machine-specific, or informal session notes (local setup, per-run
+runbooks, transcripts, and working logs) are intentionally kept **outside** this
+repo and are not committed here. That includes any local `CLAUDE.md` a contributor
+keeps at the repo root to guide their own AI agent: it is personal, stays out of
+version control, and each contributor is free to document their own way.
+
