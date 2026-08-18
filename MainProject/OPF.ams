@@ -2147,14 +2147,40 @@ Model Main_OPF_VI_LG {
 			StringParameter FOR_RollFairCSVName {
 				Definition: "FOR_rolling_fair" + RollFileSuffix + FairFileTag + ".csv";
 			}
+			StringParameter FOR_RollProgressName {
+				Definition: "FOR_rolling_progress" + RollFileSuffix + FairFileTag + ".txt";
+			}
+			File FOR_RollProgress {
+				Name: FOR_RollProgressName;
+				Comment: {
+					"Externally observable progress of RunFOR_Rolling, rewritten and closed after every
+					vertex so the flush actually reaches disk. The production twin of FOR_PreProgress.
+
+					It exists because a whole-feeder day is projected at ~2.9 days of wall clock and AIMMS
+					buffers a put file until its putclose, so without this there is no way to tell a slow
+					solve from a hung one. Overwritten rather than appended - the current state is what
+					matters, and truncating keeps it to one page so it always flushes."
+				}
+			}
 			File FOR_RollCSV {
 				Name: FOR_RollCSVName;
+				Mode: append;
+				Comment: {
+					"append, NOT replace, so the file can be closed after every vertex and reopened for the
+					next one (see RollFlushCSV) - a closed file is a file that survives a crash. Mode is a
+					declaration-only attribute in AIMMS and cannot be assigned at runtime, so RunFOR_Rolling
+					instead DELETES the file before writing the header. Without that delete each run would
+					append to the previous run's rows."
+				}
 			}
 			File FOR_RollSOCCSV {
 				Name: FOR_RollSOCCSVName;
+				Mode: append;
+				Comment: "append + deleted before the header, for the same reason as FOR_RollCSV. Closed once per period, after the battery block - this file already grew in blocks, so per-period is the natural granularity.";
 			}
 			File FOR_RollFairCSV {
 				Name: FOR_RollFairCSVName;
+				Mode: append;
 				Comment: {
 					"Stage 0 fairness log, written by RunFOR_Rolling: one row per (period, direction,
 					aggregator). A THIRD file on purpose - the schemas of FOR_rolling.csv and
@@ -2162,6 +2188,23 @@ Model Main_OPF_VI_LG {
 					parse them and the case-A no-regression test compares them byte-for-byte against the
 					pre-fairness baseline. Written for every FairMode including 0, so case A supplies the
 					reference split against which the contraction and dispersion metrics are computed."
+				}
+			}
+			Parameter RollFlushCSV {
+				Default: 1;
+				Comment: {
+					"1 (default) = close the three RunFOR_Rolling CSVs as they are produced, so an interrupted
+					run keeps the rows it already wrote: FOR_rolling / FOR_rolling_fair after every vertex,
+					FOR_rolling_soc after every period. 0 = original behaviour, one putclose at the very end.
+
+					Default is ON because the original behaviour loses everything. AIMMS buffers a put file
+					until its putclose, so a cancelled or crashed run leaves the main CSV at 3 bytes - the
+					BOM. That is tolerable for a 3 h 40 reduced run and not for a whole-feeder day, which
+					section 7.3 of docs/rolling-for-performance.md projects at about 2.9 days.
+
+					Same mechanism as PreflightFlushCSV, whose measured cost on the reduced TR9 bed was
+					~5 ms per vertex (+0.2 s of non-solver time over a full run) with every column except
+					time byte-identical."
 				}
 			}
 			StringParameter BaseDetailPattern {
@@ -2598,20 +2641,28 @@ Model Main_OPF_VI_LG {
 				Irrraw(t)         := Irradiance(t);
 				BattSOCstart(bat) := BattSOCini(bat);
 				
-				! CSV headers (all files stay open; switch the active one with 'put <file>')
+				! CSV headers. Switch the active file with 'put <file>'. The three files are declared
+				! Mode: append (see RollFlushCSV), which makes deleting them HERE mandatory - otherwise this
+				! run would append to the previous run's rows instead of replacing them.
+				if FileExists( FOR_RollCSVName )     then FileDelete( FOR_RollCSVName );     endif;
+				if FileExists( FOR_RollSOCCSVName )  then FileDelete( FOR_RollSOCCSVName );  endif;
+				if FileExists( FOR_RollFairCSVName ) then FileDelete( FOR_RollFairCSVName ); endif;
 				FOR_RollCSV.PageWidth     := 32767;
 				FOR_RollSOCCSV.PageWidth  := 32767;
 				FOR_RollFairCSV.PageWidth := 32767;
 				put FOR_RollCSV;
 				put "now,target,angle_deg,P,Q,proj,status,time,VminTrue,VmaxTrue,UVviol,OVviol,LinErr" / ;
+				if RollFlushCSV = 1 then putclose FOR_RollCSV; endif;   ! headers on disk before the first solve starts
 				put FOR_RollSOCCSV;
 				put "now,battery,SOC_start,Pexec,Chg1,Dis1,base_status,TotPV1_pu" / ;
+				if RollFlushCSV = 1 then putclose FOR_RollSOCCSV; endif;
 				! Stage 0 fairness log: one row per (period, direction, aggregator). Written for EVERY
 				! FairMode including 0, so case A provides the reference split for the contraction and
 				! dispersion metrics. util = realised utilisation of the aggregator's installed capacity;
 				! under FairMode=1 or 2 every aggregator's util must equal Zeta, which is the check.
 				put FOR_RollFairCSV;
 				put "now,target,angle_deg,FairMode,zeta,status,aggregator,n_batt,cap_pu,sumP_pu,util,util_min,util_max" / ;
+				if RollFlushCSV = 1 then putclose FOR_RollFairCSV; endif;
 				if EnableRollDiag = 1 then
 					FOR_RollDiagCSV.PageWidth := 32767;
 					put FOR_RollDiagCSV;
@@ -2717,6 +2768,7 @@ Model Main_OPF_VI_LG {
 						put RollNow:3:0, ",", bat:24, ",", BattSOCstart(bat):12:6, ",", RollDispatchExec(bat,t):14:6, ",",
 						    RollChgExec(bat):14:6, ",", RollDisExec(bat):14:6, ",", ConvFlag, ",", sum(d, GenP0(d,'1')):14:6 / ;
 					endfor;
+					if RollFlushCSV = 1 then putclose FOR_RollSOCCSV; endif;   ! this period's battery block is on disk now, not in a buffer
 				
 					if BaselineOnly = 0 then   ! EXPERIMENT: baseline-only runs skip the 12-direction sweep
 					! ---- sweep directions: region offered for the service slot (now+1) ----
@@ -2844,6 +2896,8 @@ Model Main_OPF_VI_LG {
 							    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
 						endif;
 				
+						if RollFlushCSV = 1 then putclose FOR_RollCSV; endif;   ! this vertex is on disk now, not in a buffer
+
 						! ---- fairness log: one row per aggregator for this direction ----
 						! Reported for every FairMode, so case A (FairMode=0) supplies the unconstrained split
 						! that the contraction and dispersion metrics are measured against. util_min/util_max
@@ -2871,6 +2925,19 @@ Model Main_OPF_VI_LG {
 							    (max(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
 							     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6 / ;
 						endfor;
+						if RollFlushCSV = 1 then putclose FOR_RollFairCSV; endif;   ! this direction's aggregator block is on disk now
+
+						! ---- progress marker, rewritten and flushed to disk after every vertex (see FOR_RollProgress) ----
+						put FOR_RollProgress;
+						put "periodo   ", RollNow:3:0, " de ", nPeriods:3:0,
+						    "   ->  objetivo ", (mod(RollNow,nPeriods)+1):3:0,
+						    "   direccion ", ord(ia):3:0, " de ", FOR_nAngles:3:0,
+						    "   (", FOR_Angle:6:1, " grados)" / ;
+						put "ultimo vertice : ", FOR_VertexCont.SolutionTime:12:2, " s   estado ", FOR_StatCur / ;
+						put "config         : FairMode ", FairMode:2:0, "   RollUseGMP ", RollUseGMP:2:0,
+						    "   ReduceNetwork ", ReduceNetwork:2:0 / ;
+						putclose FOR_RollProgress;
+
 						put FOR_RollCSV;   ! restore the active file for the next direction
 				
 						! ---- diagnostic retry for failed directions (Pass 1: cyclic relaxed; Pass 2: + PV scaled) ----
@@ -3837,6 +3904,44 @@ Model Main_OPF_VI_LG {
 				PreflightUseGMP    := 0;
 			}
 			Comment: "STEP 3 of the GMP migration: the FULL-FEEDER preflight (3 slots x 12 directions) with PreflightUseGMP=1, so the matrix is generated once per slot instead of 12 times. Writes FOR_rolling_preflight_full_gmp.csv incrementally and FOR_gmp_probe_full_gmp.txt. Run only after the reduced A/B has passed: there is no reference run on the full feeder to catch a wrong answer.";
+		}
+		Procedure RunFullFeeder_NoFairness {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, no fairness (m=0). This is the run docs/network-scope.md section 4
+				! records as never yet completed: 48 periods x 12 directions on the full network, exact QCP,
+				! with the sweep matrix generated once per period (the GMP phase, docs/rolling-for-performance.md
+				! section 6).
+				!
+				! Scope is set HERE, not in RunFOR_Rolling, which uses whatever ReduceNetwork holds.
+				! ReduceNetwork = 0 keeps every transformer in full detail, so no battery is dropped and no
+				! transformer is lumped as passive MV load. There is consequently nothing to combine
+				! afterwards: combine_FOR_pertrafo.py and FOR_rolling_baseline.csv belong to the
+				! per-transformer path and play no part in this run.
+				!
+				! Writes FOR_rolling_full.csv, FOR_rolling_soc_full.csv and FOR_rolling_fair_full.csv
+				! incrementally (RollFlushCSV, on by default), plus FOR_rolling_progress_full.txt after every
+				! vertex. At a projected ~2.9 days those two are what make the run interruptible and
+				! observable from outside the process.
+				!
+				! Runtime expectation is ~5300 s per period, projected from the 3-slot preflight in
+				! docs/rolling-for-performance.md section 7.3 - a projection, not a measurement of this
+				! configuration.
+				UseBattComp       := 0;   ! production is the pure QCP (the binary lives in Validation)
+				FairMode          := 0;   ! m=0, no fairness. Explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full";
+				ReduceNetwork     := 0;   ! FULL feeder
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+				! restore the session defaults
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER PRODUCTION, m=0 (no fairness): 48 periods x 12 directions on the full network, exact QCP, one generated matrix per period (RollUseGMP/RollGMPBaseline = 1). Writes FOR_rolling_full.csv plus its soc and fair companions incrementally, and FOR_rolling_progress_full.txt after every vertex. Projected at about 2.9 days - see docs/network-scope.md section 3. Intended to be launched headless with AimmsCmd --run-only.";
 		}
 		Procedure RunReducedTest_RollingMicro {
 			Body: {
