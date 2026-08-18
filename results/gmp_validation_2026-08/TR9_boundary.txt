@@ -1,0 +1,31 @@
+TR9  boundary: pre-Nacho reference  vs  new GMP run
+generated 2026-08-13 15:17:46
+==========================================================================
+baseline : C:\Users\thc22\projects\FOR_refs_preNacho\FOR_rolling_TR9.csv   (576 rows)
+new      : FOR_rolling_TR9_gmp.csv   (576 rows)
+
+status     : baseline 576/576 optimal, new 576/576 optimal
+
+proj       : max |delta| = 3.000e-06 p.u.   (tolerance 2.0e-06)
+             median 0.000e+00, 2/576 rows over tolerance
+
+  worst directions by |delta proj|:
+    now  angle   proj_old      proj_new      |dproj|     |dP| kW   |dQ| kW
+    25   90.0        0.522742      0.522745  3.000e-06      0.19      0.00
+    25   240.0       1.152863      1.152865  2.000e-06      0.00      0.00
+
+P,Q slide  : max 0.19 kW, median 0.00 kW  (informational - a legitimate
+             flat-face slide does NOT fail this check)
+
+solve time : baseline  18736.6 s   new  10229.1 s   (-45.4%)
+             per solve: 32.53 s -> 17.76 s over 576 directions
+             NOTE: this column is FOR_VertexCont.SolutionTime only. It does
+             not include the MainExecution solve or any scaffolding, so it
+             will barely move for a data-loading change - time the run itself.
+
+FAIL - see above
+
+--- same comparison at the physically meaningful tolerance 1e-5 (=10 W) ---
+             will barely move for a data-loading change - time the run itself.
+
+PASS - proj reproduces within tolerance, no status change

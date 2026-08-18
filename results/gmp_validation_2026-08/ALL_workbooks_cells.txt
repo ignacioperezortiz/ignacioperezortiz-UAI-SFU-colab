@@ -1,0 +1,42 @@
+Analysis-workbook verification: July TRn_analysis_data.xlsx rebuilt from the new GMP runs
+generated 2026-08-13 15:19:17
+Sheets SOC_pct / Charge_kW / Discharge_kW rebuilt cell-by-cell.
+Conversions: SOC_pct = SOC_start x100 ; Charge_kW = Chg1 x1000 ; Discharge_kW = Dis1 x1000 (Sb = 1 MW)
+'names unmatched' = the two aggregate columns fleet_average / fleet_total, not batteries.
+==========================================================================
+TR1   11088 cells   max 7.105e-15
+    SOC_pct         3696 cells   max|d| = 7.105e-15   worst @ p2 BES_TR1_one320_B  (96 names unmatched)
+    Charge_kW       3696 cells   max|d| = 2.220e-16   worst @ p14 BES_TR1_one223_B  (96 names unmatched)
+    Discharge_kW    3696 cells   max|d| = 4.441e-16   worst @ p39 BES_TR1_six967_B  (96 names unmatched)
+TR2   13680 cells   max 7.105e-15
+    SOC_pct         4560 cells   max|d| = 7.105e-15   worst @ p2 BES_TR2_three312_A  (96 names unmatched)
+    Charge_kW       4560 cells   max|d| = 2.220e-16   worst @ p14 BES_TR2_three321_B  (96 names unmatched)
+    Discharge_kW    4560 cells   max|d| = 4.441e-16   worst @ p38 BES_TR2_six431_C  (96 names unmatched)
+TR3    7056 cells   max 7.105e-15
+    SOC_pct         2352 cells   max|d| = 7.105e-15   worst @ p2 BES_TR3_one375_C  (96 names unmatched)
+    Charge_kW       2352 cells   max|d| = 2.220e-16   worst @ p13 BES_TR3_one137_A  (96 names unmatched)
+    Discharge_kW    2352 cells   max|d| = 4.441e-16   worst @ p31 BES_TR3_two225_C  (96 names unmatched)
+TR4    6624 cells   max 7.105e-15
+    SOC_pct         2208 cells   max|d| = 7.105e-15   worst @ p2 BES_TR4_one320_B  (96 names unmatched)
+    Charge_kW       2208 cells   max|d| = 4.441e-16   worst @ p18 BES_TR4_three321_B  (96 names unmatched)
+    Discharge_kW    2208 cells   max|d| = 4.441e-16   worst @ p37 BES_TR4_one320_B  (96 names unmatched)
+TR5   30816 cells   max 7.105e-15
+    SOC_pct        10272 cells   max|d| = 7.105e-15   worst @ p2 BES_TR5_one38_B  (96 names unmatched)
+    Charge_kW      10272 cells   max|d| = 4.441e-16   worst @ p19 BES_TR5_one137_A  (96 names unmatched)
+    Discharge_kW   10272 cells   max|d| = 4.441e-16   worst @ p28 BES_TR5_one61_dup_A  (96 names unmatched)
+TR6   37728 cells   max 7.105e-15
+    SOC_pct        12576 cells   max|d| = 7.105e-15   worst @ p2 BES_TR6_one260_C  (96 names unmatched)
+    Charge_kW      12576 cells   max|d| = 4.441e-16   worst @ p19 BES_TR6_one346_C  (96 names unmatched)
+    Discharge_kW   12576 cells   max|d| = 4.441e-16   worst @ p24 BES_TR6_six378_dup_A  (96 names unmatched)
+TR7   37296 cells   max 7.105e-15
+    SOC_pct        12432 cells   max|d| = 7.105e-15   worst @ p2 BES_TR7_four180_A  (96 names unmatched)
+    Charge_kW      12432 cells   max|d| = 4.441e-16   worst @ p18 BES_TR7_four459_B  (96 names unmatched)
+    Discharge_kW   12432 cells   max|d| = 4.441e-16   worst @ p1 BES_TR7_five735_dup_A  (96 names unmatched)
+TR8   17856 cells   max 7.105e-15
+    SOC_pct         5952 cells   max|d| = 7.105e-15   worst @ p2 BES_TR8_one446_B  (96 names unmatched)
+    Charge_kW       5952 cells   max|d| = 4.441e-16   worst @ p18 BES_TR8_six317_C  (96 names unmatched)
+    Discharge_kW    5952 cells   max|d| = 4.441e-16   worst @ p37 BES_TR8_five186_C  (96 names unmatched)
+TR9   12960 cells   max 7.105e-15
+    SOC_pct         4320 cells   max|d| = 7.105e-15   worst @ p2 BES_TR9_two225_C  (96 names unmatched)
+    Charge_kW       4320 cells   max|d| = 2.220e-16   worst @ p14 BES_TR9_two313_C  (96 names unmatched)
+    Discharge_kW    4320 cells   max|d| = 4.441e-16   worst @ p41 BES_TR9_six967_B  (96 names unmatched)
