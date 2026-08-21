@@ -406,6 +406,21 @@ assigned at runtime, the procedure deletes the file before writing the header. M
 reduced TR9 bed: **~5 ms per vertex, +0.2 s of non-solver time over a full run**, with every column
 except `time` byte-identical.
 
+`RunFOR_Rolling` now carries the same mechanism under `RollFlushCSV` (default 1). It writes three
+files rather than one, so the granularity follows what each of them produces: `FOR_rolling` and
+`FOR_rolling_fair` are closed after every vertex, `FOR_rolling_soc` after every period, and all
+three are deleted before their headers for the same `Mode: append` reason.
+
+Alongside them `FOR_rolling_progress<suffix>.txt` is rewritten and closed after every vertex — the
+production twin of the preflight's `FOR_rolling_preflight_progress.txt` — carrying the period, the
+direction, the last solve time and its status. Neither progress file is gated on the flush toggle:
+they are the only externally observable sign of life a headless run has.
+
+That matters at whole-feeder scale rather than on the reduced network. §7.3 projects a whole-feeder
+day at ~2.9 days of wall clock, and before this a run cancelled anywhere in it left the main CSV at
+3 bytes — the BOM. On 2026-08-04 a full-feeder preflight did exactly that after 13 vertices and
+~4 h.
+
 ---
 
 ## 7. Results of the GMP phase
