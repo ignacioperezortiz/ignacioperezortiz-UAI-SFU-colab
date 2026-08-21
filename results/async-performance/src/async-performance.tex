@@ -379,8 +379,11 @@ Rules of thumb on this 24-core, \SI{32}{\giga\byte} machine:
   \item keep $K \times \text{threads} = 24$;
   \item 4$\times$6 above $\sim$120 batteries; below that the split is neutral and
         6$\times$4 is the default;
-  \item never at full-feeder scale (\texttt{ReduceNetwork}~$=0$) --- even the
-        sequential run exhausted \SI{32}{\giga\byte} there;
+  \item not at full-feeder scale \emph{on this machine}
+        (\texttt{ReduceNetwork}~$=0$) --- even the sequential run exhausted its
+        \SI{32}{\giga\byte} here. The same run completed elsewhere in
+        \SI{82.17}{\hour}, 576/576 optimal, so the wall is local rather than a
+        property of the model;
   \item when re-tuning, pick the lowest \emph{wall clock};
   \item one transformer per fresh AIMMS session if the timings are to be compared.
 \end{itemize}
