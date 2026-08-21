@@ -1,0 +1,419 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\frenchspacing
+\usepackage{newtxtext,newtxmath}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{microtype}
+\usepackage[most]{tcolorbox}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage[a4paper,top=24mm,bottom=22mm,left=24mm,right=24mm,headsep=8mm]{geometry}
+\usepackage{array}
+\usepackage{siunitx}
+
+% ---------------------------------------------------------------- UAI / SFU palette
+\definecolor{uaired}{HTML}{A6192E}
+\definecolor{sfuslate}{HTML}{54585A}
+\definecolor{ink}{HTML}{1A1A1C}
+\definecolor{muted}{HTML}{585C60}
+\definecolor{faint}{HTML}{8B8F93}
+\definecolor{rule}{HTML}{E4E2E2}
+\definecolor{paper}{HTML}{F7F6F6}
+\definecolor{good}{HTML}{1E6B3A}
+
+\color{ink}
+
+\newcommand{\gd}[1]{\textcolor{good}{#1}}
+\newcommand{\bd}[1]{\textcolor{uaired}{#1}}
+
+\newtcolorbox{keybox}{
+  enhanced, breakable, colback=paper, colframe=rule,
+  boxrule=0.5pt, arc=1.5pt, left=10pt, right=10pt, top=7pt, bottom=7pt, boxsep=0pt
+}
+\newtcolorbox{warnbox}{
+  enhanced, breakable, colback=white, colframe=uaired,
+  boxrule=0pt, leftrule=1.6pt, arc=0pt, outer arc=0pt,
+  left=9pt, right=4pt, top=5pt, bottom=5pt, boxsep=0pt
+}
+
+\titleformat{\section}{\normalfont\large\bfseries\color{ink}}{\textcolor{uaired}{\thesection}}{0.7em}{}
+\titleformat{\subsection}{\normalfont\normalsize\bfseries\color{sfuslate}}{\textcolor{sfuslate}{\thesubsection}}{0.6em}{}
+\titlespacing*{\section}{0pt}{13pt}{6pt}
+\titlespacing*{\subsection}{0pt}{10pt}{3pt}
+
+\pagestyle{fancy}\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{rule}\leaders\hrule height \headrulewidth\hfill}}
+\fancyhead[L]{\footnotesize\color{faint}\textsc{Parallel sweep --- performance campaign}}
+\fancyhead[R]{\footnotesize\color{faint}UAI\,--\,SFU}
+\fancyfoot[C]{\footnotesize\color{faint}\thepage}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\setlist[itemize]{leftmargin=14pt,itemsep=2pt,topsep=3pt}
+
+\sisetup{group-separator={,},detect-weight=true}
+
+\begin{document}
+
+% ================================================================= TITLE BLOCK
+\thispagestyle{empty}
+\noindent
+\begin{minipage}[c]{0.46\textwidth}\raggedright
+  \includegraphics[height=12mm]{logo-uai.png}
+\end{minipage}\hfill
+\begin{minipage}[c]{0.46\textwidth}\raggedleft
+  \includegraphics[height=12mm]{logo-sfu.png}
+\end{minipage}
+
+\vspace{14mm}
+
+{\color{uaired}\rule{30mm}{2.2pt}}
+
+\vspace{6mm}
+
+{\fontsize{14}{17}\selectfont\color{muted}\textsc{Rolling-horizon feasible operating region}\par}
+
+\vspace{3mm}
+
+{\hyphenpenalty=10000\exhyphenpenalty=10000\raggedright
+\fontsize{24}{29}\selectfont\bfseries
+Parallel directional sweep\par}
+
+\vspace{5mm}
+
+{\fontsize{12.5}{17}\selectfont\color{muted}
+Making the per-transformer rolling FOR \num{1.82}$\times$ faster:\\
+what was changed, what it costs, and why the answers still hold\par}
+
+\vspace{10mm}
+
+{\footnotesize\color{faint}August 2026 \quad$\cdot$\quad Campaign report\par}
+
+\vspace{8mm}
+
+\begin{keybox}
+\textbf{In one paragraph.} Each period of the rolling FOR solves 12 sweep
+directions. They used to be solved one after another. They are now solved
+several at a time, in separate CPLEX sessions. Nothing about the physics
+changed: same exact quadratic form, same constraints, same switches. The
+committed dispatch comes out \textbf{bit-identical}. Measured end to end on all
+nine transformers under one controlled machine base, the campaign runs in
+\textbf{19.6\,h} instead of \textbf{35.7\,h}.
+\end{keybox}
+
+\vspace{4mm}
+
+% ================================================================= 1
+\section{The headline}
+
+\begin{center}
+\begin{tabular}{@{}l r@{}}
+\toprule
+Whole per-transformer campaign  & \gd{\textbf{1.82$\times$}} \\
+Best case (TR9, 90 batteries)   & 2.73$\times$ \\
+Worst case (TR7, 259 batteries) & 1.31$\times$ \\
+Solves                          & \gd{5184 of 5184 Optimal} \\
+Committed dispatch (SOC files)  & \gd{bit-identical, all nine} \\
+FOR boundary vertices           & within \SI{3}{\watt}--\SI{70}{\watt} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The committed dispatch is the quantity the papers use. It is unchanged, exactly.
+Only the FOR boundary vertices move, and by amounts far below the model's own
+feasibility tolerance. Section~5 gives the numbers.
+
+These are measurements, not projections. Every run was made one transformer per
+fresh AIMMS session, on a machine held in a fixed state.
+
+% ================================================================= 2
+\section{How it works}
+
+Within one period the 12 directions share the same feasible region. The data
+reset is deterministic. The rolling map is fixed. Slot-1 dispatch is frozen.
+And \texttt{FOR\_TieEps}~$=0$ makes each vertex independent of solve history.
+So the directions may be solved in any order, or at the same time.
+
+Each direction receives its own copy of the period's generated matrix and its
+own solver session. Two settings control the split:
+
+\begin{itemize}
+  \item \texttt{RollAsyncK} --- how many directions solve at once (sessions);
+  \item \texttt{RollAsyncThreads} --- threads per session.
+\end{itemize}
+
+The machine has 24 physical cores, so $K \times \text{threads} = 24$ is the budget.
+
+Two derived quantities explain every result below:
+
+\begin{itemize}
+  \item \textbf{inflation} --- async mean solve divided by sequential mean solve:
+        what concurrency costs each individual solve;
+  \item \textbf{concurrency} --- total solver seconds divided by wall seconds:
+        how many solves really overlapped.
+\end{itemize}
+
+Net speed-up is approximately concurrency divided by inflation. Neither number
+alone predicts anything.
+
+% ================================================================= 3
+\section{Results --- all nine transformers}
+
+\begin{center}
+\begin{tabular}{@{}l r c r r r r r@{}}
+\toprule
+ & \textbf{batt} & \textbf{split} & \textbf{seq.} & \textbf{base} & \textbf{speed-up} & \textbf{infl.} & \textbf{conc.} \\
+\midrule
+TR4 &  46 & 6$\times$4 &  35.7 &  18.6 & 1.92$\times$ & 2.20 & 3.63 \\
+TR3 &  49 & 6$\times$4 &  39.1 &  20.1 & 1.95$\times$ & 2.33 & 3.95 \\
+TR1 &  77 & 6$\times$4 &  96.5 &  50.1 & 1.93$\times$ & 2.31 & 3.84 \\
+TR9 &  90 & 6$\times$4 & 195.8 &  71.8 & \gd{\textbf{2.73$\times$}} & 1.59 & 3.78 \\
+TR2 &  95 & 6$\times$4 & 140.4 &  71.4 & 1.97$\times$ & 2.21 & 3.79 \\
+TR8 & 124 & 4$\times$6 & 298.9 & 125.1 & 2.39$\times$ & 1.18 & 2.42 \\
+TR5 & 214 & 4$\times$6 & 516.5 & 204.4 & \gd{\textbf{2.53$\times$}} & 1.11 & 2.39 \\
+TR7 & 259 & 4$\times$6 & 411.2 & 314.0 & \bd{1.31$\times$} & 1.97 & 2.17 \\
+TR6 & 262 & 4$\times$6 & 409.1 & 301.6 & \bd{1.36$\times$} & 1.99 & 2.20 \\
+\midrule
+ & & & \textbf{2143.2} & \textbf{1177.0} & \textbf{1.82$\times$} & & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Wall clock in minutes.
+
+\subsection{The gain is not monotonic in size}
+
+It peaks in the middle. TR5, at 214 batteries, beats every small transformer
+except TR9; then the gain collapses above about 250. Three regimes, not a trend:
+
+\begin{center}
+\begin{tabular}{@{}p{0.30\textwidth} p{0.62\textwidth}@{}}
+\toprule
+\textbf{band} & \textbf{behaviour} \\
+\midrule
+below $\sim$120 batteries & $\sim$1.9$\times$; the split is \textbf{neutral} (Section~4) \\
+124--214                  & \textbf{best} --- 2.4--2.5$\times$, inflation only 1.11--1.18 \\
+above $\sim$250           & \textbf{ceiling $\sim$1.35$\times$} --- inflation $\sim$2.0 and no split fixes it \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+TR7 and TR6 are the same result twice: 259 and 262 batteries, inflation 1.97 and
+1.99, concurrency 2.17 and 2.20, speed-up 1.31$\times$ and 1.36$\times$. The
+ceiling is structural, not a bad night. It is not memory exhaustion either ---
+peak AIMMS \SI{14.8}{\giga\byte} with \SI{8.1}{\giga\byte} still free.
+
+\subsection{Why TR9 tops the table}
+
+TR9 and TR2 are nearly the same run: 71.8 against \SI{71.4}{\minute}, 28.29
+against \SI{28.14}{\second} per solve, concurrency 3.78 against 3.79. The whole
+difference in speed-up comes from the \emph{sequential} side, where TR9's solves
+are intrinsically 40\,\% heavier (17.76 against \SI{12.73}{\second}). Heavier
+solves carry the parallel overhead better.
+
+\begin{warnbox}
+Worth remembering when quoting these: the speed-up column is partly a statement
+about the sequential baseline, not only about the parallel gain.
+\end{warnbox}
+
+% ================================================================= 4
+\section{Choosing the split}
+
+Three experiments. \textbf{TR4 tuning} (46 batteries, full runs): sequential
+35m20s, 6$\times$2 28m16s, \textbf{6$\times$4 20m13s}, 12$\times$2 24m39s. Above
+about six sessions the machine saturates.
+
+\textbf{TR6 probe} (262 batteries, two periods per split, 24 threads throughout):
+
+\begin{center}
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+\textbf{split} & \textbf{wall} & \textbf{mean solve} & \textbf{concurrency} \\
+\midrule
+6 $\times$ 4 & \SI{692}{\second} & \SI{95.4}{\second} & 3.31 \\
+\textbf{4 $\times$ 6} & \gd{\textbf{621\,s}} & \SI{60.3}{\second} & 2.33 \\
+3 $\times$ 8 & \SI{706}{\second} & \SI{53.4}{\second} & 1.82 \\
+2 $\times$ 12 & \SI{746}{\second} & \SI{39.3}{\second} & 1.27 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Fewer and fatter sessions cut the time per solve sharply, from \SI{95}{\second}
+to \SI{39}{\second}, but the concurrency achieved is only $0.55$--$0.63 \times K$
+whatever the split.
+
+\textbf{TR3 split test} (49 batteries, full runs): 6$\times$4
+\SI{20.05}{\minute}, 4$\times$6 \SI{20.02}{\minute}. A dead heat. The 4$\times$6
+split cut the mean solve from 8.24 to \SI{5.44}{\second} exactly as predicted,
+and concurrency fell from 3.95 to 2.61, cancelling it out.
+
+\begin{keybox}
+\textbf{Judge a split by wall clock, never by mean solve time.} On TR6,
+2$\times$12 had the best mean solve of any split and the worst wall clock. On
+TR3, 4$\times$6 improved the mean by a third and moved the wall by two seconds.
+\end{keybox}
+
+So the crossover is \emph{not} ``6$\times$4 is better below 120 batteries''. It is:
+
+\begin{itemize}
+  \item below $\sim$120 --- the split does not matter; 6$\times$4 is kept because
+        there is no reason to change;
+  \item above $\sim$120 --- 4$\times$6, and the margin is large;
+  \item above $\sim$250 --- 4$\times$6 is still the best available, but nothing
+        recovers the ceiling.
+\end{itemize}
+
+\subsection{How the probe held up}
+
+The TR6 probe predicted inflation of 1.73 for 4$\times$6; the full 48-period run
+gave 1.99, and the wall clock came in at \SI{5.03}{\hour} against a
+\SI{4.5}{\hour} projection. Directionally right, quantitatively soft --- good
+enough to pick a split, not to promise a wall clock.
+
+% ================================================================= 5
+\section{The batch wrapper cost 1.48$\times$ for nothing}
+
+\texttt{RunFOR\_Rolling\_PerTrafo\_Async} used to load the whole feeder once at
+the start, only to read the list of transformer tags. But
+\texttt{RunFOR\_Rolling} empties everything and reloads as its first action. So
+that load bought nothing, while it grew the AIMMS heap to full-feeder size for
+the rest of the session.
+
+\begin{center}
+\begin{tabular}{@{}l r r r@{}}
+\toprule
+ & \textbf{standalone} & \textbf{in the batch} & \textbf{penalty} \\
+\midrule
+TR4 & \SI{7.76}{\second}/solve & \SI{11.58}{\second}/solve & 1.49$\times$ \\
+TR6 & \SI{95.4}{\second}/solve & \SI{141.0}{\second}/solve & 1.48$\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The same penalty appears at different positions in the batch, so it was a
+constant and not creeping fragmentation. Removing the load fixed it: TR4 went
+from \SI{40.8}{\minute} to \SI{18.9}{\minute}.
+
+This is why the campaign of 17--18 August is not quoted here. It ran across a
+batch, across days and across machine loads, and produced two transformers
+\emph{slower} than sequential. The table in Section~3 replaces it entirely.
+
+% ================================================================= 6
+\section{Is it still correct?}
+
+Yes, with one caveat.
+
+\begin{itemize}
+  \item \textbf{Every solve Optimal} --- 5184 of 5184 across the nine runs.
+  \item \textbf{Committed dispatch bit-identical} --- all nine SOC files match
+        their sequential twins byte for byte.
+  \item \textbf{Async is deterministic run to run.} Five transformers were
+        compared against their August async runs and came back at exactly zero,
+        including TR9 across two days and a reboot. The drift below is against
+        the \emph{sequential} solver only.
+  \item \textbf{FOR vertices drift a little, and the drift grows with size.}
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{@{}l r r@{}}
+\toprule
+ & \textbf{max $|\Delta \mathrm{proj}|$} & \textbf{rows over gate (of 576)} \\
+\midrule
+TR3, TR4      & \num{3e-6} p.u. (\SI{3}{\watt})    & 0 \\
+TR1, TR2, TR9 & \num{7e-6}--\num{9e-6} p.u.        & 6--10 \\
+TR8           & \num{2.2e-5} p.u.                  & 0 \\
+TR5           & \num{3.9e-5} p.u.                  & 0 \\
+TR6           & \num{4.8e-5} p.u.                  & 0 \\
+TR7           & \num{7e-5} p.u. (\SI{70}{\watt})   & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The cause is the thread cap changing the order of arithmetic inside the barrier
+solver. For scale, \SI{70}{\watt} is about \textbf{14 times inside} the model's
+own \texttt{Feasibility\_Tolerance} of \num{1e-3} p.u.\ $=$ \SI{1}{\kilo\watt},
+and some \num{0.005}\,\% of the extent of the region.
+
+\begin{warnbox}
+\textbf{Caveat.} If a number needs the strict \num{5e-6} gate, run that case
+sequentially. The sequential \texttt{\_gmp} results stay the set to quote from.
+\end{warnbox}
+
+The invariant is \texttt{proj}, not $P$ and $Q$ on their own. Flat faces of the
+region make the argmax a segment, so $P$ and $Q$ can slide while \texttt{proj}
+holds.
+
+% ================================================================= 7
+\section{What to run}
+
+\begin{center}
+\begin{tabular}{@{}p{0.34\textwidth} p{0.58\textwidth}@{}}
+\toprule
+\textbf{goal} & \textbf{procedure} \\
+\midrule
+One transformer, controlled conditions & \texttt{RunTRn\_Base} --- the split is already correct for its size \\
+All nine in one pass & \texttt{RunFOR\_Rolling\_PerTrafo\_Async} --- fixed wrapper, size-adaptive split, writes \texttt{\_asyncB} \\
+Re-probe after a hardware change & \texttt{RunTR6\_AsyncTune} --- $\sim$1.5\,h, four splits, two periods each \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{warnbox}
+The older \texttt{RunTRn\_Async} wrappers are all hard-coded 6$\times$4, so
+\textbf{TR5--TR8 are mis-tuned there} --- prefer \texttt{RunTRn\_Base}.
+\texttt{RunTR6\_Async38} and \texttt{RunTR3\_Base4x6} are kept as records of
+their experiments; neither split won.
+\end{warnbox}
+
+Rules of thumb on this 24-core, \SI{32}{\giga\byte} machine:
+
+\begin{itemize}
+  \item keep $K \times \text{threads} = 24$;
+  \item 4$\times$6 above $\sim$120 batteries; below that the split is neutral and
+        6$\times$4 is the default;
+  \item not at full-feeder scale \emph{on this machine}
+        (\texttt{ReduceNetwork}~$=0$) --- even the sequential run exhausted its
+        \SI{32}{\giga\byte} here. The same run completed elsewhere in
+        \SI{82.17}{\hour}, 576/576 optimal, so the wall is local rather than a
+        property of the model;
+  \item when re-tuning, pick the lowest \emph{wall clock};
+  \item one transformer per fresh AIMMS session if the timings are to be compared.
+\end{itemize}
+
+Memory observed, peak AIMMS against minimum free: TR4 3.4 / 21.5, TR9 7.2 / 17.3,
+TR5 11.2 / 11.8, TR7 14.8 / 8.1, TR6 14.4 / \SI{9.1}{\giga\byte}.
+
+% ================================================================= 8
+\section{Files}
+
+\begin{center}
+\begin{tabular}{@{}p{0.34\textwidth} p{0.58\textwidth}@{}}
+\toprule
+\textbf{file} & \textbf{what} \\
+\midrule
+\texttt{README.md} & this report, in markdown \\
+\texttt{timings.csv} & every transformer: size, all three passes, speed-up, inflation, concurrency, validation \\
+\texttt{split\_tests.csv} & all three split experiments in one table \\
+\texttt{BASELINE\_PROTOCOL.md} & how the controlled base was set up and run \\
+\texttt{baseline/} & the campaign's environment log and per-run timings \\
+\texttt{probe/} & raw TR6 probe output \\
+\texttt{src/} & \LaTeX{} source of this PDF \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Full FOR results stay at the repository root as
+\texttt{FOR\_rolling\_<tag>\_\{gmp,base,async,asyncB\}.csv}, with the
+\texttt{\_soc\_} and \texttt{\_fair\_} variants. The model procedures are in
+\texttt{MainProject/OPF.ams}, and the snapshots taken before each change are the
+\texttt{OPF\_pre\_*.ams.txt} backups beside it.
+
+\end{document}
