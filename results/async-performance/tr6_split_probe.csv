@@ -1,0 +1,5 @@
+split_KxT,sessions,threads_per_session,total_threads,wall_s,mean_solve_s,achieved_concurrency,solves
+6x4,6,4,24,692,95.36,3.31,24
+4x6,4,6,24,621,60.30,2.33,24
+3x8,3,8,24,706,53.44,1.82,24
+2x12,2,12,24,746,39.34,1.27,24
