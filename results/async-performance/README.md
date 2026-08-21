@@ -221,7 +221,10 @@ Rules of thumb, on this 24-core / 32 GB machine:
 
 - keep `K × threads = 24`
 - **4×6 above ~120 batteries**; below that the split is neutral and 6×4 is the default
-- **never at full-feeder scale** (`ReduceNetwork = 0`) — even sequential exhausted 32 GB
+- **not at full-feeder scale on this machine** (`ReduceNetwork = 0`) — even sequential
+  exhausted its 32 GB here. It is not impossible in general: Ignacio completed the same
+  whole-feeder rolling FOR on his machine in **82.17 h, 576/576 Optimal**
+  (`results/full_feeder_2026-08/`). Treat the wall as local, not as a property of the model
 - **never linearized for a reportable FOR** — measured on TR3, the relaxation leaves 20 %
   of boundary vertices undeliverable for a 28 % solve saving; see `linearization/`
 - when re-tuning, pick the lowest **wall clock**, never the lowest per-solve time
