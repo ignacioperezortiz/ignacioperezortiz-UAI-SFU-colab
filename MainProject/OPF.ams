@@ -2493,6 +2493,61 @@ Model Main_OPF_VI_LG {
 			Parameter Roll_SignQ {
 				Comment: "As Roll_SignP, for Q_PCC.";
 			}
+			Parameter RollAsyncK {
+				Default: 0;
+				Comment: {
+					"ASYNC EXPERIMENT: number of sweep directions of one period solved CONCURRENTLY in
+					RunFOR_Rolling. 0/1 = untouched sequential production path. >= 2 (requires RollUseGMP = 1
+					and EnableRollDiag = 0) = the directions run RollAsyncK at a time, each on its own COPY of
+					the period instance in its own CPLEX session (GMP::SolverSession::AsynchronousExecute).
+
+					Safe for the same reason the GMP migration is: within a period the directions share one
+					feasible region and differ only in the two objective coefficients, the committed slot-1
+					dispatch is frozen before the sweep, and FOR_TieEps = 0 makes each vertex independent of
+					session history. Solving them side by side changes WHEN each is solved, not WHAT is solved.
+
+					Memory: RollAsyncK live copies of the period matrix. Fine on a reduced transformer; on the
+					whole-feeder exact instance (~905 Mb each) keep this at 2-4. May also be capped by the
+					AIMMS license (maximum parallel solver sessions) - a license error on the first batch is
+					the symptom. Validate against a sequential run with scripts/compare_FOR_runs.py; the
+					invariant is proj."
+				}
+			}
+			Parameter RollAsyncThreads {
+				Default: 2;
+				Comment: "CPLEX thread cap per concurrent sweep session (option global_thread_limit, set on each instance copy) so RollAsyncK sessions do not oversubscribe the machine. 0 = leave the solver default (all cores) - only sensible with RollAsyncK small.";
+			}
+			ElementParameter RollGMPSlot {
+				IndexDomain: ia;
+				Range: AllGeneratedMathematicalPrograms;
+				Comment: "ASYNC sweep: handle of direction ia's copy of the period instance. Created and deleted per batch.";
+			}
+			ElementParameter RollSesSlot {
+				IndexDomain: ia;
+				Range: AllSolverSessions;
+				Comment: "ASYNC sweep: solver session of direction ia's copy. Created and deleted per batch.";
+			}
+			Set RollAsyncSes {
+				SubsetOf: AllSolverSessions;
+				Comment: "ASYNC sweep: the sessions of the batch currently in flight, for GMP::SolverSession::WaitForCompletion.";
+			}
+			Parameter Roll_Done {
+				Comment: "ASYNC sweep working: directions of the current period already collected.";
+			}
+			Parameter Roll_Batch {
+				Comment: "ASYNC sweep working: size of the batch in flight.";
+			}
+			Parameter Roll_SolTime {
+				Comment: "ASYNC sweep working: solver time of the current direction, from GMP::SolverSession::GetTimeUsed (centiseconds, converted to seconds). The synchronous rescue solve, when one ran, is NOT included. Feeds the CSV time column in place of FOR_VertexCont.SolutionTime.";
+			}
+			Parameter RollLinearized {
+				Default: 0;
+				Comment: "RunFOR_Rolling formulation switch. 0 (default, PRODUCTION) = the exact quadratic form: FOR_PolyS=0 and FOR_LinearizeVmax=0. 1 = the LINEARIZED variant, FOR_PolyS=1 (circumscribed 16-gon inverter capability) and FOR_LinearizeVmax=1 (tangent-plane voltage cap). Both are OUTER relaxations, so a run with this at 1 reports an OPTIMISTIC region whose vertices may violate the true voltage cap - read OVviol and VmaxTrue, which stay exact either way. NOT reportable as a FOR; built to measure what the relaxation costs. RunFOR_Rolling pinned the two toggles to 0 outright before this parameter existed.";
+			}
+			Parameter RollMaxPeriods {
+				Default: 0;
+				Comment: "SMOKE cap for RunFOR_Rolling: stop after this many rolling periods. Default 0 = the full 48-period day (production, untouched). The day rotation (RollMap) still uses the true nPeriods = 48, so the periods that DO run are identical to the first periods of a full run. Built for the whole-feeder sizing runs, where a single period costs the better part of an hour.";
+			}
 			Parameter PreflightUseGMP {
 				Default: 0;
 				Comment: {
@@ -2596,8 +2651,10 @@ Model Main_OPF_VI_LG {
 				nPeriods                  := 48;
 				ResultsFileRoot           := "FOR_";
 				AllowChargeAtPmax         := 1;   ! bidirectional flexibility (absorb or inject)
-				FOR_PolyS                 := 0;   ! exact inverter S-circle: BattP_Balance^2 + Qinv^2 <= BattMaxP^2
-				FOR_LinearizeVmax         := 0;   ! exact voltage cap:       Vre^2 + Vim^2 <= MaxV^2
+				FOR_PolyS                 := RollLinearized;   ! 0 = exact inverter S-circle; 1 = circumscribed 16-gon
+				FOR_LinearizeVmax         := RollLinearized;   ! 0 = exact voltage cap; 1 = tangent plane
+				! RollLinearized defaults to 0, so production behaviour is exactly what it was when these two
+				! lines read ":= 0". Set it to 1 only through a wrapper that resets it afterwards.
 				FOR_nAngles               := 12;  ! every 30 deg
 				RollCyclicSOC             := 1;   ! battery returns to its window-start SOC over the day
 				CyclicSOCBand             := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! PRODUCTION band 0.05 (via RelaxCyclicBand default); RunTR9_RelaxCyclic sets RelaxCyclicBand:=1.0 to relax it. Strict (=0) was numerically fragile (2026-06-11: 16 vs 119 fails on identical reruns). Must match the restore in the diag block below.
@@ -2639,6 +2696,7 @@ Model Main_OPF_VI_LG {
 				
 				for (t) do
 					RollNow     := ord(t);
+					if RollMaxPeriods > 0 and RollNow > RollMaxPeriods then break; endif;   ! SMOKE cap (whole-feeder sizing): 0 = full day; the putclose block below still runs, so capped CSVs are valid
 					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
 				
 					! ---- committed self-consumption dispatch = the point the battery actually realises ----
@@ -2786,6 +2844,113 @@ Model Main_OPF_VI_LG {
 						endif;
 					endif;
 					put FOR_RollCSV;
+					if RollUseGMP = 1 and RollAsyncK >= 2 and EnableRollDiag = 0 then
+						! ---- ASYNC EXPERIMENT (RollAsyncK >= 2): the directions of one period are independent
+						! ---- problems - same committed SOC, same matrix, only the two OF_FOR_definition
+						! ---- coefficients differ - so solve them RollAsyncK at a time. Each direction gets its
+						! ---- own COPY of the period instance and its own CPLEX session, capped at
+						! ---- RollAsyncThreads threads. Collection and bookkeeping run in angle order after each
+						! ---- batch, so the CSVs keep the sequential layout. EnableRollDiag = 1 falls back to the
+						! ---- sequential path below: the diag retries change the DATA (relaxed band, scaled PV),
+						! ---- out of scope for the shared-matrix machinery.
+						Roll_Done := 0;
+						while Roll_Done < FOR_nAngles do
+							Roll_Batch := min( RollAsyncK, FOR_nAngles - Roll_Done );
+
+							! launch: copy the period instance, write this direction's two coefficients, start async
+							empty RollAsyncSes;
+							for (ia | ord(ia) > Roll_Done and ord(ia) <= Roll_Done + Roll_Batch) do
+								FOR_AngleRad := FOR_AngleDeg(ia) * 4*arctan(1) / 180;
+								RollGMPSlot(ia) := GMP::Instance::Copy( RollGMP, FormatString("FORrollasync%i", ord(ia)) );
+								GMP::Coefficient::Set( RollGMPSlot(ia), OF_FOR_definition, P_PCC(PeriodMaxP), Roll_SignP*cos(FOR_AngleRad) );
+								GMP::Coefficient::Set( RollGMPSlot(ia), OF_FOR_definition, Q_PCC(PeriodMaxP), Roll_SignQ*sin(FOR_AngleRad) );
+								if RollAsyncThreads > 0 then
+									GMP::Instance::SetOptionValue( RollGMPSlot(ia), 'global_thread_limit', RollAsyncThreads );
+								endif;
+								RollSesSlot(ia) := GMP::Instance::CreateSolverSession( RollGMPSlot(ia) );
+								GMP::SolverSession::AsynchronousExecute( RollSesSlot(ia) );
+								RollAsyncSes += RollSesSlot(ia);
+							endfor;
+							GMP::SolverSession::WaitForCompletion( RollAsyncSes );
+
+							! collect in angle order; a failed direction gets the same synchronous rescue as the
+							! sequential path, re-solved on its own copy
+							for (ia | ord(ia) > Roll_Done and ord(ia) <= Roll_Done + Roll_Batch) do
+								FOR_Angle    := FOR_AngleDeg(ia);
+								FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
+								Roll_SolState := GMP::SolverSession::GetProgramStatus( RollSesSlot(ia) );
+								Roll_SolTime  := GMP::SolverSession::GetTimeUsed( RollSesSlot(ia) ) / 100;   ! GetTimeUsed reports centiseconds; the CSV time column is seconds (verified against the sequential runs, 2026-08-14)
+								if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
+									GMP::Solution::RetrieveFromSolverSession( RollSesSlot(ia), 1 );
+								else
+									option numeric_focus       := 3;
+									option barrier_homogeneous := 1;
+									GMP::Instance::Solve( RollGMPSlot(ia) );
+									Roll_SolState := GMP::Solution::GetProgramStatus( RollGMPSlot(ia), 1 );
+									option numeric_focus       := 0;
+									option barrier_homogeneous := 0;
+								endif;
+								if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
+									GMP::Solution::SendToModel( RollGMPSlot(ia), 1 );   ! P_PCC/Q_PCC/Vre/Vim are read from the model below
+								endif;
+								FOR_StatCur := Roll_SolState;
+				
+								if Roll_SolState = 'Optimal' or
+								   Roll_SolState = 'LocallyOptimal' then
+									FOR_Pcur    := P_PCC(PeriodMaxP);
+									FOR_Qcur    := Q_PCC(PeriodMaxP);
+									FOR_VmaxCur := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+									FOR_LinCur  := max((n,f), abs(Vmag2approx(n,f,PeriodMaxP) - (Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)));
+									put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+									    FOR_Pcur:14:6, ",", FOR_Qcur:14:6, ",",
+									    (cos(FOR_AngleRad)*FOR_Pcur + sin(FOR_AngleRad)*FOR_Qcur):14:6, ",",
+									    FOR_StatCur, ",", Roll_SolTime:12:2, ",",
+									    (min((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2))):10:5, ",",
+									    FOR_VmaxCur:10:5, ",",
+									    (max((n,f), max(0, MinV(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2)))):10:5, ",",
+									    (max((n,f), max(0, sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - MaxV(n)))):10:5, ",",
+									    FOR_LinCur:12:6 / ;
+								else
+									put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+									    0:14:6, ",", 0:14:6, ",", 0:14:6, ",",
+									    FOR_StatCur, ",", Roll_SolTime:12:2, ",",
+									    0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:10:5, ",", 0:12:6 / ;
+								endif;
+				
+								! ---- fairness log: one row per aggregator for this direction ----
+								! Reported for every FairMode, so case A (FairMode=0) supplies the unconstrained split
+								! that the contraction and dispersion metrics are measured against. util_min/util_max
+								! are the extreme per-prosumer utilisations inside the aggregator: under FairMode=1 they
+								! collapse onto util, under FairMode=2 they are free to spread while the total tracks Zeta.
+								!
+								! The conditional below picks the quantity ACTUALLY being allocated, so that util == Zeta stays
+								! the check at every level: the battery for m<=2, the prosumer export for m>=3. Written
+								! inline rather than as a parameter on purpose - it must add no identifier and no row, and
+								! with FairMode<=2 it reduces to BattP_Balance, so A/L1/L2 log exactly what they logged
+								! before m=3/m=4 existed. The sign matches the constraints: export positive.
+								put FOR_RollFairCSV;
+								for (a) do
+									put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
+									    FairMode:2:0, ",", Zeta:14:6, ",", FOR_StatCur, ",",
+									    a:8, ",", (sum(bat | BattAgg(bat) = a, 1)):4:0, ",",
+									    (sum(bat | BattAgg(bat) = a, FairCap(bat))):14:6, ",",
+									    (sum(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+									     else BattP_Balance(bat,PeriodMaxP) endif))):14:6, ",",
+									    (sum(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+									     else BattP_Balance(bat,PeriodMaxP) endif))
+									        / max(sum(bat | BattAgg(bat) = a, FairCap(bat)), 1e-9)):14:6, ",",
+									    (min(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+									     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6, ",",
+									    (max(bat | BattAgg(bat) = a, (if FairMode >= 3 then -TotPcust(BattBus(bat),BattPhase(bat),PeriodMaxP)
+									     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6 / ;
+								endfor;
+								put FOR_RollCSV;   ! restore the active file for the next direction
+								GMP::Instance::DeleteSolverSession( RollSesSlot(ia) );
+								GMP::Instance::Delete( RollGMPSlot(ia) );
+							endfor;
+							Roll_Done := Roll_Done + Roll_Batch;
+						endwhile;
+					else
 					for (ia) do
 						FOR_Angle    := FOR_AngleDeg(ia);
 						FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
@@ -2992,6 +3157,7 @@ Model Main_OPF_VI_LG {
 							put FOR_RollCSV;
 						endif;
 						endfor;
+					endif;   ! ASYNC (RollAsyncK) / sequential sweep
 
 						if RollUseGMP = 1 then
 							GMP::Instance::Delete( RollGMP );   ! one instance per period; the next period generates its own
@@ -3487,6 +3653,913 @@ Model Main_OPF_VI_LG {
 				BaseNoNetwork     := 0;
 			}
 			Comment: "EXPERIMENT STAGE 2: full TR4 rolling FOR (GMP sweep, network ON) with the committed baseline solved battery-only (BaseNoNetwork=1). 576 vertices -> FOR_rolling_TR4_gmpnonet.csv. Compare against FOR_rolling_TR4_gmp.csv; the invariant is proj, not P/Q.";
+		}
+		Procedure RunTR4_Timing_ABA {
+			Body: {
+				! FAIR-TIMING experiment. The Aug-10 vs Aug-13 wall-clock comparison of RunTR4_GMP vs
+				! RunTR4_GMP_BaseNoNet was confounded by machine load: the 576 sweep solves - identical
+				! problems in both runs - took +70% solver time on the loaded Aug-13 machine, burying the
+				! baseline saving. This wrapper reruns the pair back-to-back in ONE session on an idle
+				! machine, A-B-A order: production GMP (A1), BaseNoNetwork (B), production GMP again (A2).
+				! If A1 ~ A2 the environment was stable and the A-B gap is attributable to BaseNoNetwork
+				! alone. Fresh suffixes so the Aug-10/13 reference files are NOT overwritten.
+				! Wall clock per leg = CSV CreationTime -> LastWriteTime. Expect ~36 min/leg idle, ~1h50 total.
+
+				! A1 - production GMP config (clone of RunTR4_GMP, suffix changed)
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR4_gmpA1";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				run RunFOR_Rolling;
+
+				! B - committed baseline battery-only (clone of RunTR4_GMP_BaseNoNet, suffix changed)
+				RollGMPBaseline   := 0;
+				BaseNoNetwork     := 1;
+				RollFileSuffix    := "_TR4_gmpnonetB";
+				run RunFOR_Rolling;
+
+				! A2 - production GMP config again (drift check)
+				BaseNoNetwork     := 0;
+				RollGMPBaseline   := 1;
+				RollFileSuffix    := "_TR4_gmpA2";
+				run RunFOR_Rolling;
+
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "FAIR-TIMING: RunTR4_GMP vs RunTR4_GMP_BaseNoNet back-to-back on an idle machine, A-B-A order. Writes _TR4_gmpA1 / _TR4_gmpnonetB / _TR4_gmpA2 files (Aug-10/13 references untouched). Wall clock per leg from CSV CreationTime -> LastWriteTime; A1 ~ A2 certifies a stable environment.";
+		}
+		Procedure RunTR4_GMP_Async {
+			Body: {
+				! ASYNC EXPERIMENT, tuning round 3: ALL 12 directions of a period in ONE batch -
+				! RollAsyncK=12 CPLEX sessions of RollAsyncThreads=2 threads each (24 threads = the
+				! 24 physical cores). Removes the second per-period batch synchronization of round 2.
+				! Tuning history on TR4 (all PASS vs leg A1 = 35m20s idle; SOC bit-identical every round):
+				!   round 1  6 x 2  _TR4_gmpasync    28m16s  (9.4 s/solve - thread-starved)
+				!   round 2  6 x 4  _TR4_gmpasync4   20m13s  (7.76 s/solve; sweep exactly 2x sequential)
+				! Fresh suffix so the earlier rounds and the A-B-A references are NOT overwritten.
+				! Validate + time against leg A1:
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR4_gmpA1.csv FOR_rolling_TR4_gmpasync12.csv
+				! Wall clock from CSV CreationTime -> LastWriteTime.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR4_gmpasync12";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 12;
+				RollAsyncThreads  := 2;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "SUPERSEDED BY RunTR4_Async - kept as the tuning record only. This is round 3 (RollAsyncK=12, RollAsyncThreads=2, 24m39s), which is SLOWER than the round-2 keeper 6x4 (20m13s) now used by RunTR4_Async; round 1 (6x2) was 28m16s. All three PASS vs A1. Writes _TR4_gmpasync12 files. For a production TR4 async run use RunTR4_Async, not this.";
+		}
+		Procedure RunFullFeeder_GMP_AsyncSmoke {
+			Body: {
+				! WHOLE-FEEDER ASYNC - STEP 1, the smoke/sizing run. The production rolling FOR on the
+				! FULL feeder (ReduceNetwork=0, exact QCP: ~7.5M rows, ~905 Mb per instance, ~287 s per
+				! vertex measured in the GMP preflight), capped at RollMaxPeriods=2 periods, sweep
+				! solved RollAsyncK=2 directions at a time with RollAsyncThreads=10 CPLEX threads each.
+				! The monolithic full-feeder rolling run has NEVER been completed (pre-GMP it was
+				! documented intractable) - this 2-period cap is the sanctioned way to touch it.
+				! PURPOSE, in order:
+				!   1. prove the async machinery holds at whole-feeder scale (2 concurrent 905-Mb
+				!      copies + 2 barrier factorizations);
+				!   2. measure PEAK RAM in Task Manager during the sweep - THE go/no-go for K=3.
+				!      The TR4 lesson (box saturates at ~6 small barriers) does NOT transfer: these
+				!      barriers are individually memory-bound. If RAM passes ~24 Gb, stay at K=2;
+				!   3. price the full 48-period run from the measured per-period wall clock.
+				! Expect VERY roughly ~1 h per period (matrix generation ~17 min is serial and is the
+				! Amdahl floor here). A/B partner: RunFullFeeder_GMP_SmokeRef, then
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_full_gmpref_smoke.csv FOR_rolling_full_gmpasync_smoke.csv
+				UseBattComp       := 0;
+				RollFileSuffix    := "_full_gmpasync_smoke";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 2;
+				RollAsyncThreads  := 10;
+				RollMaxPeriods    := 2;
+				run RunFOR_Rolling;
+				RollMaxPeriods    := 0;
+				RollAsyncK        := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER ASYNC smoke: 2 rolling periods on the FULL feeder (exact QCP) with RollAsyncK=2 / RollAsyncThreads=10 / RollGMPBaseline=1. Writes _full_gmpasync_smoke files. Measures per-period wall clock and peak RAM to size the full 48-period run; validate against RunFullFeeder_GMP_SmokeRef with scripts/compare_FOR_runs.py (invariant: proj). Watch Task Manager during the sweep - RAM is the go/no-go for RollAsyncK=3.";
+		}
+		Procedure RunFullFeeder_GMP_SmokeRef {
+			Body: {
+				! WHOLE-FEEDER ASYNC - the sequential A/B partner of RunFullFeeder_GMP_AsyncSmoke:
+				! byte-identical config except RollAsyncK=0 (sequential GMP sweep). The whole feeder
+				! has no completed rolling reference, so this 2-period leg IS the reference the async
+				! smoke is validated against. Expect VERY roughly ~1.5 h per period.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_full_gmpref_smoke";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 0;
+				RollMaxPeriods    := 2;
+				run RunFOR_Rolling;
+				RollMaxPeriods    := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "Sequential 2-period whole-feeder GMP reference for the async smoke. Writes _full_gmpref_smoke files. Compare: py -3 scripts/compare_FOR_runs.py FOR_rolling_full_gmpref_smoke.csv FOR_rolling_full_gmpasync_smoke.csv (invariant: proj).";
+		}
+		Procedure RunTR1_Async {
+			Body: {
+				! ---------------------------------------------------------------------------
+				! FIRST OF THE PER-TRANSFORMER ASYNC SET (RunTR1_Async .. RunTR9_Async).
+				! The production per-transformer rolling FOR - EXACT quadratic form, unchanged
+				! physics - with each period's 12 sweep directions solved 6 at a time in
+				! parallel CPLEX sessions of 4 threads each. Same config as RunTRn_GMP plus
+				! RollAsyncK/RollAsyncThreads; every other switch stays at its production
+				! value, so these produce the production result, only faster.
+				!
+				! Tuning evidence (TR4, 2026-08-14, idle machine, wall clock from CSV
+				! CreationTime -> LastWriteTime; every round PASS vs the sequential leg A1 with
+				! the committed-dispatch SOC file bit-identical):
+				!     sequential (A1/A2)   35m20s / 35m05s
+				!     6 sessions x 2 thr   28m16s
+				!     6 sessions x 4 thr   20m13s   <- KEEPER, -43%
+				!    12 sessions x 2 thr   24m39s   (the box saturates at ~6 barrier solves)
+				!
+				! MEMORY: each concurrent direction holds its own copy of the period matrix.
+				! Cheap on a REDUCED per-transformer network, NOT cheap at full-feeder scale -
+				! RunFullFeeder_GMP_SmokeRef exhausted 32 Gb sequentially on 2026-08-14 (peak
+				! 18.8 Gb, every solve NoSolution), so do not carry these settings to
+				! ReduceNetwork = 0. TR9 is the largest of the nine (90 prosumers): run it
+				! first and watch peak RAM; if it thrashes, drop RollAsyncK to 4 or 3.
+				!
+				! Validate any of these against its sequential twin RunTRn_GMP with
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TRn_gmp.csv FOR_rolling_TRn_async.csv --tol 5e-6
+				! The invariant is proj, not P/Q; --tol 5e-6 because capping CPLEX threads
+				! changes the barrier arithmetic path (measured spread on TR4: 3e-6 p.u. = 3 W,
+				! with 0/576 rows over 5e-6).
+				! ---------------------------------------------------------------------------
+				! ASYNC production run for TR1: RunTR1_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR1_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR1.csv and FOR_rolling_TR1_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR1_gmp.csv FOR_rolling_TR1_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR1_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR1";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR1: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR1_async.csv; validate against FOR_rolling_TR1_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR2_Async {
+			Body: {
+				! ASYNC production run for TR2: RunTR2_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR2_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR2.csv and FOR_rolling_TR2_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR2_gmp.csv FOR_rolling_TR2_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR2_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR2";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR2: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR2_async.csv; validate against FOR_rolling_TR2_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR3_Async {
+			Body: {
+				! ASYNC production run for TR3: RunTR3_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR3_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR3.csv and FOR_rolling_TR3_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_gmp.csv FOR_rolling_TR3_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR3: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR3_async.csv; validate against FOR_rolling_TR3_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR4_Async {
+			Body: {
+				! ASYNC production run for TR4: RunTR4_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR4_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR4.csv and FOR_rolling_TR4_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR4_gmp.csv FOR_rolling_TR4_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR4_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR4: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR4_async.csv; validate against FOR_rolling_TR4_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR5_Async {
+			Body: {
+				! ASYNC production run for TR5: RunTR5_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR5_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR5.csv and FOR_rolling_TR5_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR5_gmp.csv FOR_rolling_TR5_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR5_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR5";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR5: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR5_async.csv; validate against FOR_rolling_TR5_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR6_Async {
+			Body: {
+				! ASYNC production run for TR6: RunTR6_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR6_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR6.csv and FOR_rolling_TR6_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR6_gmp.csv FOR_rolling_TR6_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR6_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR6";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR6: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR6_async.csv; validate against FOR_rolling_TR6_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR7_Async {
+			Body: {
+				! ASYNC production run for TR7: RunTR7_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR7_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR7.csv and FOR_rolling_TR7_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR7_gmp.csv FOR_rolling_TR7_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR7_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR7";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR7: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR7_async.csv; validate against FOR_rolling_TR7_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR8_Async {
+			Body: {
+				! ASYNC production run for TR8: RunTR8_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR8_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR8.csv and FOR_rolling_TR8_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR8_gmp.csv FOR_rolling_TR8_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR8_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR8";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR8: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR8_async.csv; validate against FOR_rolling_TR8_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR9_Async {
+			Body: {
+				! ASYNC production run for TR9: RunTR9_GMP with the sweep parallelised
+				! (RollAsyncK=6 sessions x RollAsyncThreads=4 threads = 24 threads, the
+				! physical core count). Exact quadratic form, production switches.
+				! Writes FOR_rolling_TR9_async.csv / _soc_ / _fair_; the sequential
+				! FOR_rolling_TR9.csv and FOR_rolling_TR9_gmp.csv are NOT touched.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR9_gmp.csv FOR_rolling_TR9_async.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR9_async";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC PRODUCTION, TR9: the exact-QCP rolling FOR with each period's 12 directions solved 6 at a time in parallel CPLEX sessions (4 threads each). ~43% faster than sequential on the TR4 benchmark, same answer (proj within 3e-6 p.u., committed dispatch bit-identical). Writes FOR_rolling_TR9_async.csv; validate against FOR_rolling_TR9_gmp.csv with scripts/compare_FOR_runs.py --tol 5e-6.";
+		}
+		Procedure RunTR1_Base {
+			Body: {
+				! ---------------------------------------------------------------------------
+				! FIRST OF THE CONTROLLED-BASELINE SET (RunTR1_Base .. RunTR9_Base).
+				! One transformer per FRESH AIMMS session, so every run starts from the same
+				! machine state and the wall clocks are comparable to EACH OTHER. This is the
+				! point of the set: the 2026-08-17/18 campaign was measured across a batch,
+				! across days and across machine loads, and a measured 1.48x of it turned out
+				! to be session state rather than the model.
+				!
+				! PROTOCOL (all nine, or the comparison is void):
+				!   1. reboot, and open nothing but AIMMS;
+				!   2. start scripts/watch_runs.ps1 once, and leave it running;
+				!   3. open AIMMS, run ONE RunTRn_Base, close AIMMS WITHOUT SAVING;
+				!   4. repeat from 3 for the next transformer.
+				! Closing between runs is not optional - it is what makes the base the same.
+				!
+				! Split is size-adaptive, from the TR6 probe of 2026-08-18: 6x4 at or below
+				! ~120 batteries, 4x6 above. Sizes (batteries): TR4 46, TR3 49, TR1 77,
+				! TR9 90, TR2 95, TR8 124, TR5 214, TR7 259, TR6 262.
+				!
+				! Writes FOR_rolling_TRn_base.csv, so nothing from the earlier passes
+				! (_gmp, _async, _asyncB) is touched.
+				! ---------------------------------------------------------------------------
+
+				! CONTROLLED BASELINE, TR1 (77 batteries, small -> 6 sessions x 4 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR1_gmp.csv FOR_rolling_TR1_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR1_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR1";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR1: one transformer in a fresh AIMMS session at 6 sessions x 4 threads (77 batteries, small band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR1_base.csv.";
+		}
+		Procedure RunTR2_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR2 (95 batteries, small -> 6 sessions x 4 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR2_gmp.csv FOR_rolling_TR2_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR2_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR2";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR2: one transformer in a fresh AIMMS session at 6 sessions x 4 threads (95 batteries, small band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR2_base.csv.";
+		}
+		Procedure RunTR3_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR3 (49 batteries, small -> 6 sessions x 4 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_gmp.csv FOR_rolling_TR3_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR3: one transformer in a fresh AIMMS session at 6 sessions x 4 threads (49 batteries, small band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR3_base.csv.";
+		}
+		Procedure RunTR4_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR4 (46 batteries, small -> 6 sessions x 4 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR4_gmp.csv FOR_rolling_TR4_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR4_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR4";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR4: one transformer in a fresh AIMMS session at 6 sessions x 4 threads (46 batteries, small band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR4_base.csv.";
+		}
+		Procedure RunTR5_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR5 (214 batteries, large -> 4 sessions x 6 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR5_gmp.csv FOR_rolling_TR5_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR5_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR5";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR5: one transformer in a fresh AIMMS session at 4 sessions x 6 threads (214 batteries, large band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR5_base.csv.";
+		}
+		Procedure RunTR6_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR6 (262 batteries, large -> 4 sessions x 6 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR6_gmp.csv FOR_rolling_TR6_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR6_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR6";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR6: one transformer in a fresh AIMMS session at 4 sessions x 6 threads (262 batteries, large band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR6_base.csv.";
+		}
+		Procedure RunTR7_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR7 (259 batteries, large -> 4 sessions x 6 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR7_gmp.csv FOR_rolling_TR7_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR7_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR7";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR7: one transformer in a fresh AIMMS session at 4 sessions x 6 threads (259 batteries, large band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR7_base.csv.";
+		}
+		Procedure RunTR8_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR8 (124 batteries, large -> 4 sessions x 6 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR8_gmp.csv FOR_rolling_TR8_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR8_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR8";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR8: one transformer in a fresh AIMMS session at 4 sessions x 6 threads (124 batteries, large band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR8_base.csv.";
+		}
+		Procedure RunTR9_Base {
+			Body: {
+				! CONTROLLED BASELINE, TR9 (90 batteries, small -> 6 sessions x 4 threads).
+				! Run this alone in a fresh AIMMS session, then close AIMMS without saving.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR9_gmp.csv FOR_rolling_TR9_base.csv --tol 5e-5
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR9_base";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CONTROLLED BASELINE, TR9: one transformer in a fresh AIMMS session at 6 sessions x 4 threads (90 batteries, small band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR9_base.csv.";
+		}
+		Procedure RunTR3_Base4x6 {
+			Body: {
+				! SPLIT TEST: TR3 (49 batteries) on 4 sessions x 6 threads instead of the 6x4
+				! its size band prescribes. Same controlled-baseline protocol - run alone in a
+				! fresh AIMMS session, close without saving.
+				!
+				! WHY: the completed 2026-08-19/20 baseline shows per-solve inflation splits by
+				! SPLIT, not by size. Every 6x4 transformer sits at 2.20-2.33x (TR4 2.20,
+				! TR3 2.33, TR1 2.31, TR2 2.21; TR9 1.59 is the lone exception), while the two
+				! healthy 4x6 runs sit at 1.11-1.18x (TR5 1.11, TR8 1.18). If inflation is a
+				! property of the split, 4x6 should cut TR3's mean solve from 8.24 s toward
+				! ~4.5 s. Concurrency will fall from 3.95 to about 2.4, so the wall clock is
+				! the arbiter, not the mean: TR3 must beat 20.1 min to be worth adopting.
+				!
+				! The ~120-battery crossover in README/PDF section 6 rests on the TR4 tuning of
+				! 2026-08-14, which never tried 4x6. This is the cheapest test of it - 20 min.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_base.csv FOR_rolling_TR3_base4x6.csv --tol 5e-6
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_base4x6";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "SPLIT TEST, TR3 at 4 sessions x 6 threads: tests whether the 2.2-2.3x per-solve inflation seen on every 6x4 transformer is a property of the split rather than of size. Must beat TR3's baseline 20.1 min to justify moving the small band to 4x6. Writes FOR_rolling_TR3_base4x6.csv, leaving FOR_rolling_TR3_base.csv intact.";
+		}
+		Procedure RunTR3_Linear {
+			Body: {
+				! LINEARIZATION COST TEST: TR3 with the linearized formulation, everything else
+				! identical to RunTR3_Base. Run alone in a fresh AIMMS session, close without
+				! saving. ~20 min (the exact run was 20.05 min).
+				!
+				! WHY: the production formulation is exact because the linearized one is an OUTER
+				! RELAXATION - the tangent plane lies below the true convex Vre^2+Vim^2, and the
+				! 16-gon circumscribes the S-circle - so it admits points the real network rejects.
+				! Two facts from the completed baseline make that bite here: VmaxTrue is 1.10000 on
+				! every one of the nine transformers, i.e. the voltage cap is BINDING and sets the
+				! region boundary; and LinErr (max |Vmag2approx - (Vre^2+Vim^2)| at the solved
+				! vertex, already logged by the exact runs) reaches 0.0106 p.u.^2 on TR3 and 0.0377
+				! on TR7. At TR7's worst that is a true voltage near 1.117 p.u. reported as feasible
+				! at 1.10 - about 17% of the whole 1.00-1.10 band.
+				!
+				! The repository has long claimed the linearized region is "~1% larger". As far as
+				! the record shows that was never measured. This measures it.
+				!
+				! WHAT TO READ, against FOR_rolling_TR3_base.csv direction by direction:
+				!   proj      - how much the region inflates (the headline number)
+				!   OVviol    - vertices that violate the TRUE cap; stays exact under linearization
+				!   VmaxTrue  - how far past 1.10 the relaxed vertices actually sit
+				!   status    - the linearized era left TR4 with 71 NoSolution directions; see if
+				!               TR3's 576/576 survives the change of formulation
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_base.csv FOR_rolling_TR3_linear.csv --tol 5e-6
+				! Expect that comparison to FAIL loudly. It is measuring a modelling difference, not
+				! solver noise - the tolerance gates were built for the latter.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_linear";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				RollLinearized    := 1;   ! <- the only difference from RunTR3_Base
+				run RunFOR_Rolling;
+				RollLinearized    := 0;   ! MUST reset: leaving this at 1 would silently relax every later run
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "LINEARIZATION COST TEST, TR3: the linearized formulation (16-gon inverter capability + tangent-plane Vmax) against the otherwise identical exact run FOR_rolling_TR3_base.csv. Measures how much the outer relaxation inflates the region and how many vertices breach the true voltage cap - the evidence behind the choice to publish only exact results. ~20 min. Writes FOR_rolling_TR3_linear.csv; resets RollLinearized to 0 on the way out.";
+		}
+		Procedure RunTR7_Linear {
+			Body: {
+				! LINEARIZATION COST TEST, LARGE END: TR7 (259 batteries) linearized, against the
+				! otherwise identical exact run RunTR7_Base. Fresh AIMMS session, close without
+				! saving. Budget ~4-5 h (exact was 5.24 h; the relaxation solves a little faster).
+				!
+				! WHY A SECOND ONE: the TR3 test (2026-08-20) is close to a BEST case. TR3 has the
+				! second-lowest LinErr of the nine - max 0.0106 p.u.^2 against TR7's 0.0377 - and it
+				! still lost 115 of 576 vertices (20%) through the true voltage cap, with the region
+				! 1.6% larger by area (median; 5.0% worst). TR7 is the WORST-conditioned of the nine
+				! by LinErr, so this anchors the other end of the size range and tells us whether
+				! the 20% is typical or optimistic.
+				!
+				! Note the split differs from TR3's on purpose: TR7 is in the large band, so it uses
+				! 4x6 exactly as RunTR7_Base did. The comparison stays like-for-like because the
+				! split changes only the wall clock, never the answer (proven on TR3: 6x4 and 4x6
+				! agreed to 2e-6 p.u. with the SOC file bit-identical).
+				!
+				!   py -3 scripts/compare_linearization.py --tag TR7
+				! That writes TR7_linearization.xlsx and the two figures beside TR3's.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR7_linear";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR7";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				RollLinearized    := 1;   ! <- the only difference from RunTR7_Base
+				run RunFOR_Rolling;
+				RollLinearized    := 0;   ! MUST reset: leaving this at 1 would silently relax every later run
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "LINEARIZATION COST TEST, TR7 (259 batteries, the worst-conditioned of the nine by LinErr): the linearized formulation against the exact FOR_rolling_TR7_base.csv. Anchors the large end of the size range after the TR3 test, which is close to a best case and still lost 20% of its vertices through the true voltage cap. ~4-5 h, 4x6 split. Writes FOR_rolling_TR7_linear.csv; resets RollLinearized to 0 on the way out.";
+		}
+		Procedure RunTR6_AsyncTune {
+			Body: {
+				! ASYNC SPLIT PROBE on TR6, the LARGEST transformer (262 batteries).
+				! Four session/thread splits at a constant 24 threads, each capped to the
+				! first 2 periods (24 solves) by RollMaxPeriods, so the whole probe costs
+				! roughly 1.5 h instead of the 4 x 10 h a full-day sweep would.
+				!
+				! WHY: RollAsyncK=6 x 4 threads was tuned on TR4 (46 batteries) and does
+				! NOT generalise. Measured on the 2026-08-17/18 per-transformer batch,
+				! per-solve inflation (async mean / sequential mean) rises with size while
+				! achieved concurrency falls, and the two cross over near ~120 batteries:
+				!     TR9  ( 90 batt)  inflation 1.6x  concurrency 3.7  -> 2.62x FASTER
+				!     TR1  ( 77 batt)  inflation 2.5x  concurrency 3.8  -> 1.80x faster
+				!     TR5  (214 batt)  inflation 2.4x  concurrency 2.5  -> 1.19x faster
+				!     TR6  (262 batt)  inflation 4.4x  concurrency 2.4  -> 0.65x SLOWER
+				! Six concurrent barrier solves of a 262-battery horizon saturate memory
+				! bandwidth - the same wall that killed the whole-feeder run, reached from
+				! the other side. Fewer, fatter sessions should trade concurrency for a
+				! working set that fits.
+				!
+				! Periods 1-2 are representative: the TR6 async run averaged 146 s/solve
+				! over periods 1-4 against a 154 s full-day mean, a 6% difference.
+				!
+				! Writes FOR_rolling_TR6_tune_<K>x<T>.csv - a fresh name per split, so no
+				! existing result is touched. Read the mean of the time column and the
+				! wall clock (CSV CreationTime -> LastWriteTime) for each.
+				UseBattComp       := 0;
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR6";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollMaxPeriods    := 2;
+				! ---- 6x4 ----   ! control - the split the batch used
+				RollFileSuffix    := "_TR6_tune_6x4";
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				! ---- 4x6 ----
+				RollFileSuffix    := "_TR6_tune_4x6";
+				RollAsyncK        := 4;
+				RollAsyncThreads  := 6;
+				run RunFOR_Rolling;
+				! ---- 3x8 ----   (the hypothesis)
+				RollFileSuffix    := "_TR6_tune_3x8";
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 8;
+				run RunFOR_Rolling;
+				! ---- 2x12 ----
+				RollFileSuffix    := "_TR6_tune_2x12";
+				RollAsyncK        := 2;
+				RollAsyncThreads  := 12;
+				run RunFOR_Rolling;
+				! restore production defaults
+				RollMaxPeriods    := 0;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC SPLIT PROBE, TR6: four session/thread splits (6x4, 4x6, 3x8, 2x12 - all 24 threads) over the first 2 periods only, ~1.5 h total. Answers whether fewer/fatter CPLEX sessions beat 6x4 on the large transformers before committing a full day-long run. Writes FOR_rolling_TR6_tune_<K>x<T>.csv; compare the mean of the time column and the wall clock across the four.";
+		}
+		Procedure RunTR6_Async38 {
+			Body: {
+				! FULL-DAY TR6 async at 3 sessions x 8 threads - the split RunTR6_AsyncTune
+				! is meant to justify before this is worth 3-10 h. Identical to RunTR6_Async
+				! in every other respect (exact quadratic form, production switches).
+				! Writes FOR_rolling_TR6_async38.csv, leaving FOR_rolling_TR6_async.csv
+				! (the 6x4 result, 632 min) and FOR_rolling_TR6_gmp.csv (sequential,
+				! 409 min) untouched, so all three are directly comparable.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR6_gmp.csv FOR_rolling_TR6_async38.csv --tol 5e-5
+				! NOTE the looser gate: proj drift grows with instance size on the async
+				! path (8e-6 p.u. on TR1, 4.3e-5 on TR6). 4.3e-5 p.u. = 43 W is still ~23x
+				! inside the model's own Feasibility_Tolerance of 1e-3 p.u., and the
+				! committed-dispatch SOC file stayed bit-identical on all six transformers
+				! checked - but do not quote an async vertex where the 5e-6 gate matters.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR6_async38";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR6";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 8;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "ASYNC, TR6 at 3 sessions x 8 threads: the full 48-period rolling FOR with a fewer/fatter session split, for the large transformers where 6x4 lost to sequential. Writes FOR_rolling_TR6_async38.csv; the 6x4 and sequential results are left in place for comparison. Run RunTR6_AsyncTune first - it settles the split in ~1.5 h instead of gambling 3-10 h here.";
+		}
+		Procedure RunFOR_Rolling_PerTrafo_Async {
+			Body: {
+				! PER-TRANSFORMER PRODUCTION, ASYNC - REVISED 2026-08-18 after the first run of
+				! this procedure (TR1..TR7, 2026-08-17/18) came out SLOWER than sequential on the
+				! large transformers. Two fixes, both measured:
+				!
+				! 1. NO up-front full-feeder Load_data_dsn. The original captured the transformer
+				!    universe by loading the whole feeder once, then looped. RunFOR_Rolling's very
+				!    first statements empty everything and reload, so that load bought nothing -
+				!    but it had already grown the AIMMS heap to full-feeder size, and the process
+				!    never gives that back. Cost, period-matched, same settings, standalone vs
+				!    in-batch: TR4 7.76 -> 11.58 s/solve (1.49x), TR6 95.4 -> 141.0 s/solve
+				!    (1.48x). Same penalty at the 4th and 6th call, so it is a constant, not
+				!    cumulative fragmentation. The nine tags are fixed by the dataset, so they are
+				!    just assigned here. If the feeder ever changes, re-capture them by running
+				!    RunFOR_Rolling_PerTrafo (the sequential twin) once and reading PerTrafoTag.
+				!
+				! 2. SIZE-ADAPTIVE SPLIT. 6 sessions x 4 threads was tuned on TR4 (46 batteries)
+				!    and does not generalise. TR6 probe, 2 periods, 24 threads throughout
+				!    (RunTR6_AsyncTune, 2026-08-18): 6x4 692 s, 4x6 621 s, 3x8 706 s, 2x12 746 s.
+				!    So 4x6 for the big ones (TR5 214, TR7 259, TR6 262 batteries, TR8 124 just
+				!    past the ~120 crossover), 6x4 for the rest. NOTE 3x8 lost - fewer/fatter
+				!    sessions is NOT monotonically better; concurrency falls faster than per-solve
+				!    time improves below 4 sessions.
+				!
+				! Writes FOR_rolling_<tag>_asyncB.csv - a NEW suffix, so neither the sequential
+				! _gmp results nor the first async pass (_async) is touched.
+				! RESUME: put completed tags in the FindString list below (e.g. ",TR1,TR2,").
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;   ! NEW generator (exact QCP); RunFOR_Rolling re-pins it anyway
+				nPeriods                  := 48;
+				IncludeNetworkConstraints := 1;
+				DetailLoadPattern := "";
+				RollFileSuffix    := "";
+				! transformer universe, fixed by the dataset - no full-feeder load needed
+				PerTrafoN := 9;
+				for (pti) do
+					PerTrafoTag(pti) := FormatString("TR%i", ord(pti));
+				endfor;
+				UseBattComp       := 0;
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				for (pti) do
+					if FindString(",TR1,TR2,TR3,TR5,TR6,TR7,TR8,TR9,", "," + PerTrafoTag(pti) + ",") = 0 then   ! CHECK RUN 2026-08-19: TR4 only (~20 min if the dropped full-feeder load fixed the 1.48x batch penalty, ~41 min if not). Reset to "," to run all nine.
+						RollFileSuffix := "_" + PerTrafoTag(pti) + "_asyncB";
+						ReduceNetwork  := 1;
+						DetailTagCSV   := PerTrafoTag(pti);
+						if FindString(",TR5,TR6,TR7,TR8,", "," + PerTrafoTag(pti) + ",") > 0 then
+							RollAsyncK       := 4;   ! large: >~120 batteries
+							RollAsyncThreads := 6;
+						else
+							RollAsyncK       := 6;   ! small: the TR4-tuned split
+							RollAsyncThreads := 4;
+						endif;
+						run RunFOR_Rolling;
+					endif;
+				endfor;
+				! defensive reset to full-feeder / sequential defaults
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				RollFileSuffix    := "";
+			}
+			Comment: "PER-TRANSFORMER PRODUCTION, ASYNC (revised 2026-08-18). Drops the up-front full-feeder load, which cost a measured 1.48x on every solve for nothing, and picks the session/thread split by transformer size (4x6 for TR5-TR8, 6x4 for the rest) after the TR6 probe showed the TR4-tuned 6x4 does not generalise. Writes FOR_rolling_<tag>_asyncB.csv, leaving both the sequential _gmp results and the first async pass untouched.";
 		}
 		Procedure RunFOR_Rolling_PerTrafo {
 			Body: {
