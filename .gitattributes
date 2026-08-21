@@ -1,0 +1,6 @@
+# The 2026-08-17 whole-feeder run is an archival record: it is stored exactly as AIMMS
+# wrote it, CRLF and all. core.autocrlf would otherwise strip one byte per line from the
+# blob, so what the repository holds would no longer be what the machine produced.
+# -text (rather than binary) keeps these diffable.
+results/full_feeder_2026-08/*.csv -text
+results/full_feeder_2026-08/*.txt -text

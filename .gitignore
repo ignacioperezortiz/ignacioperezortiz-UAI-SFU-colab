@@ -25,10 +25,19 @@ PROTemp/
 FOR_rolling*.csv
 # progress marker of RunFOR_RollingPreflight: rewritten every vertex, pure run artefact
 FOR_rolling_preflight_progress.txt
+# progress marker of RunFOR_Rolling: same reasoning as the preflight one above
+FOR_rolling_progress*.txt
 # matrix size / memory / objective-row signs, written when PreflightGMPProbe = 1
 FOR_gmp_probe*.txt
 /*.png
 *_analysis_data.xlsx
+
+# Exception to the two patterns above: the whole-feeder run of 2026-08-17 is versioned on
+# purpose. It cost 82 h of wall clock, so "regenerate it" is not a real answer to a question
+# about what it contains. This is the only run that gets this treatment - see
+# results/full_feeder_2026-08/README.md.
+!results/full_feeder_2026-08/FOR_rolling*.csv
+!results/full_feeder_2026-08/FOR_rolling_progress*.txt
 
 # ---------------------------------------------------------------------------
 # Post-processing validation inputs (per-customer load+PV reference tables).

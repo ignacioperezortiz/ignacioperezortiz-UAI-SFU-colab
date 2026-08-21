@@ -11,7 +11,7 @@ useful; this note records what each one is, what it costs, and which one produce
 | | `ReduceNetwork` | `DetailTagCSV` | Entry points |
 |---|---|---|---|
 | **Per transformer** | 1 | e.g. `"TR9"` | `RunTR1`…`RunTR9` → `RunTrafoFOR(tag)` |
-| **Whole feeder** | 0 | `""` | `RunFOR_RollingPreflight` (with `PreflightReduce = 0`) |
+| **Whole feeder** | 0 | `""` | `RunFullFeeder_NoFairness`; `RunFOR_RollingPreflight` (with `PreflightReduce = 0`) |
 
 `ApplyNetworkReduction` keeps one transformer in full detail and lumps the others as passive MV
 load at their own buses. The reduction is documented in the procedure's own comment: the aggregated
@@ -123,7 +123,8 @@ procedure exists for.
 
 On what to record alongside a run, see `CONTRIBUTING.md` §7.
 
-One practical note for long runs: `RunFOR_Rolling` writes its CSVs with a single `putclose` at the
-end, so an interrupted run leaves them empty. The preflight closes its CSV after every vertex
-(`PreflightFlushCSV`); carrying that over to `RunFOR_Rolling` is worthwhile before committing to a
-whole-feeder day.
+One practical note for long runs: `RunFOR_Rolling` used to write its CSVs with a single `putclose` at
+the end, so an interrupted run left them empty. It now closes them as it goes — `RollFlushCSV`,
+on by default — and writes a progress marker after every vertex, which is what makes a run of this
+length interruptible and observable from outside the process. See
+`docs/rolling-for-performance.md` §6.4.

@@ -1,0 +1,3 @@
+﻿periodo    48 de  48   ->  objetivo   1   direccion  12 de  12   ( 330.0 grados)
+ultimo vertice :       353.98 s   estado Optimal
+config         : FairMode  0   RollUseGMP  1   ReduceNetwork  0
