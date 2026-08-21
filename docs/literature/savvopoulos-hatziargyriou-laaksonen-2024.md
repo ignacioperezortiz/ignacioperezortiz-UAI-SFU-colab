@@ -1,7 +1,8 @@
 # Priority reading — Savvopoulos, Hatziargyriou & Laaksonen (2024)
 
 **Paper:** Nikolaos Savvopoulos, Nikos Hatziargyriou, and Hannu Laaksonen, “A Holistic Approach to the Efficient Estimation of Operational Flexibility From Distributed Resources,” *IEEE Open Access Journal of Power and Energy*, vol. 11, 2024.  
-**DOI:** [10.1109/OAJPE.2024.3429390](https://doi.org/10.1109/OAJPE.2024.3429390)
+**DOI:** [10.1109/OAJPE.2024.3429390](https://doi.org/10.1109/OAJPE.2024.3429390)  
+**Full PDF (University of Vaasa repository):** [Osuva_Savvopoulos_Hatziargyriou_Laaksonen_2024.pdf](https://osuva.uwasa.fi/bitstreams/8db541c6-0f98-4445-a5e9-73e3e6640dd8/download)
 
 ## Why this paper should be read carefully
 
