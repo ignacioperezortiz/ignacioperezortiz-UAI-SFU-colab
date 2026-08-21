@@ -1,0 +1,26 @@
+TR8  boundary: pre-Nacho reference  vs  new GMP run
+generated 2026-08-13 15:17:45
+==========================================================================
+baseline : C:\Users\thc22\projects\FOR_refs_preNacho\FOR_rolling_TR8.csv   (576 rows)
+new      : FOR_rolling_TR8_gmp.csv   (576 rows)
+
+status     : baseline 576/576 optimal, new 576/576 optimal
+
+proj       : max |delta| = 1.000e-06 p.u.   (tolerance 2.0e-06)
+             median 0.000e+00, 0/576 rows over tolerance
+
+P,Q slide  : max 0.01 kW, median 0.00 kW  (informational - a legitimate
+             flat-face slide does NOT fail this check)
+
+solve time : baseline  11297.3 s   new  15352.8 s   (+35.9%)
+             per solve: 19.61 s -> 26.65 s over 576 directions
+             NOTE: this column is FOR_VertexCont.SolutionTime only. It does
+             not include the MainExecution solve or any scaffolding, so it
+             will barely move for a data-loading change - time the run itself.
+
+PASS - proj reproduces within tolerance, no status change
+
+--- same comparison at the physically meaningful tolerance 1e-5 (=10 W) ---
+             will barely move for a data-loading change - time the run itself.
+
+PASS - proj reproduces within tolerance, no status change

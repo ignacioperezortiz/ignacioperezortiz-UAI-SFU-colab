@@ -1,0 +1,44 @@
+TR2 same-build A/B: RunTR2 (no GMP) vs RunTR2_GMP
+
+Both AIMMS 26.3.2.1, same machine, same day. RunTrafoFOR("TR2") sets exactly the
+switches RunTR2_GMP sets apart from RollUseGMP / RollGMPBaseline, so the only
+difference between the two runs is the GMP path.
+
+Compared over the 24 periods for which both runs have all 12 directions, so the
+two sides cover identical work.
+==========================================================================
+
+periods 1..24 = 288 vertices
+
+  without GMP :   13640.4 s    47.36 s/solve
+  with GMP    :    3918.9 s    13.61 s/solve
+  ratio       : 0.287   (-71.3%)
+
+per period:
+  period   noGMP_avg_s   GMP_avg_s   ratio
+       1         20.05        9.56    0.48
+       2         50.96       28.88    0.57
+       3         49.04       28.17    0.57
+       4         47.08       11.63    0.25
+       5         56.46       11.33    0.20
+       6         45.14       11.40    0.25
+       7         49.74       12.37    0.25
+       8         47.10       11.24    0.24
+       9         45.18       12.00    0.27
+      10         46.95       11.79    0.25
+      11         48.86       11.88    0.24
+      12         51.40       12.47    0.24
+      13         41.39       12.98    0.31
+      14         55.34       13.50    0.24
+      15         40.63       12.21    0.30
+      16         42.07       12.32    0.29
+      17         48.59       13.06    0.27
+      18         47.52       13.81    0.29
+      19         48.77       13.50    0.28
+      20         56.06       13.08    0.23
+      21         53.81       12.13    0.23
+      22         54.73       12.54    0.23
+      23         45.70       12.39    0.27
+      24         44.13       12.31    0.28
+
+GMP is faster in every period.
