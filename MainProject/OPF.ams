@@ -4934,6 +4934,99 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "STEP 3 of the GMP migration: the FULL-FEEDER preflight (3 slots x 12 directions) with PreflightUseGMP=1, so the matrix is generated once per slot instead of 12 times. Writes FOR_rolling_preflight_full_gmp.csv incrementally and FOR_gmp_probe_full_gmp.txt. Run only after the reduced A/B has passed: there is no reference run on the full feeder to catch a wrong answer.";
 		}
+		Procedure RunFullFeeder_AsyncSmoke {
+			Body: {
+				! STEP 1 OF THE PARALLEL WHOLE-FEEDER RUN: does this machine have the memory?
+				!
+				! RunFullFeeder_NoFairness with the sweep parallelised, capped to the first 2 periods.
+				! The cap does NOT shrink the problem: every period still builds the full 48-slot
+				! instance, so peak memory here is the peak memory of the full run. Only the number of
+				! periods is reduced, which is what makes this a ~3 h question instead of a 3-day one.
+				!
+				! WHY IT HAS TO BE ASKED. Each concurrent direction holds its own copy of the period
+				! matrix. Measured peak AIMMS memory on the reduced per-transformer networks:
+				!     TR9   90 batteries, 6 sessions ->  7.2 Gb
+				!     TR5  214 batteries, 4 sessions -> 11.2 Gb
+				!     TR7  259 batteries, 4 sessions -> 14.8 Gb
+				! The whole feeder is 1216 batteries and peaked at 18.8 Gb SEQUENTIALLY, which is what
+				! exhausted a 32 Gb machine in 2026-08. K is 2 here for that reason, not 4 or 6.
+				!
+				! WHAT TO LOOK AT, in order:
+				!   1. did it finish at all, and are the 24 rows of FOR_rolling_full_asyncsmoke.csv
+				!      Optimal? Any NoSolution at this scale means memory, not mathematics - the
+				!      2026-08-14 attempt returned NoSolution on every single vertex.
+				!   2. peak memory while it ran. If free RAM approached zero, stop here: K=2 does not
+				!      fit and the sequential RunFullFeeder_NoFairness is the only route.
+				!   3. the time column, against the ~344 s/vertex of the sequential 2026-08-17 run.
+				!      Expect it to RISE - concurrency costs each individual solve. The question is
+				!      whether 2 at a time beats 1 at a time overall, not whether each is faster.
+				!
+				! Only if all three look right is RunFullFeeder_Async worth days of wall clock.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_asyncsmoke";
+				ReduceNetwork     := 0;   ! FULL feeder - every transformer in detail, nothing lumped
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 2;   ! deliberately low: memory, not cores, is the binding constraint here
+				RollAsyncThreads  := 12;
+				RollMaxPeriods    := 2;   ! the cap. Full 48-slot instance per period, only fewer periods
+				run RunFOR_Rolling;
+				RollMaxPeriods    := 0;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, STEP 1: the memory question. RunFullFeeder_NoFairness parallelised at 2 sessions x 12 threads, capped to 2 periods - the cap does not shrink the instance, so peak memory here is the peak memory of the full run. About 3 h instead of 3 days. Run this BEFORE RunFullFeeder_Async and read the three checks in the body comment.";
+		}
+		Procedure RunFullFeeder_Async {
+			Body: {
+				! STEP 2: the full parallel whole-feeder run. 48 periods x 12 directions on the full
+				! network, exact QCP, sweep parallelised. Identical to RunFullFeeder_NoFairness in every
+				! respect except that RollAsyncK directions solve at once.
+				!
+				! DO NOT START THIS UNTIL RunFullFeeder_AsyncSmoke HAS PASSED. It commits days of wall
+				! clock, and the failure mode at this scale is memory exhaustion, which shows up as
+				! NoSolution on every vertex rather than as an error.
+				!
+				! HOW MUCH TO EXPECT. On the reduced per-transformer networks the gain shrinks as the
+				! instance grows: 2.73x at 90 batteries, 2.53x at 214, and only 1.31-1.36x at 259-262.
+				! The whole feeder is 1216. Extrapolating past measured ground is unsafe, but the trend
+				! points down - if 1.3x holds, the 82.17 h sequential run of 2026-08-17 becomes roughly
+				! 63 h. Worth having, not transformative. If the smoke run shows per-solve time more
+				! than doubling, the gain is already gone and sequential is the better run.
+				!
+				! The per-vertex flush and the progress marker work here: they were carried into the
+				! async branch deliberately, because without them a multi-day run writes nothing until
+				! it finishes and there is no way to tell a slow solve from a hung one.
+				! Watch FOR_rolling_progress_full_async.txt.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_async";
+				ReduceNetwork     := 0;   ! FULL feeder
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 2;   ! keep whatever the smoke run proved. Raise only after re-smoking
+				RollAsyncThreads  := 12;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, STEP 2: the full 48-period parallel run, all transformers at once on the full network. Same configuration as RunFullFeeder_NoFairness with RollAsyncK directions solving concurrently. Run RunFullFeeder_AsyncSmoke first - this commits days of wall clock and the failure mode is memory. Writes FOR_rolling_full_async.csv plus its soc and fair companions, and FOR_rolling_progress_full_async.txt after every vertex.";
+		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, no fairness (m=0). This is the run docs/network-scope.md section 4
