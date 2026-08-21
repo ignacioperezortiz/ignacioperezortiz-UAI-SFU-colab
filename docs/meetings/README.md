@@ -11,6 +11,7 @@ and fairness work.
 | 2026-07-23 | Luis Gutiérrez, Ignacio Pérez Ortiz, Tulio Coura | Article 1 structure; FOR aggregation at the PCC; dispatch and fairness; rolling-horizon interpretation; case-study design | [Detailed summary](2026-07-23/research-progress-meeting-summary.pdf) · [Discussion slides](2026-07-23/meeting-with-prof-luis-discussion-slides.pdf) |
 | 2026-08-07 | Ignacio Pérez Ortiz, Tulio Coura | Runtime improvements; parallelization; fairness formulation; FOR versus DOE roles; repository workflow | [PDF](2026-08-07/tulio-nacho-follow-up.pdf) · [Editable DOCX](2026-08-07/tulio-nacho-follow-up.docx) |
 | 2026-08-13 | Ignacio Pérez Ortiz, Tulio Coura | Paper framing and research gap; P1-P2-P3 methodology; validation plan; complete-feeder computational tests; collaboration workflow | [PDF](2026-08-13/tulio-nacho-meeting-outcome-brief.pdf) · [Editable DOCX](2026-08-13/tulio-nacho-meeting-outcome-brief.docx) |
+| 2026-08-21 | Ignacio Pérez Ortiz, Tulio Coura | Full-feeder validation and runtime; closest-paper comparison; novelty/disaggregation; rolling horizon, uncertainty and DOE; next actions | [Meeting summary](2026-08-21/tulio-nacho-meeting-summary.md) · [Priority paper reading note](../literature/savvopoulos-hatziargyriou-laaksonen-2024.md) |
 
 ## Conventions
 
@@ -20,4 +21,3 @@ and fairness work.
   editable source.
 - These files are formal collaboration records. Personal notes, local runbooks,
   transcripts, and machine-specific working logs remain outside the repository.
-
