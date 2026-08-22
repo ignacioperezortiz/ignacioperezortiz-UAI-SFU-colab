@@ -5152,6 +5152,97 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "WHOLE FEEDER, m=0, the 2026-08-21 production configuration: RunFullFeeder_Async plus BaseNoNetwork=1, so the sweep runs RollAsyncK=2 directions at once AND the committed baseline is solved battery-only. Writes FOR_rolling_full_asyncnonet.csv with its soc and fair companions, and FOR_rolling_progress_full_asyncnonet.txt after every vertex. A/B against results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q.";
 		}
+		Procedure RunTR3_BaseNoNet {
+			Body: {
+				! DIAGNOSTIC (2026-08-22): does BaseNoNetwork = 1 break the PARALLEL sweep?
+				!
+				! RunTR3_Base with the two settings that RunFullFeeder_AsyncNoNet added and that no
+				! run of the async campaign ever used: RollGMPBaseline = 0 and BaseNoNetwork = 1.
+				! Everything else - transformer, split, threads - is RunTR3_Base exactly, so the two
+				! are comparable and the only variable is the generation path.
+				!
+				! WHY. The whole-feeder run of 2026-08-21 stalled: 9 h 06, one thread at 100%, memory
+				! frozen at 17.08 GB, zero vertices. It ran with RollGMPBaseline = 0, which generates
+				! the sweep matrix in the sweep block instead of sharing the baseline's instance - so
+				! GMP::Instance::Copy was called on a NEVER-SOLVED instance, which the async campaign
+				! never did. This isolates that from the sheer scale of the full feeder.
+				!
+				! READ IT AGAINST RunTR3_Base: 576/576 Optimal and ~20 min means the generation path
+				! is innocent and the whole-feeder stall is scale. A stall here means the opposite,
+				! and RunFullFeeder_Async (RollGMPBaseline = 1) deserves a retry.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_base.csv FOR_rolling_TR3_basenonet.csv
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_basenonet";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 0;   ! <-- la variable bajo prueba
+				BaseNoNetwork     := 1;   ! <-- la variable bajo prueba
+				EnableRollDiag    := 0;
+				RollAsyncK        := 6;   ! identico a RunTR3_Base
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetwork     := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "DIAGNOSTIC: RunTR3_Base plus RollGMPBaseline=0 and BaseNoNetwork=1, the two settings the whole-feeder stall of 2026-08-21 ran with and that the async campaign never used. Same transformer, same 6x4 split. If this matches RunTR3_Base in time and answers, the generation path is innocent and the stall is scale. Writes FOR_rolling_TR3_basenonet.csv.";
+		}
+		Procedure RunFullFeeder_NoNet {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, with the committed baseline solved WITHOUT the network.
+				! This is RunFullFeeder_NoFairness - the configuration that completed in 82.17 h on
+				! 2026-08-17 with 576/576 Optimal - plus BaseNoNetwork = 1. The sweep stays sequential.
+				!
+				! WHY THE SWEEP IS SEQUENTIAL, measured 2026-08-21/22. The parallel sweep works: TR3 at
+				! 6 x 4 gives 9.78 cores and 8.93 s/solve, and with BaseNoNetwork = 1 as well it gives
+				! 7.84 cores and 8.15 s/solve, 48/48 Optimal - so neither the machine nor this
+				! configuration is the problem. It is SCALE. On the full feeder the generated instance
+				! is 17.08 Gb, about 5.8x larger per copy than anything the async campaign measured
+				! (TR7: 14.8 Gb for one instance plus four copies). RunFullFeeder_AsyncNoNet ran for
+				! 9 h 06 with ONE thread at 100%, memory frozen at 17.08 Gb, and did not produce a
+				! single vertex: GMP::Instance::Copy does not return at that size. RollAsyncK = 2 is
+				! already the smallest parallel setting, so there is no parameter left to turn.
+				!
+				! WHAT BaseNoNetwork BUYS HERE. The committed baseline of period 1 finished in about
+				! 60 s, against a period boundary of roughly 34 min in the 82 h reference run, of
+				! which about 29 min is matrix generation that neither change touches. Expect the run
+				! to come in near 78 h rather than 82 h - the saving is real but modest, and it is the
+				! generation that dominates the boundary.
+				!
+				! RollGMPBaseline is 0 because BaseNoNetwork = 1 forces that path anyway: the shared
+				! instance carries the network rows, so it cannot serve a network-free baseline.
+				!
+				! A/B against the reference, on proj rather than P/Q:
+				!   py -3 scripts/compare_FOR_runs.py results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv FOR_rolling_full_nonet.csv
+				!
+				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling
+				! cannot restart where it stopped. Watch FOR_rolling_progress_full_nonet.txt.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, no fairness. Explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_nonet";
+				ReduceNetwork     := 0;   ! FULL feeder - every transformer in detail, nothing lumped
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 0;   ! forced by BaseNoNetwork; stated rather than relied on
+				BaseNoNetwork     := 1;   ! committed baseline solved as the battery/energy model only
+				EnableRollDiag    := 0;
+				RollAsyncK        := 0;   ! SEQUENTIAL sweep - see the scale note above
+				RollAsyncThreads  := 2;
+				run RunFOR_Rolling;
+				BaseNoNetwork     := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, m=0, PRODUCTION 2026-08-22: RunFullFeeder_NoFairness plus BaseNoNetwork=1, sweep sequential. The parallel sweep is measured to work at reduced-transformer scale with and without BaseNoNetwork, but not on the full feeder, where the 17.08 Gb instance makes GMP::Instance::Copy hang - 9 h 06 on one thread with zero vertices. Writes FOR_rolling_full_nonet.csv with its soc and fair companions and FOR_rolling_progress_full_nonet.txt after every vertex. A/B against results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv on proj.";
+		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, no fairness (m=0). This is the run docs/network-scope.md section 4
