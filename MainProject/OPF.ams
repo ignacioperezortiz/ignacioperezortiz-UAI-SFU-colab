@@ -4350,6 +4350,81 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "PER-TRANSFORMER PRODUCTION: loops all transformers, each TRk detailed + others lumped passive, writing FOR_rolling_<tag>.csv / FOR_rolling_soc_<tag>.csv. Validate plumbing first with RunTR9.";
 		}
+		Procedure RunFOR_Rolling_Baseline_Full {
+			Body: {
+				! ALL-IDLE BASELINE B(t) ON THE FULL FEEDER. Same quantity as
+				! RunFOR_Rolling_Baseline, computed with ReduceNetwork = 0 instead of on the
+				! TR9-detailed reduction. Writes FOR_rolling_baseline_full.csv, leaving the
+				! existing FOR_rolling_baseline.csv untouched.
+				!
+				! WHY IT IS WORTH A SEPARATE RUN. combine_FOR_pertrafo.py forms
+				!     V(now,theta) = sum_k v_k(now,theta) - (N-1) * B(target)
+				! and with nine transformers that subtracts EIGHT times B. |B| reaches 2.32 p.u.
+				! over the day, so the term removes up to 18.6 p.u. from a region whose extent is
+				! about 4.4 p.u. A 0.8% error in B therefore moves each combined vertex by as much
+				! as the whole discrepancy being measured. The reduced-network B omits the eight
+				! lumped transformers' LV losses, and fitting a per-period translation to the
+				! 2026-08-21 comparison implied a correction of ~0.9% of |B| - the right size to
+				! matter, and the reason this exists.
+				!
+				! REQUIRES A MACHINE THAT CAN HOLD THE FULL-FEEDER INSTANCE. Attempted on the 32 Gb
+				! development machine 2026-08-21: 48/48 NoSolution, "Solver status 10: Error: Solver
+				! failure" - the same signature the whole-feeder rolling FOR gives there.
+				! Freezing the batteries does NOT make this small. It removes the battery columns,
+				! but every bus voltage and every line current for all 48 periods stays, and that is
+				! the bulk of the instance. It is the network REDUCTION that makes the original
+				! procedure tractable, not the freezing. Run this wherever the whole-feeder rolling
+				! FOR runs - it completed there in 82 h on 2026-08-17, and this is one solve, not 576.
+				!
+				! Same modest limit relaxation as the reduced version, and for the same reason: B
+				! is an arithmetic reference, not a claimed operating point, so the idle state is
+				! allowed to violate limits at midday. An extreme relaxation (1e9) puts ~1e18 into
+				! the quadratic ampacity rows and returns 48/48 NoSolution - do not widen these.
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;
+				IncludeNetworkConstraints := 1;
+				IncludeQforMaxP           := 0;
+				nPeriods                  := 48;
+				ReduceNetwork             := 0;    ! <- the only structural difference: FULL feeder
+				DetailLoadPattern         := "";
+				DetailTagCSV              := "";
+				RollFileSuffix            := "";
+				BaseFileTag               := "_full";   ! -> FOR_rolling_baseline_full.csv
+				FOR_PolyS                 := 0;
+				FOR_LinearizeVmax         := 0;
+				RollCyclicSOC             := 0;
+				CyclicSOCBand             := 0;
+				AllowChargeAtPmax         := 1;
+				PeriodMaxP                := 25;
+				empty allvariables;
+				empty Buses, Lines, SlackGens, LoadsAndPV, Trafos, Batteries;
+				run Load_data_dsn;
+				MaxV(n)       := 1.5;
+				MinV(n)       := 0.5;
+				MaxCurrent(l) := 5*MaxCurrent(l);
+				MaxAmps(tr)   := 5*MaxAmps(tr);
+				BattP_Chg(bat,t) := 0;
+				BattP_Dis(bat,t) := 0;
+				BattP_Chg(bat,t).nonvar := 1;
+				BattP_Dis(bat,t).nonvar := 1;
+				solve MinImports where MIP_Relative_Optimality_Tolerance := 0.01,
+				    method := 'deterministic concurrent', numeric_focus := 3, barrier_homogeneous := 1, time_limit := 21600;
+				! time_limit is 6 h rather than the reduced version's 3000 s: this is the whole
+				! network. If it hits the limit the status column will say so - do not use a
+				! truncated B, the multiplier of 8 makes a partial answer worse than none.
+				FOR_RollBaseCSV.PageWidth := 32767;
+				put FOR_RollBaseCSV;
+				put "period,P,Q,status" / ;
+				for (t) do
+					put ord(t):3:0, ",", P_PCC(t):14:6, ",", Q_PCC(t):14:6, ",", MinImports.ProgramStatus / ;
+				endfor;
+				putclose FOR_RollBaseCSV;
+				BattP_Chg(bat,t).nonvar := 0;
+				BattP_Dis(bat,t).nonvar := 0;
+				BaseFileTag := "";   ! defensive reset so a later reduced baseline lands on its own name
+			}
+			Comment: "ALL-IDLE BASELINE on the FULL feeder (ReduceNetwork = 0), the de-duplication origin for combine_FOR_pertrafo.py. The reduced-network baseline omits the lumped transformers' LV losses, and the combination multiplies B by eight, so that omission is amplified into the same range as the discrepancy being measured. Writes FOR_rolling_baseline_full.csv and leaves FOR_rolling_baseline.csv alone. NEEDS A MACHINE THAT CAN HOLD THE FULL-FEEDER INSTANCE: 48/48 NoSolution on the 32 Gb development machine 2026-08-21. One solve, not a sweep, so it is far cheaper than the whole-feeder rolling FOR on a machine that can run that at all.";
+		}
 		Procedure RunFOR_Rolling_Baseline {
 			Body: {
 				! ALL-IDLE BASELINE trajectory B(t): full feeder, every battery fixed to zero P and Q.
@@ -4933,6 +5008,99 @@ Model Main_OPF_VI_LG {
 				PreflightUseGMP    := 0;
 			}
 			Comment: "STEP 3 of the GMP migration: the FULL-FEEDER preflight (3 slots x 12 directions) with PreflightUseGMP=1, so the matrix is generated once per slot instead of 12 times. Writes FOR_rolling_preflight_full_gmp.csv incrementally and FOR_gmp_probe_full_gmp.txt. Run only after the reduced A/B has passed: there is no reference run on the full feeder to catch a wrong answer.";
+		}
+		Procedure RunFullFeeder_AsyncSmoke {
+			Body: {
+				! STEP 1 OF THE PARALLEL WHOLE-FEEDER RUN: does this machine have the memory?
+				!
+				! RunFullFeeder_NoFairness with the sweep parallelised, capped to the first 2 periods.
+				! The cap does NOT shrink the problem: every period still builds the full 48-slot
+				! instance, so peak memory here is the peak memory of the full run. Only the number of
+				! periods is reduced, which is what makes this a ~3 h question instead of a 3-day one.
+				!
+				! WHY IT HAS TO BE ASKED. Each concurrent direction holds its own copy of the period
+				! matrix. Measured peak AIMMS memory on the reduced per-transformer networks:
+				!     TR9   90 batteries, 6 sessions ->  7.2 Gb
+				!     TR5  214 batteries, 4 sessions -> 11.2 Gb
+				!     TR7  259 batteries, 4 sessions -> 14.8 Gb
+				! The whole feeder is 1216 batteries and peaked at 18.8 Gb SEQUENTIALLY, which is what
+				! exhausted a 32 Gb machine in 2026-08. K is 2 here for that reason, not 4 or 6.
+				!
+				! WHAT TO LOOK AT, in order:
+				!   1. did it finish at all, and are the 24 rows of FOR_rolling_full_asyncsmoke.csv
+				!      Optimal? Any NoSolution at this scale means memory, not mathematics - the
+				!      2026-08-14 attempt returned NoSolution on every single vertex.
+				!   2. peak memory while it ran. If free RAM approached zero, stop here: K=2 does not
+				!      fit and the sequential RunFullFeeder_NoFairness is the only route.
+				!   3. the time column, against the ~344 s/vertex of the sequential 2026-08-17 run.
+				!      Expect it to RISE - concurrency costs each individual solve. The question is
+				!      whether 2 at a time beats 1 at a time overall, not whether each is faster.
+				!
+				! Only if all three look right is RunFullFeeder_Async worth days of wall clock.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_asyncsmoke";
+				ReduceNetwork     := 0;   ! FULL feeder - every transformer in detail, nothing lumped
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 2;   ! deliberately low: memory, not cores, is the binding constraint here
+				RollAsyncThreads  := 12;
+				RollMaxPeriods    := 2;   ! the cap. Full 48-slot instance per period, only fewer periods
+				run RunFOR_Rolling;
+				RollMaxPeriods    := 0;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, STEP 1: the memory question. RunFullFeeder_NoFairness parallelised at 2 sessions x 12 threads, capped to 2 periods - the cap does not shrink the instance, so peak memory here is the peak memory of the full run. About 3 h instead of 3 days. Run this BEFORE RunFullFeeder_Async and read the three checks in the body comment.";
+		}
+		Procedure RunFullFeeder_Async {
+			Body: {
+				! STEP 2: the full parallel whole-feeder run. 48 periods x 12 directions on the full
+				! network, exact QCP, sweep parallelised. Identical to RunFullFeeder_NoFairness in every
+				! respect except that RollAsyncK directions solve at once.
+				!
+				! DO NOT START THIS UNTIL RunFullFeeder_AsyncSmoke HAS PASSED. It commits days of wall
+				! clock, and the failure mode at this scale is memory exhaustion, which shows up as
+				! NoSolution on every vertex rather than as an error.
+				!
+				! HOW MUCH TO EXPECT. On the reduced per-transformer networks the gain shrinks as the
+				! instance grows: 2.73x at 90 batteries, 2.53x at 214, and only 1.31-1.36x at 259-262.
+				! The whole feeder is 1216. Extrapolating past measured ground is unsafe, but the trend
+				! points down - if 1.3x holds, the 82.17 h sequential run of 2026-08-17 becomes roughly
+				! 63 h. Worth having, not transformative. If the smoke run shows per-solve time more
+				! than doubling, the gain is already gone and sequential is the better run.
+				!
+				! The per-vertex flush and the progress marker work here: they were carried into the
+				! async branch deliberately, because without them a multi-day run writes nothing until
+				! it finishes and there is no way to tell a slow solve from a hung one.
+				! Watch FOR_rolling_progress_full_async.txt.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_async";
+				ReduceNetwork     := 0;   ! FULL feeder
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 2;   ! keep whatever the smoke run proved. Raise only after re-smoking
+				RollAsyncThreads  := 12;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, STEP 2: the full 48-period parallel run, all transformers at once on the full network. Same configuration as RunFullFeeder_NoFairness with RollAsyncK directions solving concurrently. Run RunFullFeeder_AsyncSmoke first - this commits days of wall clock and the failure mode is memory. Writes FOR_rolling_full_async.csv plus its soc and fair companions, and FOR_rolling_progress_full_async.txt after every vertex.";
 		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
