@@ -18,6 +18,13 @@ PROTemp/
 .edited/
 *.bak
 *.tmp
+# Local AIMMS snapshots taken before an external edit of OPF.ams. Safety copies for the
+# person doing the edit, not deliverables - AIMMS rewrites the whole file on save, so one
+# is made before every session that edits the .ams outside the IDE.
+MainProject/OPF_pre_*.ams.txt
+# Local scratch area: reference copies kept before a run overwrites its own output,
+# and notes in progress. Never part of a change.
+.refcheck/
 
 # ---------------------------------------------------------------------------
 # Model outputs (regenerated on every run)
