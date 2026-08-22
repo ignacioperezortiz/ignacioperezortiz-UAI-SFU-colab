@@ -1,0 +1,15 @@
+﻿Controlled-baseline campaign - machine state at start
+captured        : 2026-08-19 10:51:42
+host            : SRYE-PES-05
+cpu             : Intel(R) Core(TM) i9-14900 (24 cores / 32 logical)
+ram_total_GB    : 31.7
+ram_free_GB     : 25.2   <- the baseline every run should start from
+uptime          : 20d 07:29
+power_plan      : Power Scheme GUID: 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c  (High performance)
+
+processes over 100 MB at start (this is the background load being held constant):
+  svchost                   97 proc    560 MB
+  claude                     1 proc    394 MB
+  SentinelAgent              1 proc    312 MB
+  powershell                 3 proc    201 MB
+  explorer                   1 proc    167 MB

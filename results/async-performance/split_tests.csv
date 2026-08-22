@@ -1,0 +1,11 @@
+test,transformer,batteries,split,periods,wall_s,mean_solve_s,concurrency,note
+TR4_tuning,TR4,46,sequential,48,2120,3.19,0.87,2026-08-14 baseline
+TR4_tuning,TR4,46,6x2,48,1696,,,
+TR4_tuning,TR4,46,6x4,48,1213,7.76,3.69,winner of the TR4 tuning
+TR4_tuning,TR4,46,12x2,48,1479,18.86,7.35,box saturates above ~6 sessions
+TR6_probe,TR6,262,6x4,2,692,95.36,3.31,
+TR6_probe,TR6,262,4x6,2,621,60.30,2.33,winner of the TR6 probe
+TR6_probe,TR6,262,3x8,2,706,53.44,1.82,best mean solve but worse wall
+TR6_probe,TR6,262,2x12,2,746,39.34,1.27,best mean solve overall but worst wall
+TR3_split,TR3,49,6x4,48,1203,8.24,3.95,controlled baseline
+TR3_split,TR3,49,4x6,48,1201,5.44,2.61,dead heat - split is neutral below ~120 batteries

@@ -55,3 +55,15 @@ Both HTML files are rebuilt by `scripts/make_viz_data.py` + `scripts/build_viz.p
 > (`FOR_rolling*.csv`, including the new `FOR_rolling_fair*.csv` fairness log) are
 > **git-ignored** and shared separately — they regenerate on every run. See
 > `CONTRIBUTING.md` §3.
+
+## Solver performance
+
+- **`async-performance/`** — the August 2026 parallel-sweep campaign: how the
+  per-transformer rolling FOR was made **1.82x faster** (35.7 h -> 19.6 h) by
+  solving each period's 12 sweep directions concurrently. Measured end to end on
+  all nine transformers under one controlled machine base. Covers what limits the
+  gain — it peaks in the middle of the size range and hits a ceiling above ~250
+  batteries — and the evidence that the answers are unchanged: 5,184 of 5,184
+  solves Optimal, committed dispatch bit-identical on all nine, FOR vertices
+  within 3–70 W. Start with `async-performance.pdf` or its `README.md`; §7 says
+  which procedure to run for which transformer.
