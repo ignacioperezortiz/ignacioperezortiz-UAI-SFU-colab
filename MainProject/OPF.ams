@@ -5102,6 +5102,56 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "WHOLE FEEDER, STEP 2: the full 48-period parallel run, all transformers at once on the full network. Same configuration as RunFullFeeder_NoFairness with RollAsyncK directions solving concurrently. Run RunFullFeeder_AsyncSmoke first - this commits days of wall clock and the failure mode is memory. Writes FOR_rolling_full_async.csv plus its soc and fair companions, and FOR_rolling_progress_full_async.txt after every vertex.";
 		}
+		Procedure RunFullFeeder_AsyncNoNet {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, PARALLEL SWEEP + BATTERY-ONLY COMMITTED BASELINE.
+				! This is RunFullFeeder_Async with BaseNoNetwork = 1. It is the configuration the
+				! 2026-08-21 task asks for: the two accelerations applied together.
+				!
+				! WHY BOTH. The sequential 2026-08-17 run was 82.17 h of wall clock, of which
+				! 55.05 h is sweep solver time (576 vertices, 344.1 s mean) and 27.1 h is period
+				! boundary: Load_data_reset, the GMP generation, and the committed baseline solve.
+				! RollAsyncK attacks the 55 h. BaseNoNetwork attacks the 27 h - it is the only one
+				! of the two that touches the baseline solve, which on the full feeder carries the
+				! whole network for all 48 slots. On TR4 the 48 baseline solves fell from ~6 min to
+				! 13 s with max |dP| = 2.7e-7 p.u. RunFullFeeder_Async does NOT set it.
+				!
+				! RollGMPBaseline is 0 on purpose: with BaseNoNetwork = 1 the shared-instance path
+				! is skipped anyway (it carries the network rows), so the sweep generates its own
+				! matrix in the block after the baseline. Stating it here rather than relying on
+				! that is what RunTR4_GMP_BaseNoNet does.
+				!
+				! WHAT MAY MOVE. The parallel sweep is bit-identical (Tulio, TR3: proj 0.000e+00,
+				! _soc_ and _fair_ identical byte for byte). BaseNoNetwork is the half that can
+				! move numbers, and the invariant to test is proj, not P/Q:
+				!   py -3 scripts/compare_FOR_runs.py results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv FOR_rolling_full_asyncnonet.csv
+				!
+				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling
+				! cannot pick up where it stopped - an interruption means starting at period 1.
+				! Watch FOR_rolling_progress_full_asyncnonet.txt, rewritten after every vertex.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, no fairness. Explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_asyncnonet";
+				ReduceNetwork     := 0;   ! FULL feeder - every transformer in detail, nothing lumped
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 0;   ! see above: BaseNoNetwork skips the shared instance regardless
+				BaseNoNetwork     := 1;   ! committed baseline solved as the battery/energy model only
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 2;   ! memory, not cores, is the binding constraint at 1216 batteries
+				RollAsyncThreads  := 12;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetwork     := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, m=0, the 2026-08-21 production configuration: RunFullFeeder_Async plus BaseNoNetwork=1, so the sweep runs RollAsyncK=2 directions at once AND the committed baseline is solved battery-only. Writes FOR_rolling_full_asyncnonet.csv with its soc and fair companions, and FOR_rolling_progress_full_asyncnonet.txt after every vertex. A/B against results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q.";
+		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, no fairness (m=0). This is the run docs/network-scope.md section 4
