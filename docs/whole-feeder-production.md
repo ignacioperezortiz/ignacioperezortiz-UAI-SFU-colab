@@ -71,7 +71,7 @@ error, and no time limit fires because nothing ever reaches a solver.
 | date | run | outcome |
 |---|---|---|
 | 2026-08-21 | `RunFullFeeder_AsyncNoNet`, K=2 | hung in **period 1**. 9 h 06, 1 thread of 72, RSS frozen at 17.08 GB, **zero vertices**. Not memory: 26.5 GB free and RSS not growing |
-| 2026-08-22 | `RunFullFeeder_Production` at K=2 | ran periods 1-6, then hung in **period 7** for 16.7 h. 1 thread of 72 with 22 h of CPU, RSS 20.23 GB, 33.7 GB free |
+| 2026-08-22 | `RunFullFeeder_3b` at K=2, from an uncommitted scratch copy — the configuration now preserved as `RunFullFeeder_ParallelRepro` | ran periods 1-6, then hung in **period 7** for 16.7 h. 1 thread of 72 with 22 h of CPU, RSS 20.23 GB, 33.7 GB free |
 
 **The second hang refutes the first explanation.** For a day the working diagnosis was "the async
 path copies an instance that was never solved" — `BaseNoNetwork = 1` forces `RollGMPBaseline = 0`,
@@ -103,7 +103,12 @@ Shared instance, network-free committed baseline, **sequential sweep** (`RollAsy
 cost of going sequential is small, because the copy ate most of what the parallelism won:
 measured periods were 76-92 min at K=2 against roughly 83 min projected sequential, the boundary
 being 24 min either way. `RunFullFeeder_NoFairness` is kept as the reference that produced
-`results/full_feeder_2026-08/`.
+`results/full_feeder_2026-08/`. `RunFullFeeder_ParallelRepro` preserves the configuration that
+hangs, so the failure can be reproduced rather than only read about.
+
+**Neither `RunFullFeeder_Production` nor `RunFullFeeder_ParallelRepro` has written a byte on this
+machine.** The measurements in section 2 come from `RunFullFeeder_3b`, a scratch-copy sibling with
+an identical body bar the file suffix. A full 48-period run under the committed name is still owed.
 
 Headless:
 
@@ -160,7 +165,66 @@ sense for a single period or a non-rolling comparison.
 
 ---
 
-## 6. `Ire_Trafo` / `Iim_Trafo` index domains
+## 6. Hardening the whole-feeder runners (2026-08-23)
+
+An audit of the nine `RunFullFeeder_*` procedures found more inheritance hazard than clutter.
+These wrappers only set parameters and call `RunFOR_Rolling`, so anything they leave unset is
+inherited from whatever the AIMMS session happens to hold — and a session is long-lived.
+
+### What could go wrong silently
+
+- **`RollLinearized` was pinned by none of the nine.** It is set to 1 by `RunTR3_Linear` and
+  `RunTR7_Linear`, each with a restore whose own comment reads *"MUST reset: leaving this at 1
+  would silently relax every later run."* Interrupt either before the restore and every
+  whole-feeder run afterwards uses the outer relaxation — writing a region that is not
+  reportable, under a production filename, with nothing to signal it.
+- **`RollMaxPeriods` was pinned by none except `AsyncSmoke`, which sets it to 2.** `AsyncSmoke`
+  and `Async` sit next to each other and are documented to be run in that order. Interrupt the
+  smoke run before its restore and `Async` writes a two-period CSV that looks like a completed
+  multi-day run: the closing block still executes, so the file is well formed.
+- **`RunFullFeeder_NoFairness` pinned the least of all nine** — no `EnableRollDiag`,
+  `RollAsyncK`, `RollAsyncThreads`, `RollMaxPeriods`, `BaseNoNetwork`, `BaseNoNetGMP` — and it
+  writes `FOR_rolling_full.csv`, the reference filename. A leftover `RollAsyncK = 6` would have
+  made the reference run parallel.
+- **`RunFullFeeder_PreflightGMP` pinned none of `PreflightSlotOnly`, `PreflightExact`,
+  `PreflightGMPBaseline`**, all three set to non-defaults by `RunFullFeeder_PreflightExact1Slot`
+  immediately above it. Its own comment claims "3 slots x 12 directions", which was an assumption
+  about session state rather than a property of the procedure.
+- **`ReduceNetwork` and `EnableRollDiag` were declared without a `Default:` clause**, and
+  `ReduceNetwork`'s comment described a default it did not declare.
+
+### What was done
+
+Every whole-feeder runner now pins what it depends on, including the values that equal the
+declared default — the point is that the wrapper states them, not that they differ. The two
+declarations got the `Default: 0` their comments already implied. Each pin carries a comment
+naming the procedure that could have left the value dirty.
+
+The two preflight wrappers were deliberately left without `RollLinearized` / `RollMaxPeriods`
+pins: that path runs through `RunFOR_RollingPreflight` and reads `PreflightExact` instead, so
+those two parameters never reach it.
+
+### What was removed
+
+`RunFullFeeder_NoNet` — referenced nowhere outside its own declaration, and its single run wrote
+a CSV header and one SOC block, no vertices. It asked the model the same question as
+`RunFullFeeder_Production` by the other generation path, an equivalence the `BaseNoNetGMP`
+declaration already records as A/B'd at TR3.
+
+Nothing else was removed. `RunFullFeeder_AsyncNoNet` and `RunFullFeeder_ParallelRepro` look
+redundant — both are whole feeder, network-free baseline, parallel sweep — but they reach it by
+the two different generation paths and **both hang**. That pair is the evidence that the state of
+the copied instance does not explain the failure, which is worth more than the lines it costs.
+
+### Regression check
+
+`RunTR3_Base3b` was re-run from the hardened file and compared against the 576 vertices the
+pre-hardening code produced: `max abs dproj`, `max abs dP`, `max abs dQ` all 0.000e+00, no status
+changed.
+
+---
+
+## 7. `Ire_Trafo` / `Iim_Trafo` index domains
 
 ```
 - IndexDomain: (tr,f,n,t);
@@ -183,7 +247,7 @@ not for being faster.
 
 ---
 
-## 7. Every test that was run
+## 8. Every test that was run
 
 | # | what | result |
 |---|---|---|
@@ -192,7 +256,7 @@ not for being faster.
 | 3 | `RunFullFeeder_Async` — full feeder, shared instance plus async | Period 1 only: 12/12 `Optimal`, 194.1 s/solve. **Read at the time as proof the copy works. It was not** |
 | 4 | `Ire_Trafo` index domains, TR9 preflight A/B | Matrix identical to the last digit, max abs dproj = 0.000e+00 on 36/36. Speed inconclusive |
 | 5 | `RunTR3_Base3b` — `BaseNoNetGMP=1` at TR3 | OK. 576/576 `Optimal`, dispatch identical column by column |
-| 6 | `RunFullFeeder_Production` at K=2 — full feeder, both | Periods 1-6 clean, **hung in period 7**. Killed after 1 d 01:36, 72/576 vertices |
+| 6 | `RunFullFeeder_3b` at K=2 — full feeder, both. Ran from a scratch copy, never committed; preserved as `RunFullFeeder_ParallelRepro` | Periods 1-6 clean, **hung in period 7**. Killed after 1 d 01:36, 72/576 vertices |
 
 Partial results and the two forensic captures are kept outside the repo with the run; the six
 completed periods are what section 5 tabulates.
@@ -210,7 +274,7 @@ seconds**. Run the reduced bench first. And when a whole-feeder run does start, 
 
 ---
 
-## 8. Open
+## 9. Open
 
 - **The copy hang is not understood.** Two occurrences, different periods, both at whole-feeder
   scale, neither reproducible on a reduced transformer. Worth raising with Tulio: it is his

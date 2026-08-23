@@ -1,5 +1,13 @@
 # Running the whole feeder with the parallel sweep
 
+> **SUPERSEDED, 2026-08-23.** The two-step procedure below is Tulio's original write-up and is
+> kept as the record of what the parallel sweep was designed to do and what it measured on the
+> nine reduced transformers, which still stands. **Do not follow it on the whole feeder.**
+> `GMP::Instance::Copy` hangs there — period 1 on 2026-08-21 and period 7 on 2026-08-22, one
+> thread at 100 %, no vertex, no error. The whole-feeder entry point is now
+> `RunFullFeeder_Production` with the sweep sequential. See `docs/whole-feeder-production.md`.
+
+
 The whole-feeder FOR — every transformer at once, on the full network, so the grid
 interaction between them is in the answer — took **82.17 h** sequentially on 2026-08-17.
 
