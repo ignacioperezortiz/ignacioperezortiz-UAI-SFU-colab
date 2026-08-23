@@ -5368,37 +5368,37 @@ Model Main_OPF_VI_LG {
 		Procedure RunFullFeeder_Production {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, m=0. THE standard way to run the full network as of
-				! 2026-08-22. Supersedes RunFullFeeder_NoFairness, which is the same run without either
-				! acceleration and is kept only as the reference that produced results/full_feeder_2026-08.
+				! 2026-08-23. Supersedes RunFullFeeder_NoFairness, which is the same run without the
+				! network-free baseline and is kept as the reference that produced results/full_feeder_2026-08.
 				!
-				! Both accelerations at once, which the code could not express before BaseNoNetGMP:
 				!   RollGMPBaseline = 1   one generated matrix per period, shared by baseline and sweep
 				!   BaseNoNetGMP    = 1   that baseline solved with the NetworkModel rows deactivated
-				!   RollAsyncK      = 2   the 12 sweep directions solved 2 at a time, network ON
+				!   RollAsyncK      = 0   SEQUENTIAL sweep - see below, this is deliberate
 				!
-				! MEASURED against the 82.17 h sequential reference of 2026-08-17, period 1 of the
-				! 2026-08-22 run (launched under the working name RunFullFeeder_3b, identical body):
+				! WHY THE SWEEP IS SEQUENTIAL HERE. The parallel sweep (RollAsyncK >= 2) is sound and
+				! measured on the nine reduced transformers, but on the FULL feeder GMP::Instance::Copy
+				! HANGS INTERMITTENTLY: one thread at 100 %, memory flat, no vertex, no error, no time
+				! limit - the copy never returns, so nothing ever reaches a solver. Twice observed:
+				!   2026-08-21  RunFullFeeder_AsyncNoNet   hung in period 1, 9 h 06, zero vertices
+				!   2026-08-22  this procedure at K=2      ran periods 1-6, hung in period 7 for 16.7 h
+				! The second one had the shared instance ALREADY SOLVED by the baseline, so "copying a
+				! never-solved instance" - the first explanation - is not the cause. It is intermittent and
+				! not understood. Do not raise RollAsyncK here without reading
+				! docs/whole-feeder-production.md section 4.
 				!
-				!                        reference      this        gain
-				!   solve, mean           295.2 s      189.4 s      1.56x
-				!   period boundary        36 min       24 min      -12 min
-				!   period, wall         102.7 min      76 min      -26 min
-				!   whole run             82.17 h      ~61 h        -21 h  (26 %)
+				! The cost of going sequential is small, because the copy ate most of what the parallelism
+				! won: measured periods were 76-92 min at K=2 against roughly 83 min projected sequential,
+				! the boundary being 24 min either way.
 				!
-				! RESULTS DO NOT MOVE. Period 1: 11 of 12 directions bit-identical on proj, the twelfth
-				! at 4.3e-05 on proj ~3.9 (1.1e-05 relative), 12/12 Optimal, VmaxTrue identical in all
-				! twelve and OVviol at 1.867e-10 throughout - no new violation. proj is the invariant,
-				! not P/Q: the sweep maximises a linear functional over a convex set, so a flat face
-				! admits many argmaxes. See docs/whole-feeder-production.md.
+				! WHAT IS ESTABLISHED. BaseNoNetGMP cuts the period boundary from 36 min to 24 min - about
+				! 9.6 h over 48 periods - and does not move results: at TR3 the committed dispatch is
+				! identical column by column, and over the six whole-feeder periods that did complete,
+				! 72/72 Optimal, OVviol unchanged at 1.867e-10, and the FOR area within +/-0.0024 % of the
+				! 2026-08-17 reference.
 				!
-				! DO NOT set BaseNoNetwork = 1 here. It buys the same network-free baseline but forces
-				! RollGMPBaseline = 0, which moves generation into the sweep block and leaves the
-				! instance NEVER SOLVED when the async path copies it. On the full feeder that hung for
-				! 9 h 06 on a single thread with zero vertices (2026-08-21). BaseNoNetGMP exists
-				! precisely so the two can be had together.
-				!
-				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling cannot
-				! restart where it stopped. Watch FOR_rolling_progress_full_prod.txt, rewritten per vertex.
+				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling restarts
+				! at period 1. Watch FOR_rolling_progress_full_prod.txt, rewritten after every vertex, and
+				! alarm on a STALL, not only on a slow start: both hangs were silent.
 				UseBattComp       := 0;
 				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
 				FairFileTag       := "";
@@ -5408,20 +5408,18 @@ Model Main_OPF_VI_LG {
 				DetailLoadPattern := "";
 				RollUseGMP        := 1;
 				RollGMPBaseline   := 1;
-				BaseNoNetwork     := 0;   ! must stay 0 - see the note above
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
 				BaseNoNetGMP      := 1;
-				EnableRollDiag    := 0;   ! the parallel branch is gated on this
-				RollAsyncK        := 2;   ! memory, not cores, is the binding constraint at 1216 batteries
-				RollAsyncThreads  := 12;
-				run RunFOR_Rolling;
-				RollAsyncK        := 0;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 0;   ! SEQUENTIAL - the instance copy hangs at this scale, see above
 				RollAsyncThreads  := 2;
+				run RunFOR_Rolling;
 				BaseNoNetGMP      := 0;
 				RollFileSuffix    := "";
 				RollUseGMP        := 0;
 				RollGMPBaseline   := 0;
 			}
-			Comment: "WHOLE-FEEDER PRODUCTION, m=0, the standard run as of 2026-08-22: shared instance, committed baseline solved network-free (BaseNoNetGMP=1), sweep parallel (RollAsyncK=2). About 61 h against the 82.17 h of RunFullFeeder_NoFairness, with proj bit-identical in 11 of 12 directions of period 1 and 4.3e-05 in the twelfth. Writes FOR_rolling_full_prod.csv plus soc/fair companions and FOR_rolling_progress_full_prod.txt. See docs/whole-feeder-production.md.";
+			Comment: "WHOLE-FEEDER PRODUCTION, m=0, the standard run as of 2026-08-23: shared instance, committed baseline solved network-free (BaseNoNetGMP=1), sweep SEQUENTIAL. The parallel sweep is deliberately off: GMP::Instance::Copy hangs intermittently on the full feeder - period 1 on 2026-08-21 and period 7 on 2026-08-22, the second with the instance already solved. BaseNoNetGMP alone saves about 9.6 h of the 82.17 h reference and does not move results. Writes FOR_rolling_full_prod.csv plus soc/fair companions. See docs/whole-feeder-production.md.";
 		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
