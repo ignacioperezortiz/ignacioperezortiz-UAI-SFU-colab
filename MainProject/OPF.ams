@@ -5421,6 +5421,59 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "WHOLE-FEEDER PRODUCTION, m=0, the standard run as of 2026-08-23: shared instance, committed baseline solved network-free (BaseNoNetGMP=1), sweep SEQUENTIAL. The parallel sweep is deliberately off: GMP::Instance::Copy hangs intermittently on the full feeder - period 1 on 2026-08-21 and period 7 on 2026-08-22, the second with the instance already solved. BaseNoNetGMP alone saves about 9.6 h of the 82.17 h reference and does not move results. Writes FOR_rolling_full_prod.csv plus soc/fair companions. See docs/whole-feeder-production.md.";
 		}
+		Procedure RunFullFeeder_ParallelRepro {
+			Body: {
+				! REPRODUCES THE HANG. Not a production run - this configuration is expected to stop
+				! producing vertices at some period and never resume. It exists so the failure can be
+				! investigated instead of only described, and so Tulio can reach it: he has never been
+				! able to run the whole feeder on his own machine.
+				!
+				! Identical to RunFullFeeder_Production except RollAsyncK = 2, and identical to the
+				! RunFullFeeder_3b that ran on 2026-08-22 except for the file suffix.
+				!
+				! WHAT HAPPENS. GMP::Instance::Copy does not return: one thread of ~72 at 100 %, memory
+				! flat, no vertex written, no error raised, and no time limit fires because nothing ever
+				! reaches a solver. Observed twice on the full feeder, never on a reduced transformer:
+				!   2026-08-21  RunFullFeeder_AsyncNoNet   hung in period 1, 9 h 06, zero vertices
+				!   2026-08-22  RunFullFeeder_3b (= this)  periods 1-6 fine, hung in period 7, 16.7 h
+				! The second had the shared instance ALREADY SOLVED by the baseline - its SOC block is
+				! on disk timestamped 23:06:53 - so "the copy acts on a never-solved instance" is not
+				! the cause. Ruled out: memory (33.7 GB free, RSS flat rather than growing), the machine
+				! (RunTR3_Base gives 9.78 cores and 306/306 Optimal), and the settings (RunTR3_BaseNoNet
+				! reproduces this configuration at reduced scale, 48/48 Optimal in 83 s).
+				!
+				! HOW TO WATCH IT. FOR_rolling_progress_full_parrepro.txt is rewritten after every
+				! vertex. Alarm when its mtime stops advancing for more than ~45 min - a period boundary
+				! plus a solve. Both hangs were silent; the 2026-08-22 one ran 16.7 h unnoticed because
+				! the monitor only checked that the FIRST vertex appeared.
+				!
+				! The 2026-08-22 partial - 6 periods, 72 vertices, 72/72 Optimal, OVviol unchanged and
+				! FOR area within +/-0.0024 % of the reference - was kept under the suffix _full_3b.
+				! See docs/whole-feeder-production.md section 3.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_parrepro";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 2;   ! <-- lo unico que cambia contra RunFullFeeder_Production
+				RollAsyncThreads  := 12;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "REPRODUCES THE WHOLE-FEEDER PARALLEL HANG. Not for production: expected to stop producing vertices at some period and never resume. RunFullFeeder_Production with RollAsyncK=2, which is what ran on 2026-08-22 as RunFullFeeder_3b - periods 1-6 clean, period 7 hung for 16.7 h with one thread at 100 %. Kept so the failure can be investigated rather than only described. See docs/whole-feeder-production.md section 3.";
+		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, no fairness (m=0). This is the run docs/network-scope.md section 4
