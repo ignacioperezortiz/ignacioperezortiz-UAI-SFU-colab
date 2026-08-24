@@ -974,14 +974,14 @@ Model Main_OPF_VI_LG {
 			Parameter dIimdVim_Load {
 				IndexDomain: (d,t);
 				Definition: {
-					P0(d,t)*(Vre0(LoadBus(d),LoadPhase(d),t)^2 - Vim0(LoadBus(d),LoadPhase(d),t)^2 + 2*Q0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(P0(d,t)*(Vre0(LoadBus(d),LoadPhase(d),t)^2 - Vim0(LoadBus(d),LoadPhase(d),t)^2) + 2*Q0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
 					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
 				}
 			}
 			Parameter dIredVim_Gen {
 				IndexDomain: (d,t);
 				Definition: {
-					(- 2*P0minGenP(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
+					(- 2*GenP0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t)*Vim0(LoadBus(d),LoadPhase(d),t))/
 					(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)^2
 				}
 			}
@@ -4107,6 +4107,38 @@ Model Main_OPF_VI_LG {
 				RollGMPBaseline   := 0;
 			}
 			Comment: "CONTROLLED BASELINE, TR9: one transformer in a fresh AIMMS session at 6 sessions x 4 threads (90 batteries, small band). Run alone, then close AIMMS without saving - the whole point of the set is that every transformer starts from the same machine state. Writes FOR_rolling_TR9_base.csv.";
+		}
+		Procedure RunTR9_DerivFix {
+			Body: {
+				! A/B PARTNER of RunTR9_Base, for the LINEARIZATION-DERIVATIVE FIX (2026-08-24).
+				! Identical configuration in every respect; only the output suffix differs, so the
+				! reference file FOR_rolling_TR9_base.csv is NOT touched and stays comparable.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR9_base.csv FOR_rolling_TR9_dfix.csv
+				! What changed in the model between the two runs (NetworkModel/Linearization):
+				!   dIimdVim_Load - closing parenthesis moved so the Q0 cross term is no longer
+				!                   multiplied by P0:  (P0*(Vre0^2-Vim0^2) + 2*Q0*Vre0*Vim0)/(.)^2
+				!   dIredVim_Gen  - P0minGenP replaced by GenP0, matching every other _Gen derivative
+				!                   and the definition of Ire_Gen from which it is differentiated.
+				! Both are coefficients on (V - V0) in the load/PV current linearization, so the
+				! measured FOR movement is the quantity of interest here.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR9_dfix";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR9";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B PARTNER of RunTR9_Base for the 2026-08-24 linearization-derivative fix (dIimdVim_Load parenthesis, dIredVim_Gen parameter). Same config, suffix _TR9_dfix, so FOR_rolling_TR9_base.csv is left intact as the pre-fix reference. Compare with scripts/compare_FOR_runs.py.";
 		}
 		Procedure RunTR3_Base4x6 {
 			Body: {
