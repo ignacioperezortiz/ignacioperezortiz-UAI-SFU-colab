@@ -4432,6 +4432,75 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "PER-TRANSFORMER PRODUCTION, ASYNC (revised 2026-08-18). Drops the up-front full-feeder load, which cost a measured 1.48x on every solve for nothing, and picks the session/thread split by transformer size (4x6 for TR5-TR8, 6x4 for the rest) after the TR6 probe showed the TR4-tuned 6x4 does not generalise. Writes FOR_rolling_<tag>_asyncB.csv, leaving both the sequential _gmp results and the first async pass untouched.";
 		}
+		Procedure RunAllTrafos_DerivFix {
+			Body: {
+				! FULL RE-GENERATION UNDER THE 2026-08-24 LINEARIZATION-DERIVATIVE FIX.
+				! Clone of RunFOR_Rolling_PerTrafo_Async - same size-adaptive split, same GMP
+				! settings, no up-front full-feeder load - with one difference: the suffix is
+				! _<tag>_dfix, so nothing already in the repo is overwritten.
+				!
+				! Writes, per transformer:  FOR_rolling_<tag>_dfix.csv
+				!                           FOR_rolling_soc_<tag>_dfix.csv
+				!                           FOR_rolling_fair_<tag>_dfix.csv
+				!                           FOR_rolling_progress_<tag>_dfix.txt   <- watch this
+				!
+				! EXPECTED WALL CLOCK, from the timings of the _base set (2026-08-19/20):
+				!   TR1 0.8h  TR2 1.2h  TR3 0.4h  TR4 0.3h  TR5 3.4h
+				!   TR6 5.0h  TR7 5.2h  TR8 2.1h  TR9 1.2h (already done, skipped below)
+				!   -> about 18 h for the eight that remain.
+				!
+				! TR9 IS SKIPPED. It was already run under the fix on 2026-08-24 and its results
+				! are in FOR_rolling_TR9_dfix.csv, measured in results/derivative_fix_2026-08/.
+				! Re-running it would overwrite that file for no gain. To include it anyway,
+				! change the resume list below from ",TR9," to ",".
+				!
+				! RESUME AFTER AN INTERRUPTION: add the finished tags to the same list, e.g.
+				! ",TR9,TR1,TR2," to skip those three. Each transformer's CSVs are complete the
+				! moment its progress file reports period 48, so a crash costs only the transformer
+				! in flight - the finished ones are already on disk (RollFlushCSV writes per vertex).
+				showprogresswindow;
+				option disable_new_mathprog_generator := 0;   ! NEW generator (exact QCP); RunFOR_Rolling re-pins it anyway
+				nPeriods                  := 48;
+				IncludeNetworkConstraints := 1;
+				DetailLoadPattern := "";
+				RollFileSuffix    := "";
+				! transformer universe, fixed by the dataset - no full-feeder load needed
+				PerTrafoN := 9;
+				for (pti) do
+					PerTrafoTag(pti) := FormatString("TR%i", ord(pti));
+				endfor;
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				for (pti) do
+					if FindString(",TR9,", "," + PerTrafoTag(pti) + ",") = 0 then   ! RESUME LIST - see header
+						RollFileSuffix := "_" + PerTrafoTag(pti) + "_dfix";
+						ReduceNetwork  := 1;
+						DetailTagCSV   := PerTrafoTag(pti);
+						EnableRollDiag := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+						if FindString(",TR5,TR6,TR7,TR8,", "," + PerTrafoTag(pti) + ",") > 0 then
+							RollAsyncK       := 4;   ! large: >~120 batteries
+							RollAsyncThreads := 6;
+						else
+							RollAsyncK       := 6;   ! small: the TR4-tuned split
+							RollAsyncThreads := 4;
+						endif;
+						run RunFOR_Rolling;
+					endif;
+				endfor;
+				! defensive reset to full-feeder / sequential defaults
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				RollFileSuffix    := "";
+			}
+			Comment: "FULL RE-GENERATION under the 2026-08-24 derivative fix. Clone of RunFOR_Rolling_PerTrafo_Async writing FOR_rolling_<tag>_dfix.csv, so no existing result is overwritten. TR9 is skipped (already run under the fix); edit the resume list in the body to include it, or to skip transformers already finished after an interruption. About 18 h for the remaining eight. Compare each against its _base partner with scripts/compare_FOR_runs.py.";
+		}
 		Procedure RunFOR_Rolling_PerTrafo {
 			Body: {
 				! PER-TRANSFORMER rolling FOR. For each TRk: keep TRk detailed, lump every other transformer
