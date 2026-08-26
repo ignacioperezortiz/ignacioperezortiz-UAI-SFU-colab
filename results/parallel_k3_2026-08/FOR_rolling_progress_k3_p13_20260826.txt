@@ -1,0 +1,3 @@
+﻿periodo    14 de  48   ->  objetivo  15   direccion   3 de  12   (  60.0 grados)
+ultimo vertice :       749.44 s   estado Optimal
+config         : FairMode  0   RollUseGMP  1   ReduceNetwork  0   RollAsyncK  3 x  5 threads

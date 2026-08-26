@@ -2566,7 +2566,7 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter RollAsyncThreads {
 				Default: 2;
-				Comment: "CPLEX thread cap per concurrent sweep session (option global_thread_limit, set on each instance copy) so RollAsyncK sessions do not oversubscribe the machine. 0 = leave the solver default (all cores) - only sensible with RollAsyncK small.";
+				Comment: "CPLEX thread cap per concurrent sweep session (option global_thread_limit, set on each instance copy). This is a MEMORY knob as much as a CPU one: the barrier reserves working space per thread, so on the whole-feeder instance a session needs about 74 GB at 12 threads and about 42 GB at 5. What fits is base + RollAsyncK x memory_per_session <= the machine commit limit; a session that does not fit returns SolverFailure and is then silently re-solved by the rescue in RunFOR_Rolling. Lowering this raises how many directions can run at once. 0 = leave the solver default (all cores) - only sensible with RollAsyncK small. See docs/parallel-sweep-memory.md.";
 			}
 			ElementParameter RollGMPSlot {
 				IndexDomain: ia;
@@ -5090,9 +5090,9 @@ Model Main_OPF_VI_LG {
 				PreflightSuffix    := "_full_gmp";
 				PreflightGMPProbe  := 1;        ! matrix size + memory at full scale - the number the plan wants
 				PreflightUseGMP    := 1;
-				PreflightSlotOnly    := 0;   ! pin defensivo: RunFullFeeder_PreflightExact1Slot, justo arriba, lo deja en 25
-				PreflightExact       := 0;   ! pin defensivo: el mismo vecino lo deja en 1
-				PreflightGMPBaseline := 0;   ! pin defensivo: el mismo vecino lo deja en 1
+				PreflightSlotOnly    := 0;   ! defensive pin: RunFullFeeder_PreflightExact1Slot, just above, leaves it at 25
+				PreflightExact       := 0;   ! defensive pin: the same neighbour leaves it at 1
+				PreflightGMPBaseline := 0;   ! defensive pin: the same neighbour leaves it at 1
 				run RunFOR_RollingPreflight;
 
 				! restore production defaults
@@ -5146,7 +5146,7 @@ Model Main_OPF_VI_LG {
 				RollMaxPeriods    := 2;   ! the cap. Full 48-slot instance per period, only fewer periods
 				BaseNoNetwork     := 0;
 				BaseNoNetGMP      := 0;
-				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
 				run RunFOR_Rolling;
 				RollMaxPeriods    := 0;
 				RollAsyncK        := 0;
@@ -5194,8 +5194,8 @@ Model Main_OPF_VI_LG {
 				RollAsyncThreads  := 12;
 				BaseNoNetwork     := 0;
 				BaseNoNetGMP      := 0;
-				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
-				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
 				run RunFOR_Rolling;
 				RollAsyncK        := 0;
 				RollAsyncThreads  := 2;
@@ -5246,8 +5246,8 @@ Model Main_OPF_VI_LG {
 				RollAsyncK        := 2;   ! memory, not cores, is the binding constraint at 1216 batteries
 				RollAsyncThreads  := 12;
 				BaseNoNetGMP      := 0;
-				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
-				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
 				run RunFOR_Rolling;
 				RollAsyncK        := 0;
 				RollAsyncThreads  := 2;
@@ -5342,20 +5342,25 @@ Model Main_OPF_VI_LG {
 				!   BaseNoNetGMP    = 1   that baseline solved with the NetworkModel rows deactivated
 				!   RollAsyncK      = 0   SEQUENTIAL sweep - see below, this is deliberate
 				!
-				! WHY THE SWEEP IS SEQUENTIAL HERE. The parallel sweep (RollAsyncK >= 2) is sound and
-				! measured on the nine reduced transformers, but on the FULL feeder GMP::Instance::Copy
-				! HANGS INTERMITTENTLY: one thread at 100 %, memory flat, no vertex, no error, no time
-				! limit - the copy never returns, so nothing ever reaches a solver. Twice observed:
-				!   2026-08-21  RunFullFeeder_AsyncNoNet   hung in period 1, 9 h 06, zero vertices
-				!   2026-08-22  this procedure at K=2      ran periods 1-6, hung in period 7 for 16.7 h
-				! The second one had the shared instance ALREADY SOLVED by the baseline, so "copying a
-				! never-solved instance" - the first explanation - is not the cause. It is intermittent and
-				! not understood. Do not raise RollAsyncK here without reading
-				! docs/whole-feeder-production.md section 4.
+				! WHY THE SWEEP IS SEQUENTIAL HERE. This is the conservative entry point and stays that
+				! way. Two whole-feeder runs with the parallel sweep at K=2 stopped producing vertices:
+				!   2026-08-21  RunFullFeeder_AsyncNoNet   period 1, 9 h 06, zero vertices
+				!   2026-08-22  this procedure at K=2      periods 1-6 fine, then period 7 for 16.7 h
 				!
-				! The cost of going sequential is small, because the copy ate most of what the parallelism
-				! won: measured periods were 76-92 min at K=2 against roughly 83 min projected sequential,
-				! the boundary being 24 min either way.
+				! Tracing on 2026-08-25/26 added two things. GMP::Instance::Copy takes about 3 s at this
+				! scale and completed every one of ~60 traced calls, so the copy is not where the trouble
+				! is. What does fail, in EVERY batch, is the last solver session launched: it returns
+				! SolverFailure / NoSolution because a whole-feeder barrier factorisation reserves memory
+				! per thread, and two of them at 12 threads do not fit. The synchronous rescue in
+				! RunFOR_Rolling then re-solves it correctly, which is why the CSVs never showed it.
+				!
+				! So the cost of going sequential is lower than previously recorded: at K=2 x 12 every
+				! second vertex was being solved twice, and the measured sweep rate (349 s/vertex) was
+				! slightly worse than sequential (~334 s/vertex).
+				!
+				! RunFullFeeder_ProductionK3, just below, is the same run at K=3 x 5 threads, which does
+				! fit: 156/156 Optimal with zero rescues over 13 periods. Prefer it once the split has
+				! been checked on the machine at hand. See docs/parallel-sweep-memory.md.
 				!
 				! WHAT IS ESTABLISHED. BaseNoNetGMP cuts the period boundary from 36 min to 24 min - about
 				! 9.6 h over 48 periods - and does not move results: at TR3 the committed dispatch is
@@ -5380,8 +5385,8 @@ Model Main_OPF_VI_LG {
 				EnableRollDiag    := 0;
 				RollAsyncK        := 0;   ! SEQUENTIAL - the instance copy hangs at this scale, see above
 				RollAsyncThreads  := 2;
-				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
-				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
 				run RunFOR_Rolling;
 				BaseNoNetGMP      := 0;
 				RollFileSuffix    := "";
@@ -5389,6 +5394,70 @@ Model Main_OPF_VI_LG {
 				RollGMPBaseline   := 0;
 			}
 			Comment: "WHOLE-FEEDER PRODUCTION, m=0, the standard run as of 2026-08-23: shared instance, committed baseline solved network-free (BaseNoNetGMP=1), sweep SEQUENTIAL. The parallel sweep is deliberately off: GMP::Instance::Copy hangs intermittently on the full feeder - period 1 on 2026-08-21 and period 7 on 2026-08-22, the second with the instance already solved. BaseNoNetGMP alone saves about 9.6 h of the 82.17 h reference and does not move results. Writes FOR_rolling_full_prod.csv plus soc/fair companions. See docs/whole-feeder-production.md.";
+		}
+		Procedure RunFullFeeder_ProductionK3 {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, with THREE sweep directions solved at a time. Identical
+				! to RunFullFeeder_Production in every assignment except RollAsyncK and RollAsyncThreads.
+				!
+				! WHY 3 x 5 AND NOT 2 x 12. The CPLEX barrier reserves working memory PER THREAD, so
+				! RollAsyncThreads governs how much a sweep session needs, not just how much CPU it takes:
+				!
+				!     12 threads  ->  about 74 GB per session
+				!      5 threads  ->  about 42 GB per session
+				!
+				! The whole-feeder instance is 6,214,854 rows / 6,095,686 columns / 24,289,627 nonzeros,
+				! so a single factorisation is already large. What fits is:
+				!
+				!     base (about 37 GB)  +  K x memory_per_session  <=  commit limit
+				!
+				! On the machine these were measured on the commit limit is 182.55 GB (63.45 GB of RAM +
+				! 119.10 GB of page file), which predicted and then matched:
+				!
+				!     K=2 x 12  ->  37 + 2x74 = 185 GB  ->  1 of 2 sessions fails
+				!     K=4 x  5  ->  37 + 4x42 = 205 GB  ->  3 of 4 succeed
+				!     K=3 x  5  ->  37 + 3x42 = 163 GB  ->  all 3 succeed
+				!
+				! A session that cannot get its memory returns SolverFailure / NoSolution and is then
+				! re-solved by the synchronous rescue in RunFOR_Rolling. The vertex is still correct, so
+				! this costs a full extra solve without showing up anywhere in the CSVs.
+				!
+				! ON A DIFFERENT MACHINE THE SPLIT WILL DIFFER - use the rule, not these numbers. Run one
+				! period and check that no direction needed a rescue before committing days of wall clock.
+				!
+				! EVIDENCE. 13 periods, 156/156 Optimal, zero rescues, max abs dproj 2.27e-04 against the
+				! 2026-08-17 sequential reference, FOR area within +0.0066 / -0.0035 %. Versioned under
+				! results/parallel_k3_2026-08; write-up in docs/parallel-sweep-memory.md.
+				!
+				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling restarts
+				! at period 1. Watch FOR_rolling_progress_full_k3.txt and alarm on a STALL, not only on a
+				! slow start.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3";
+				ReduceNetwork     := 0;   ! FULL feeder, every transformer in detail
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;   ! every vertex reaches disk as it is produced; there is no resume
+				RollAsyncK        := 3;   ! <-- this and RollAsyncThreads are the only difference against RunFullFeeder_Production
+				RollAsyncThreads  := 5;   ! 3 x 5 = 15 threads, which also avoids oversubscribing a 22-thread machine
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER PRODUCTION, m=0, sweep parallel at K=3 x 5 threads. Same model and settings as RunFullFeeder_Production; only RollAsyncK and RollAsyncThreads differ. RollAsyncThreads is a MEMORY knob: the CPLEX barrier reserves working space per thread, so a session needs about 74 GB at 12 threads and about 42 GB at 5. At K=2 x 12 the second session of every batch failed and was silently re-solved by the rescue; at K=3 x 5 all three fit. Evidence: 13 periods, 156/156 Optimal, zero rescues, under results/parallel_k3_2026-08. Re-check the split on a different machine. Writes FOR_rolling_full_k3.csv plus its soc and fair companions. See docs/parallel-sweep-memory.md.";
 		}
 		Procedure RunFullFeeder_ParallelRepro {
 			Body: {
@@ -5433,11 +5502,11 @@ Model Main_OPF_VI_LG {
 				BaseNoNetwork     := 0;
 				BaseNoNetGMP      := 1;
 				EnableRollDiag    := 0;
-				RollAsyncK        := 2;   ! <-- esto y RollAsyncThreads son lo que cambia contra RunFullFeeder_Production;
-				                          ! RollAsyncThreads solo tiene efecto con RollAsyncK >= 2, asi que el cambio efectivo es este
+				RollAsyncK        := 2;   ! <-- this and RollAsyncThreads are what changes against RunFullFeeder_Production;
+				                          ! RollAsyncThreads only has an effect with RollAsyncK >= 2, so this is the effective change
 				RollAsyncThreads  := 12;
-				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
-				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
 				run RunFOR_Rolling;
 				RollAsyncK        := 0;
 				RollAsyncThreads  := 2;
@@ -5480,13 +5549,13 @@ Model Main_OPF_VI_LG {
 				DetailLoadPattern := "";
 				RollUseGMP        := 1;
 				RollGMPBaseline   := 1;
-				EnableRollDiag    := 0;   ! pin defensivo: el camino paralelo esta gateado en esto
-				RollAsyncK        := 0;   ! pin defensivo: un valor heredado volveria paralela esta corrida
+				EnableRollDiag    := 0;   ! defensive pin: the parallel path is gated on this
+				RollAsyncK        := 0;   ! defensive pin: an inherited value would make this run parallel
 				RollAsyncThreads  := 2;
 				BaseNoNetwork     := 0;
 				BaseNoNetGMP      := 0;
-				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
-				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted, which would silently relax this run
 				run RunFOR_Rolling;
 				! restore the session defaults
 				RollFileSuffix    := "";
