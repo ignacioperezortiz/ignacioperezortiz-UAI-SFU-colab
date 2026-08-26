@@ -202,7 +202,7 @@ Model Main_OPF_VI_LG {
 			}
 			Set Time {
 				SubsetOf: Integers;
-				Index: t;
+				Index: t, tGMP;   ! tGMP (2026-08-22): segundo indice sobre Time para los dominios de enlace de GMP::*Multi dentro del for(t) de RunFOR_Rolling, donde t ya esta ligado. Puramente aditivo: no aparece en ninguna definicion.
 				Property: ElementsAreNumerical;
 				Definition: ElementRange( 1, nPeriods);
 			}
@@ -651,12 +651,14 @@ Model Main_OPF_VI_LG {
 				Range: [MinTap(tr), MaxTap(tr)];
 			}
 			Variable Iim_Trafo {
-				IndexDomain: (tr,f,n,t);
+				IndexDomain: (tr,f,n,t) | n = StartBusTr(tr) or n = EndBusTr(tr);
 				Range: free;
+				Comment: "GENERATION COST (2026-08-22): a transformer touches exactly two buses, and every reference in the model uses StartBusTr(tr) or EndBusTr(tr) as the third index - verified over all 40 occurrences. Without this condition the identifier is declared over tr x f x ALL BUSES x t and the generator walks every one of those tuples to find they produce nothing. Proven equivalent on the TR9 preflight: rows 565009, columns 456685, nonzeros 1956026 and 63.36 Mb identical with and without, and max |dproj| = 0.000e+00 over 36/36 vertices. The speed gain is NOT established - see docs/whole-feeder-production.md.";
 			}
 			Variable Ire_Trafo {
-				IndexDomain: (tr,f,n,t);
+				IndexDomain: (tr,f,n,t) | n = StartBusTr(tr) or n = EndBusTr(tr);
 				Range: free;
+				Comment: "GENERATION COST (2026-08-22): a transformer touches exactly two buses, and every reference in the model uses StartBusTr(tr) or EndBusTr(tr) as the third index - verified over all 40 occurrences. Without this condition the identifier is declared over tr x f x ALL BUSES x t and the generator walks every one of those tuples to find they produce nothing. Proven equivalent on the TR9 preflight: rows 565009, columns 456685, nonzeros 1956026 and 63.36 Mb identical with and without, and max |dproj| = 0.000e+00 over 36/36 vertices. The speed gain is NOT established - see docs/whole-feeder-production.md.";
 			}
 		}
 		DeclarationSection BusVars {
@@ -1922,6 +1924,7 @@ Model Main_OPF_VI_LG {
 		Comment: "Per-transformer decomposition: keep one transformer in full detail, lump the LV demand of every other transformer as per-phase MV loads (their batteries dropped - passive), then shrink the network sets. Approximation: lumped transformer impedance/losses ignored. Called from Load_data_dsn when ReduceNetwork=1.";
 		DeclarationSection ReductionControls {
 			Parameter ReduceNetwork {
+				Default: 0;   ! 2026-08-23: la declaracion no lo tenia y el Comment ya describia un default que no declaraba.
 				Comment: {
 					"Master switch: 1 = apply the reduction in Load_data_dsn; 0 = full feeder (default, existing behaviour)."
 				}
@@ -2275,6 +2278,10 @@ Model Main_OPF_VI_LG {
 					(cheap dispatch-only test) and with the full sweep. 0 = production.";
 				}
 			}
+			Parameter BaseNoNetGMP {
+				Default: 0;
+				Comment: "2026-08-22: 1 = the committed baseline is solved on the SHARED instance with the NetworkModel rows deactivated, instead of forcing RollGMPBaseline=0 the way BaseNoNetwork does. Same network-free baseline that Prof. Luis asked for, but the instance is generated once and SOLVED before the async sweep copies it - copying a never-solved whole-feeder instance is what hung for 9 h 06 on 2026-08-21. Needs RollUseGMP=1 and RollGMPBaseline=1, and BaseNoNetwork must stay 0 or the shared path is skipped. Validated at TR3 against BaseNoNetwork=1: 576/576 Optimal, max |dproj| = 0.000e+00, committed dispatch identical column by column. 0 = production default, inert.";
+			}
 			Parameter SOCFloorOverride {
 				Default: -1;
 				Comment: "EXPERIMENT toggle: >=0 overrides every battery\'s BattSOCmin (the MinSOC_def floor) with this value AFTER each Load_data_dsn reset inside RunFOR_Rolling, e.g. 0.0 = allow full discharge. -1 (default) = off, DB floor untouched (production).";
@@ -2326,6 +2333,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Parameter EnableRollDiag {
+				Default: 0;   ! 2026-08-23: la declaracion no lo tenia y el Comment ya describia un default que no declaraba.
 				Comment: {
 					"Toggle: 1 = on each failed direction inside RunFOR_Rolling, retry with (Pass 1) cyclic relaxed to DiagCyclicBand, then (Pass 2) cyclic relaxed + GenP0 scaled by (1 - DiagPVcutFrac); write attribution to FOR_rolling_diag.csv. 0 = off."
 				}
@@ -2787,6 +2795,51 @@ Model Main_OPF_VI_LG {
 						if FairMode = 2 then GMP::Row::DeactivateMulti( RollGMP, a,   FairProportional_Aggregator(a) ); endif;
 						if FairMode = 3 then GMP::Row::DeactivateMulti( RollGMP, bat, FairProportional_ProsumerExch(bat) ); endif;
 						if FairMode = 4 then GMP::Row::DeactivateMulti( RollGMP, a,   FairProportional_AggregatorExch(a) ); endif;
+						! ---- TEST 3b (BaseNoNetGMP): take the NETWORK out of the committed baseline solve on the
+						! ---- SHARED instance, so the instance is generated once and SOLVED before the async path
+						! ---- copies it. BaseNoNetwork=1 gets the same baseline but forces RollGMPBaseline=0, which
+						! ---- leaves the instance never solved - the 2026-08-21 whole-feeder hang.
+						! ---- NO FreezeMulti here, deliberately: a column that never entered the matrix cannot be
+						! ---- frozen ("BattInvPn is not in the model"), and which columns exist depends on
+						! ---- FOR_ScaleInv, FOR_PolyS and the network topology. Deactivating P_PCC/Q_PCC's defining
+						! ---- rows as well leaves every network column in NO active row, so presolve drops them.
+						! ---- Each binding domain mirrors the row's own IndexDomain condition, or the call hits
+						! ---- rows that were never generated.
+						if BaseNoNetGMP = 1 then
+							if FOR_PolyS = 0 and FOR_ScaleInv = 0 then
+								GMP::Row::DeactivateMulti( RollGMP, bat,      MaxBattS_def(bat) );
+							endif;
+							if FOR_ScaleInv = 1 then
+								GMP::Row::DeactivateMulti( RollGMP, bat,      LinkBattInvPn(bat) );
+								GMP::Row::DeactivateMulti( RollGMP, bat,      LinkBattInvQn(bat) );
+								GMP::Row::DeactivateMulti( RollGMP, bat,      MaxBattS_norm(bat) );
+							endif;
+							if FOR_PolyS = 1 then
+								GMP::Row::DeactivateMulti( RollGMP, (bat,ks), MaxBattS_poly(bat,ks) );
+							endif;
+							GMP::Row::DeactivateMulti( RollGMP, (tr,f,tGMP),  Vre_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (tr,f,tGMP),  Vim_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (tr,f,tGMP),  Ire_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (tr,f,tGMP),  Iim_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (tr,f,tGMP),  I2maxTrafos(tr,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (l,f,tGMP),   I2maxLines(l,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (n,f,tGMP),   Vmax(n,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (n,f,tGMP),   Vmin(n,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (ref,f,tGMP), SlackVim(ref,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (ref,f,tGMP), SlackVre(ref,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (n,f,tGMP),   Ire_balance(n,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (n,f,tGMP),   Iim_balance(n,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (l,f,tGMP),   VdropLines_re(l,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (l,f,tGMP),   VdropLines_im(l,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (tr,tGMP) | Is_OLTC(tr) = 0, FixedTaps(tr,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (n,f,tGMP),   Vmag2approx_definition(n,f,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (d,tGMP),     Ire_Gen_definition(d,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (d,tGMP),     Ire_Load_definition(d,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (d,tGMP),     Iim_Load_definition(d,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, (d,tGMP),     Iim_Gen_definition(d,tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, tGMP,         P_PCC_definition(tGMP) );
+							GMP::Row::DeactivateMulti( RollGMP, tGMP,         Q_PCC_definition(tGMP) );
+						endif;
 						GMP::Column::SetAsObjective( RollGMP, OFminImports );
 						GMP::Instance::Solve( RollGMP );
 						Roll_SolState := GMP::Solution::GetProgramStatus( RollGMP, 1 );
@@ -2801,6 +2854,43 @@ Model Main_OPF_VI_LG {
 						ConvFlag := Roll_SolState;
 						if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
 							GMP::Solution::SendToModel( RollGMP, 1 );   ! the bookkeeping below reads BattP_* from the model
+						endif;
+						! ---- TEST 3b: put the network back before the sweep generates its directions.
+						! ---- Same guards, same order: a row that was never deactivated must not be activated.
+						if BaseNoNetGMP = 1 then
+							if FOR_PolyS = 0 and FOR_ScaleInv = 0 then
+								GMP::Row::ActivateMulti( RollGMP, bat, MaxBattS_def(bat) );
+							endif;
+							if FOR_ScaleInv = 1 then
+								GMP::Row::ActivateMulti( RollGMP, bat, LinkBattInvPn(bat) );
+								GMP::Row::ActivateMulti( RollGMP, bat, LinkBattInvQn(bat) );
+								GMP::Row::ActivateMulti( RollGMP, bat, MaxBattS_norm(bat) );
+							endif;
+							if FOR_PolyS = 1 then
+								GMP::Row::ActivateMulti( RollGMP, (bat,ks), MaxBattS_poly(bat,ks) );
+							endif;
+								GMP::Row::ActivateMulti( RollGMP, (tr,f,tGMP), Vre_calc_Trafo(tr,f,tGMP) );
+								GMP::Row::ActivateMulti( RollGMP, (tr,f,tGMP), Vim_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (tr,f,tGMP), Ire_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (tr,f,tGMP), Iim_calc_Trafo(tr,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (tr,f,tGMP), I2maxTrafos(tr,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (l,f,tGMP), I2maxLines(l,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (n,f,tGMP), Vmax(n,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (n,f,tGMP), Vmin(n,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (ref,f,tGMP), SlackVim(ref,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (ref,f,tGMP), SlackVre(ref,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (n,f,tGMP), Ire_balance(n,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (n,f,tGMP), Iim_balance(n,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (l,f,tGMP), VdropLines_re(l,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (l,f,tGMP), VdropLines_im(l,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (tr,tGMP) | Is_OLTC(tr) = 0, FixedTaps(tr,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (n,f,tGMP), Vmag2approx_definition(n,f,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (d,tGMP), Ire_Gen_definition(d,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (d,tGMP), Ire_Load_definition(d,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (d,tGMP), Iim_Load_definition(d,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, (d,tGMP), Iim_Gen_definition(d,tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, tGMP, P_PCC_definition(tGMP) );
+							GMP::Row::ActivateMulti( RollGMP, tGMP, Q_PCC_definition(tGMP) );
 						endif;
 						if FairMode = 1 then GMP::Row::ActivateMulti( RollGMP, bat, FairProportional_Prosumer(bat) ); endif;
 						if FairMode = 2 then GMP::Row::ActivateMulti( RollGMP, a,   FairProportional_Aggregator(a) ); endif;
@@ -5000,6 +5090,9 @@ Model Main_OPF_VI_LG {
 				PreflightSuffix    := "_full_gmp";
 				PreflightGMPProbe  := 1;        ! matrix size + memory at full scale - the number the plan wants
 				PreflightUseGMP    := 1;
+				PreflightSlotOnly    := 0;   ! pin defensivo: RunFullFeeder_PreflightExact1Slot, justo arriba, lo deja en 25
+				PreflightExact       := 0;   ! pin defensivo: el mismo vecino lo deja en 1
+				PreflightGMPBaseline := 0;   ! pin defensivo: el mismo vecino lo deja en 1
 				run RunFOR_RollingPreflight;
 
 				! restore production defaults
@@ -5013,7 +5106,8 @@ Model Main_OPF_VI_LG {
 			Body: {
 				! STEP 1 OF THE PARALLEL WHOLE-FEEDER RUN: does this machine have the memory?
 				!
-				! RunFullFeeder_NoFairness with the sweep parallelised, capped to the first 2 periods.
+				! RunFullFeeder_Async capped to the first 2 periods - an exact match on every assignment,
+				! not RunFullFeeder_NoFairness parallelised, which pins fewer parameters.
 				! The cap does NOT shrink the problem: every period still builds the full 48-slot
 				! instance, so peak memory here is the peak memory of the full run. Only the number of
 				! periods is reduced, which is what makes this a ~3 h question instead of a 3-day one.
@@ -5050,6 +5144,9 @@ Model Main_OPF_VI_LG {
 				RollAsyncK        := 2;   ! deliberately low: memory, not cores, is the binding constraint here
 				RollAsyncThreads  := 12;
 				RollMaxPeriods    := 2;   ! the cap. Full 48-slot instance per period, only fewer periods
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;
+				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
 				run RunFOR_Rolling;
 				RollMaxPeriods    := 0;
 				RollAsyncK        := 0;
@@ -5064,7 +5161,9 @@ Model Main_OPF_VI_LG {
 			Body: {
 				! STEP 2: the full parallel whole-feeder run. 48 periods x 12 directions on the full
 				! network, exact QCP, sweep parallelised. Identical to RunFullFeeder_NoFairness in every
-				! respect except that RollAsyncK directions solve at once.
+				! respect except that RollAsyncK directions solve at once - and except that it pins
+				! EnableRollDiag and RollAsyncThreads, which RunFullFeeder_NoFairness also pins since
+				! 2026-08-23. Before that date the equivalence held only in a clean session.
 				!
 				! DO NOT START THIS UNTIL RunFullFeeder_AsyncSmoke HAS PASSED. It commits days of wall
 				! clock, and the failure mode at this scale is memory exhaustion, which shows up as
@@ -5093,6 +5192,10 @@ Model Main_OPF_VI_LG {
 				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
 				RollAsyncK        := 2;   ! keep whatever the smoke run proved. Raise only after re-smoking
 				RollAsyncThreads  := 12;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;
+				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
+				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
 				run RunFOR_Rolling;
 				RollAsyncK        := 0;
 				RollAsyncThreads  := 2;
@@ -5102,10 +5205,255 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "WHOLE FEEDER, STEP 2: the full 48-period parallel run, all transformers at once on the full network. Same configuration as RunFullFeeder_NoFairness with RollAsyncK directions solving concurrently. Run RunFullFeeder_AsyncSmoke first - this commits days of wall clock and the failure mode is memory. Writes FOR_rolling_full_async.csv plus its soc and fair companions, and FOR_rolling_progress_full_async.txt after every vertex.";
 		}
+		Procedure RunFullFeeder_AsyncNoNet {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, PARALLEL SWEEP + BATTERY-ONLY COMMITTED BASELINE.
+				! This is RunFullFeeder_Async with BaseNoNetwork = 1. It is the configuration the
+				! 2026-08-21 task asks for: the two accelerations applied together.
+				!
+				! WHY BOTH. The sequential 2026-08-17 run was 82.17 h of wall clock, of which
+				! 55.05 h is sweep solver time (576 vertices, 344.1 s mean) and 27.1 h is period
+				! boundary: Load_data_reset, the GMP generation, and the committed baseline solve.
+				! RollAsyncK attacks the 55 h. BaseNoNetwork attacks the 27 h - it is the only one
+				! of the two that touches the baseline solve, which on the full feeder carries the
+				! whole network for all 48 slots. On TR4 the 48 baseline solves fell from ~6 min to
+				! 13 s with max |dP| = 2.7e-7 p.u. RunFullFeeder_Async does NOT set it.
+				!
+				! RollGMPBaseline is 0 on purpose: with BaseNoNetwork = 1 the shared-instance path
+				! is skipped anyway (it carries the network rows), so the sweep generates its own
+				! matrix in the block after the baseline. Stating it here rather than relying on
+				! that is what RunTR4_GMP_BaseNoNet does.
+				!
+				! WHAT MAY MOVE. The parallel sweep is bit-identical (Tulio, TR3: proj 0.000e+00,
+				! _soc_ and _fair_ identical byte for byte). BaseNoNetwork is the half that can
+				! move numbers, and the invariant to test is proj, not P/Q:
+				!   py -3 scripts/compare_FOR_runs.py results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv FOR_rolling_full_asyncnonet.csv
+				!
+				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling
+				! cannot pick up where it stopped - an interruption means starting at period 1.
+				! Watch FOR_rolling_progress_full_asyncnonet.txt, rewritten after every vertex.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, no fairness. Explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_asyncnonet";
+				ReduceNetwork     := 0;   ! FULL feeder - every transformer in detail, nothing lumped
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 0;   ! see above: BaseNoNetwork skips the shared instance regardless
+				BaseNoNetwork     := 1;   ! committed baseline solved as the battery/energy model only
+				EnableRollDiag    := 0;   ! the parallel branch is gated on this; pin it so a session value cannot silently force the sequential path
+				RollAsyncK        := 2;   ! memory, not cores, is the binding constraint at 1216 batteries
+				RollAsyncThreads  := 12;
+				BaseNoNetGMP      := 0;
+				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
+				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetwork     := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE FEEDER, m=0, the 2026-08-21 production configuration: RunFullFeeder_Async plus BaseNoNetwork=1, so the sweep runs RollAsyncK=2 directions at once AND the committed baseline is solved battery-only. Writes FOR_rolling_full_asyncnonet.csv with its soc and fair companions, and FOR_rolling_progress_full_asyncnonet.txt after every vertex. A/B against results/full_feeder_2026-08/FOR_rolling_full_m0_20260817.csv with scripts/compare_FOR_runs.py; the invariant is proj, not P/Q.";
+		}
+		Procedure RunTR3_BaseNoNet {
+			Body: {
+				! DIAGNOSTIC (2026-08-22): does BaseNoNetwork = 1 break the PARALLEL sweep?
+				!
+				! RunTR3_Base with the two settings that RunFullFeeder_AsyncNoNet added and that no
+				! run of the async campaign ever used: RollGMPBaseline = 0 and BaseNoNetwork = 1.
+				! Everything else - transformer, split, threads - is RunTR3_Base exactly, so the two
+				! are comparable and the only variable is the generation path.
+				!
+				! WHY. The whole-feeder run of 2026-08-21 stalled: 9 h 06, one thread at 100%, memory
+				! frozen at 17.08 GB, zero vertices. It ran with RollGMPBaseline = 0, which generates
+				! the sweep matrix in the sweep block instead of sharing the baseline's instance - so
+				! GMP::Instance::Copy was called on a NEVER-SOLVED instance, which the async campaign
+				! never did. This isolates that from the sheer scale of the full feeder.
+				!
+				! READ IT AGAINST RunTR3_Base: 576/576 Optimal and ~20 min means the generation path
+				! is innocent and the whole-feeder stall is scale. A stall here means the opposite,
+				! and RunFullFeeder_Async (RollGMPBaseline = 1) deserves a retry.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_base.csv FOR_rolling_TR3_basenonet.csv
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_basenonet";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 0;   ! <-- la variable bajo prueba
+				BaseNoNetwork     := 1;   ! <-- la variable bajo prueba
+				EnableRollDiag    := 0;
+				RollAsyncK        := 6;   ! identico a RunTR3_Base
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetwork     := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "DIAGNOSTIC: RunTR3_Base plus RollGMPBaseline=0 and BaseNoNetwork=1, the two settings the whole-feeder stall of 2026-08-21 ran with and that the async campaign never used. Same transformer, same 6x4 split. If this matches RunTR3_Base in time and answers, the generation path is innocent and the stall is scale. Writes FOR_rolling_TR3_basenonet.csv.";
+		}
+		Procedure RunTR3_Base3b {
+			Body: {
+				! TEST 3b VALIDATION at TR3 scale. Identical to RunTR3_BaseNoNet in what it asks the
+				! model for - a network-free committed baseline with the 12 sweep directions solved
+				! 6 at a time - but obtained through BaseNoNetGMP = 1 on the SHARED instance instead
+				! of through BaseNoNetwork = 1, which forces RollGMPBaseline = 0 and leaves the
+				! instance never solved when the async path copies it.
+				!
+				! THE COMPARISON THAT MATTERS is against FOR_rolling_TR3_basenonet.csv, not against
+				! RunTR3_Base: 3b must reproduce the NETWORK-FREE baseline, and the strongest single
+				! check is the soc CSV, which is the committed dispatch the sweep inherits.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_basenonet.csv FOR_rolling_TR3_base3b.csv
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_base3b";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;   ! instancia COMPARTIDA - lo contrario de BaseNoNetwork
+				BaseNoNetwork     := 0;   ! debe quedar en 0 o el camino compartido se salta
+				BaseNoNetGMP      := 1;   ! <-- la receta bajo prueba
+				EnableRollDiag    := 0;
+				RollAsyncK        := 6;
+				RollAsyncThreads  := 4;
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "TEST 3b VALIDATION: RunTR3_BaseNoNet's question answered through BaseNoNetGMP=1 on the shared instance. Compare FOR_rolling_TR3_base3b.csv and its soc companion against the _TR3_basenonet pair.";
+		}
+		Procedure RunFullFeeder_Production {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0. THE standard way to run the full network as of
+				! 2026-08-23. Supersedes RunFullFeeder_NoFairness, which is the same run without the
+				! network-free baseline and is kept as the reference that produced results/full_feeder_2026-08.
+				!
+				!   RollGMPBaseline = 1   one generated matrix per period, shared by baseline and sweep
+				!   BaseNoNetGMP    = 1   that baseline solved with the NetworkModel rows deactivated
+				!   RollAsyncK      = 0   SEQUENTIAL sweep - see below, this is deliberate
+				!
+				! WHY THE SWEEP IS SEQUENTIAL HERE. The parallel sweep (RollAsyncK >= 2) is sound and
+				! measured on the nine reduced transformers, but on the FULL feeder GMP::Instance::Copy
+				! HANGS INTERMITTENTLY: one thread at 100 %, memory flat, no vertex, no error, no time
+				! limit - the copy never returns, so nothing ever reaches a solver. Twice observed:
+				!   2026-08-21  RunFullFeeder_AsyncNoNet   hung in period 1, 9 h 06, zero vertices
+				!   2026-08-22  this procedure at K=2      ran periods 1-6, hung in period 7 for 16.7 h
+				! The second one had the shared instance ALREADY SOLVED by the baseline, so "copying a
+				! never-solved instance" - the first explanation - is not the cause. It is intermittent and
+				! not understood. Do not raise RollAsyncK here without reading
+				! docs/whole-feeder-production.md section 4.
+				!
+				! The cost of going sequential is small, because the copy ate most of what the parallelism
+				! won: measured periods were 76-92 min at K=2 against roughly 83 min projected sequential,
+				! the boundary being 24 min either way.
+				!
+				! WHAT IS ESTABLISHED. BaseNoNetGMP cuts the period boundary from 36 min to 24 min - about
+				! 9.6 h over 48 periods - and does not move results: at TR3 the committed dispatch is
+				! identical column by column, and over the six whole-feeder periods that did complete,
+				! 72/72 Optimal, OVviol unchanged at 1.867e-10, and the FOR area within +/-0.0024 % of the
+				! 2026-08-17 reference.
+				!
+				! NO RESUME. RollFlushCSV keeps every finished vertex on disk, but RunFOR_Rolling restarts
+				! at period 1. Watch FOR_rolling_progress_full_prod.txt, rewritten after every vertex, and
+				! alarm on a STALL, not only on a slow start: both hangs were silent.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_prod";
+				ReduceNetwork     := 0;   ! FULL feeder, every transformer in detail
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 0;   ! SEQUENTIAL - the instance copy hangs at this scale, see above
+				RollAsyncThreads  := 2;
+				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
+				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				run RunFOR_Rolling;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER PRODUCTION, m=0, the standard run as of 2026-08-23: shared instance, committed baseline solved network-free (BaseNoNetGMP=1), sweep SEQUENTIAL. The parallel sweep is deliberately off: GMP::Instance::Copy hangs intermittently on the full feeder - period 1 on 2026-08-21 and period 7 on 2026-08-22, the second with the instance already solved. BaseNoNetGMP alone saves about 9.6 h of the 82.17 h reference and does not move results. Writes FOR_rolling_full_prod.csv plus soc/fair companions. See docs/whole-feeder-production.md.";
+		}
+		Procedure RunFullFeeder_ParallelRepro {
+			Body: {
+				! REPRODUCES THE HANG. Not a production run - this configuration is expected to stop
+				! producing vertices at some period and never resume. It exists so the failure can be
+				! investigated instead of only described, and so Tulio can reach it: he has never been
+				! able to run the whole feeder on his own machine.
+				!
+				! RunFullFeeder_Production with RollAsyncK = 2 and RollAsyncThreads = 12 (the latter inert
+				! below K=2). This is the configuration that ran on 2026-08-22 under the working name
+				! RunFullFeeder_3b, from a scratch copy of the project that was never committed - so that
+				! name appears nowhere in this file and the identity cannot be checked against source.
+				!
+				! WHAT HAPPENS. GMP::Instance::Copy does not return: one thread of ~72 at 100 %, memory
+				! flat, no vertex written, no error raised, and no time limit fires because nothing ever
+				! reaches a solver. Observed twice on the full feeder, never on a reduced transformer:
+				!   2026-08-21  RunFullFeeder_AsyncNoNet   hung in period 1, 9 h 06, zero vertices
+				!   2026-08-22  RunFullFeeder_3b (= this)  periods 1-6 fine, hung in period 7, 16.7 h
+				! The second had the shared instance ALREADY SOLVED by the baseline - its SOC block is
+				! on disk timestamped 23:06:53 - so "the copy acts on a never-solved instance" is not
+				! the cause. Ruled out: memory (33.7 GB free, RSS flat rather than growing), the machine
+				! (RunTR3_Base gives 9.78 cores and 306/306 Optimal), and the settings (RunTR3_BaseNoNet
+				! reproduces this configuration at reduced scale, 48/48 Optimal in 83 s).
+				!
+				! HOW TO WATCH IT. FOR_rolling_progress_full_parrepro.txt is rewritten after every
+				! vertex. Alarm when its mtime stops advancing for more than ~45 min - a period boundary
+				! plus a solve. Both hangs were silent; the 2026-08-22 one ran 16.7 h unnoticed because
+				! the monitor only checked that the FIRST vertex appeared.
+				!
+				! The 2026-08-22 partial - 6 periods, 72 vertices, 72/72 Optimal, OVviol unchanged and
+				! FOR area within +/-0.0024 % of the reference - was kept under the suffix _full_3b.
+				! See docs/whole-feeder-production.md section 3.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_parrepro";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 2;   ! <-- esto y RollAsyncThreads son lo que cambia contra RunFullFeeder_Production;
+				                          ! RollAsyncThreads solo tiene efecto con RollAsyncK >= 2, asi que el cambio efectivo es este
+				RollAsyncThreads  := 12;
+				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
+				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
+				run RunFOR_Rolling;
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "REPRODUCES THE WHOLE-FEEDER PARALLEL HANG. Not for production: expected to stop producing vertices at some period and never resume. RunFullFeeder_Production with RollAsyncK=2, which is what ran on 2026-08-22 as RunFullFeeder_3b - periods 1-6 clean, period 7 hung for 16.7 h with one thread at 100 %. Kept so the failure can be investigated rather than only described. See docs/whole-feeder-production.md section 3.";
+		}
 		Procedure RunFullFeeder_NoFairness {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, no fairness (m=0). This is the run docs/network-scope.md section 4
-				! records as never yet completed: 48 periods x 12 directions on the full network, exact QCP,
+				! recorded as never yet completed when this was written. It COMPLETED on 2026-08-17 in
+				! 82.17 h, 576/576 Optimal, and is versioned under results/full_feeder_2026-08.
+				! 48 periods x 12 directions on the full network, exact QCP,
 				! with the sweep matrix generated once per period (the GMP phase, docs/rolling-for-performance.md
 				! section 6).
 				!
@@ -5132,6 +5480,13 @@ Model Main_OPF_VI_LG {
 				DetailLoadPattern := "";
 				RollUseGMP        := 1;
 				RollGMPBaseline   := 1;
+				EnableRollDiag    := 0;   ! pin defensivo: el camino paralelo esta gateado en esto
+				RollAsyncK        := 0;   ! pin defensivo: un valor heredado volveria paralela esta corrida
+				RollAsyncThreads  := 2;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;
+				RollMaxPeriods    := 0;   ! pin defensivo: RunFullFeeder_AsyncSmoke y RunTR6_AsyncTune lo dejan en 2 si se interrumpen -> corrida de 2 periodos con CSV de aspecto completo
+				RollLinearized    := 0;   ! pin defensivo: RunTR3_Linear/RunTR7_Linear lo dejan en 1 si se interrumpen, y relajaria esta corrida en silencio
 				run RunFOR_Rolling;
 				! restore the session defaults
 				RollFileSuffix    := "";
