@@ -46,6 +46,12 @@ FOR_gmp_probe*.txt
 !results/full_feeder_2026-08/FOR_rolling*.csv
 !results/full_feeder_2026-08/FOR_rolling_progress*.txt
 
+# Same reasoning for the 13-period parallel sweep of 2026-08-26: it is the evidence that
+# RollAsyncK = 3 x 5 threads runs the full feeder without a single failed solver session,
+# and it cost 17 h of wall clock. See results/parallel_k3_2026-08/README.md.
+!results/parallel_k3_2026-08/FOR_rolling*.csv
+!results/parallel_k3_2026-08/FOR_rolling_progress*.txt
+
 # ---------------------------------------------------------------------------
 # Post-processing validation inputs (per-customer load+PV reference tables).
 # Shared separately via cloud (like the model input data), NOT through GitHub.

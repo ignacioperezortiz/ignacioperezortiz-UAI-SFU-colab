@@ -65,6 +65,15 @@ Two design points worth keeping:
 
 ## 3. What hangs: the parallel sweep on the full feeder
 
+> **Update, 2026-08-26.** Instrumented tracing has since moved where the limit is.
+> `GMP::Instance::Copy` takes about 3 s at this scale and completed on all ~60 traced
+> calls, so the attribution below is not the whole story. What does fail, in every
+> batch, is the last solver session launched — `SolverFailure` / `NoSolution`, because
+> the CPLEX barrier reserves memory per thread and two sessions at 12 threads do not
+> fit. The synchronous rescue re-solves it correctly, which is why the CSVs never
+> showed it. The two stalls recorded below were **not** reproduced. See
+> `docs/parallel-sweep-memory.md`.
+
 `GMP::Instance::Copy` **does not return**. One thread at 100 %, memory flat, no vertex, no
 error, and no time limit fires because nothing ever reaches a solver.
 
@@ -96,8 +105,16 @@ period proves nothing about the next.
 ## 4. The runner
 
 ```
-RunFullFeeder_Production
+RunFullFeeder_Production      sequential sweep - the conservative default
+RunFullFeeder_ProductionK3    same run, sweep at K=3 x 5 threads
 ```
+
+`RunFullFeeder_ProductionK3` was added on 2026-08-26. It is identical in every
+assignment except `RollAsyncK = 3` and `RollAsyncThreads = 5`, a split chosen so the
+three concurrent sessions fit in the machine's commit limit. Measured over 13 periods:
+156/156 `Optimal`, zero rescues, deviation within the band tabulated in section 5
+(`results/parallel_k3_2026-08/`). The split is machine-specific — re-derive it with the
+rule in `docs/parallel-sweep-memory.md` §4 before using it elsewhere.
 
 Shared instance, network-free committed baseline, **sequential sweep** (`RollAsyncK = 0`). The
 cost of going sequential is small, because the copy ate most of what the parallelism won:
@@ -276,9 +293,15 @@ seconds**. Run the reduced bench first. And when a whole-feeder run does start, 
 
 ## 9. Open
 
-- **The copy hang is not understood.** Two occurrences, different periods, both at whole-feeder
-  scale, neither reproducible on a reduced transformer. Worth raising with Tulio: it is his
+- **The two stalls are still not explained, but the copy is ruled out.** Six
+  instrumented runs on 2026-08-25/26 produced no stall at all, including a K=3 run that
+  went through period 7 cleanly. What they did surface is a systematic memory limit that
+  fails one session per batch and is masked by the rescue — see
+  `docs/parallel-sweep-memory.md`. Still worth going through with Tulio: it is his
   machinery, and he has never been able to run the full feeder to compare.
+- **The rescue hides the failure it rescues.** Recording that a rescue happened would
+  have surfaced this in the first parallel run, and would make the step-1 check in
+  `docs/whole-feeder-parallel.md` able to fire at all.
 - **The whole-feeder run with `BaseNoNetGMP` has not completed.** Its saving is measured over six
   periods and its effect on results over the same six; a full 48-period run is still owed.
 - **`AimmsCmd` returns exit code 0 on a failed procedure.** The real signal is
