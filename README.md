@@ -109,6 +109,11 @@ records that support the shared research workflow:
     formulation with multiple aggregators and the C1 fairness criterion, typeset;
     what is new relative to the inherited model is marked in red, and what is
     proposed but not yet implemented in blue. LaTeX source in `docs/formulation-src/`.
+  - `frequency-ancillary-services.pdf` — study notes on frequency ancillary
+    services: the grid-code hierarchy from inertia to replacement reserve, RoCoF and
+    nadir, FFR/FCR/FRR definitions, and how a steady-state PCC FOR relates to what a
+    service actually requires in response time and sustained energy. Based on
+    Section 3.2 of Miah et al. (2026).
   - [`meetings/`](docs/meetings/README.md) — curated meeting outcomes, technical
     decisions, action items, and editable source documents, organized by date.
 - **`scripts/README.md`, `results/README.md`:** next to what they document.
