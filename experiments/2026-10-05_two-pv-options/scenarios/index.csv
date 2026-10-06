@@ -1,0 +1,18 @@
+id,family,n_requests,note
+EDGE_SUN,structured,21,"a request every half-hour 07:00-17:00, always on the FOR edge"
+R00_sun,random,12,"12 requests anywhere inside the FOR, 07:00-17:00"
+R01_day,random,6,"6 requests anywhere inside the FOR, whole day"
+R02_sun,random,5,"5 requests anywhere inside the FOR, 07:00-17:00"
+R03_day,random,7,"7 requests anywhere inside the FOR, whole day"
+R04_sun,random,21,"21 requests anywhere inside the FOR, 07:00-17:00"
+R05_day,random,4,"4 requests anywhere inside the FOR, whole day"
+R06_sun,random,14,"14 requests anywhere inside the FOR, 07:00-17:00"
+R07_day,random,11,"11 requests anywhere inside the FOR, whole day"
+R08_sun,random,14,"14 requests anywhere inside the FOR, 07:00-17:00"
+R09_day,random,11,"11 requests anywhere inside the FOR, whole day"
+R10_sun,random,6,"6 requests anywhere inside the FOR, 07:00-17:00"
+R11_day,random,4,"4 requests anywhere inside the FOR, whole day"
+REF,reference,0,no request
+WC_EXPORT,worst,28,every half-hour 06:00-20:00 the corner with the most export
+WC_IMPORT,worst,33,every half-hour 00:30-17:00 the corner with the most import
+SMOKE,check,6,"check run: 6 mixed requests, stops after 14:30"
