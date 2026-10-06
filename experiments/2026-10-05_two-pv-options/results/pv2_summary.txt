@@ -1,0 +1,141 @@
+finished runs: 66  (exp_today: 16, exp_coord: 17, noexp_today: 16, noexp_coord: 17)
+
+CHECKS (all runs)
+  P1 baseline solves not Optimal: 0
+  FOR corners not Optimal: 0
+  coordinated second steps not Optimal (after retry): 0
+  coordinated second steps that needed the numeric retry: 33
+  battery-only twins not Optimal: 0
+  committed services not executable: 0
+  battery-only twin solves: 1770
+  requests planned 800, served 800, executed 800
+  realised vs chosen transformer point, worst: 0.0420 kW
+  batteries-first mix reproduces the chosen point, worst error: 0.000020 kW
+  option 2: exports in half-hours without a request, worst run: 0.7066 kWh
+  worst extra purchase of one house outside the requested half-hours (vs REF of its case): 0.0038 kWh
+  houses buying more than 10 Wh more (sum over runs): 0
+  runs with every program QCP + CPLEX 22.1: 66 of 66
+
+REFERENCE DAYS (no request)
+  option 1, today's charging       PV cut     0.0 kWh, exports   801.9, purchases  12.28, end SOC  50.3 %
+  option 1, coordinated charging   PV cut     0.0 kWh, exports   801.9, purchases  12.28, end SOC  50.3 %
+  option 2, today's charging       PV cut   801.6 kWh, exports     0.3, purchases  12.28, end SOC  50.3 %
+  option 2, coordinated charging   PV cut   801.2 kWh, exports     0.7, purchases  12.28, end SOC  50.3 %
+
+OPTION 1, TODAY'S CHARGING - against its own REF day
+  PV cut, run - REF, kWh (negative = PV saved): n = 15, total    2275.79, median    48.916, IQR   21.799 ..  164.189, positive in 13, negative in 0, Wilcoxon p = 0.0015
+  purchases outside the requests, run - REF, kWh: n = 15, total     -20.70, median    -0.576, IQR   -0.952 ..   -0.005, positive in 0, negative in 9, Wilcoxon p = 0.0035
+  'export more' delivered, kWh: n = 15, total    3266.20, median   122.438, IQR   80.607 ..  272.800, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  'export less / import more' delivered, kWh: n = 15, total    3549.89, median   129.442, IQR   65.802 ..  280.135, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  PV cut avoided by batteries-first delivery (usual mix - batteries-first), kWh: n = 15, total     199.11, median     4.721, IQR    1.622 ..   12.833, positive in 12, negative in 0, Wilcoxon p = 0.0022
+  PV cut per kWh of 'export less': batteries-first 0.641, usual mix 0.697 (pooled over 14 runs)
+    EDGE_SUN   req  21  export-more   528.9  export-less   502.4  PV cut   377.7 (vs REF  +377.7)  buy-outside vs REF  -0.576  worst house  0.000  FOR    89084
+    R00_sun    req  12  export-more   173.1  export-less   296.6  PV cut   224.9 (vs REF  +224.9)  buy-outside vs REF  -0.005  worst house  0.000  FOR    78402
+    R01_day    req   6  export-more    64.8  export-less   129.4  PV cut    42.0 (vs REF   +42.0)  buy-outside vs REF  -5.486  worst house  0.000  FOR    62451
+    R02_sun    req   5  export-more   122.4  export-less    53.1  PV cut    48.9 (vs REF   +48.9)  buy-outside vs REF  +0.000  worst house  0.000  FOR    79539
+    R03_day    req   7  export-more    50.8  export-less    78.5  PV cut    31.5 (vs REF   +31.5)  buy-outside vs REF  -1.309  worst house  0.000  FOR    68354
+    R04_sun    req  21  export-more   324.9  export-less   461.1  PV cut   294.6 (vs REF  +294.6)  buy-outside vs REF  -0.576  worst house  0.000  FOR    80902
+    R05_day    req   4  export-more    96.4  export-less    42.7  PV cut    12.1 (vs REF   +12.1)  buy-outside vs REF  -0.595  worst house  0.000  FOR    65499
+    R06_sun    req  14  export-more   417.6  export-less   223.7  PV cut   103.5 (vs REF  +103.5)  buy-outside vs REF  -0.005  worst house  0.000  FOR    86302
+    R07_day    req  11  export-more   134.7  export-less    98.0  PV cut     0.0 (vs REF    +0.0)  buy-outside vs REF  -5.028  worst house  0.000  FOR    66798
+    R08_sun    req  14  export-more   220.7  export-less   164.0  PV cut    78.2 (vs REF   +78.2)  buy-outside vs REF  -0.576  worst house  0.000  FOR    76627
+    R09_day    req  11  export-more   113.7  export-less   263.7  PV cut    40.4 (vs REF   +40.4)  buy-outside vs REF  -6.037  worst house  0.000  FOR    60662
+    R10_sun    req   6  export-more    62.9  export-less   121.2  PV cut    99.4 (vs REF   +99.4)  buy-outside vs REF  +0.000  worst house  0.000  FOR    78521
+    R11_day    req   4  export-more   106.4  export-less    28.6  PV cut    10.7 (vs REF   +10.7)  buy-outside vs REF  -0.507  worst house  0.000  FOR    75461
+    WC_EXPORT  req  28  export-more   848.7  export-less     0.0  PV cut     0.0 (vs REF    +0.0)  buy-outside vs REF  +0.006  worst house  0.001  FOR    58014
+    WC_IMPORT  req  33  export-more     0.0  export-less  1086.8  PV cut   911.9 (vs REF  +911.9)  buy-outside vs REF  -0.005  worst house  0.000  FOR    59515
+
+OPTION 1, COORDINATED CHARGING - against its own REF day
+  PV cut, run - REF, kWh (negative = PV saved): n = 15, total    2257.62, median    50.676, IQR    6.536 ..  156.928, positive in 12, negative in 0, Wilcoxon p = 0.0022
+  purchases outside the requests, run - REF, kWh: n = 15, total     -20.67, median    -0.576, IQR   -0.952 ..   -0.005, positive in 1, negative in 9, Wilcoxon p = 0.0054
+  'export more' delivered, kWh: n = 15, total    2082.36, median    96.051, IQR   69.278 ..  180.419, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  'export less / import more' delivered, kWh: n = 15, total    4571.18, median   199.702, IQR  110.430 ..  358.057, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  PV cut avoided by batteries-first delivery (usual mix - batteries-first), kWh: n = 15, total     427.26, median    19.233, IQR    4.044 ..   44.090, positive in 12, negative in 0, Wilcoxon p = 0.0022
+  PV cut per kWh of 'export less': batteries-first 0.494, usual mix 0.587 (pooled over 14 runs)
+    EDGE_SUN   req  21  export-more   283.8  export-less   773.0  PV cut   461.8 (vs REF  +461.8)  buy-outside vs REF  -0.576  worst house  0.000  FOR    82592
+    R00_sun    req  12  export-more    75.7  export-less   362.8  PV cut   210.3 (vs REF  +210.3)  buy-outside vs REF  -0.005  worst house  0.000  FOR    79358
+    R01_day    req   6  export-more    68.8  export-less   171.7  PV cut    15.2 (vs REF   +15.2)  buy-outside vs REF  -5.486  worst house  0.000  FOR    67858
+    R02_sun    req   5  export-more    69.8  export-less   108.8  PV cut    75.4 (vs REF   +75.4)  buy-outside vs REF  -0.000  worst house  0.000  FOR    92189
+    R03_day    req   7  export-more    52.5  export-less   117.5  PV cut     7.7 (vs REF    +7.7)  buy-outside vs REF  -1.310  worst house  0.000  FOR    75684
+    R04_sun    req  21  export-more   208.5  export-less   578.9  PV cut   294.8 (vs REF  +294.8)  buy-outside vs REF  -0.576  worst house  0.000  FOR    79816
+    R05_day    req   4  export-more    97.3  export-less    70.9  PV cut     0.0 (vs REF    +0.0)  buy-outside vs REF  -0.595  worst house  0.000  FOR    77122
+    R06_sun    req  14  export-more   328.1  export-less   353.3  PV cut    96.4 (vs REF   +96.4)  buy-outside vs REF  -0.005  worst house  0.000  FOR    88103
+    R07_day    req  11  export-more   112.8  export-less   103.8  PV cut     0.0 (vs REF    +0.0)  buy-outside vs REF  -5.028  worst house  0.000  FOR    68344
+    R08_sun    req  14  export-more   152.3  export-less   199.7  PV cut    50.7 (vs REF   +50.7)  buy-outside vs REF  -0.576  worst house  0.000  FOR    86486
+    R09_day    req  11  export-more    88.7  export-less   277.6  PV cut    24.5 (vs REF   +24.5)  buy-outside vs REF  -6.028  worst house  0.001  FOR    66011
+    R10_sun    req   6  export-more    63.1  export-less   254.1  PV cut   103.6 (vs REF  +103.6)  buy-outside vs REF  +0.009  worst house  0.003  FOR    80548
+    R11_day    req   4  export-more    96.1  export-less   112.0  PV cut     5.4 (vs REF    +5.4)  buy-outside vs REF  -0.507  worst house  0.000  FOR    79800
+    WC_EXPORT  req  28  export-more   384.9  export-less     0.0  PV cut     0.0 (vs REF    +0.0)  buy-outside vs REF  +0.017  worst house  0.001  FOR    57684
+    WC_IMPORT  req  33  export-more     0.0  export-less  1086.9  PV cut   911.9 (vs REF  +911.9)  buy-outside vs REF  -0.005  worst house  0.000  FOR    59515
+
+OPTION 2, TODAY'S CHARGING - against its own REF day
+  PV cut, run - REF, kWh (negative = PV saved): n = 15, total   -3347.77, median  -123.589, IQR -348.782 ..  -77.431, positive in 1, negative in 14, Wilcoxon p = 0.0015
+  purchases outside the requests, run - REF, kWh: n = 15, total     -19.38, median    -0.302, IQR   -0.967 ..   -0.004, positive in 0, negative in 9, Wilcoxon p = 0.002
+  'export more' delivered, kWh: n = 15, total    4188.56, median   196.490, IQR  108.852 ..  391.120, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  'export less / import more' delivered, kWh: n = 15, total    1181.47, median    60.383, IQR   13.665 ..  121.059, positive in 12, negative in 0, Wilcoxon p = 0.0022
+  PV saved per kWh of 'export more': 0.838 (pooled over 14 runs)
+    EDGE_SUN   req  21  export-more   731.5  export-less   169.4  PV cut   200.1 (vs REF  -601.4)  buy-outside vs REF  -0.175  worst house  0.000  FOR    56102
+    R00_sun    req  12  export-more   319.7  export-less    54.9  PV cut   502.5 (vs REF  -299.1)  buy-outside vs REF  -0.005  worst house  0.000  FOR    57339
+    R01_day    req   6  export-more    89.8  export-less    85.2  PV cut   756.2 (vs REF   -45.3)  buy-outside vs REF  -5.475  worst house  0.000  FOR    45034
+    R02_sun    req   5  export-more   230.1  export-less     0.0  PV cut   543.7 (vs REF  -257.9)  buy-outside vs REF  +0.000  worst house  0.000  FOR    55447
+    R03_day    req   7  export-more   120.6  export-less    41.1  PV cut   712.9 (vs REF   -88.7)  buy-outside vs REF  -1.338  worst house  0.000  FOR    55109
+    R04_sun    req  21  export-more   490.5  export-less   147.2  PV cut   414.3 (vs REF  -387.3)  buy-outside vs REF  -0.302  worst house  0.000  FOR    63830
+    R05_day    req   4  export-more    97.1  export-less    16.3  PV cut   714.5 (vs REF   -87.1)  buy-outside vs REF  -0.595  worst house  0.000  FOR    47666
+    R06_sun    req  14  export-more   415.0  export-less    88.2  PV cut   447.8 (vs REF  -353.8)  buy-outside vs REF  -0.004  worst house  0.000  FOR    60934
+    R07_day    req  11  export-more   196.5  export-less    94.9  PV cut   680.1 (vs REF  -121.5)  buy-outside vs REF  -5.028  worst house  0.000  FOR    56830
+    R08_sun    req  14  export-more   367.2  export-less    60.4  PV cut   457.8 (vs REF  -343.8)  buy-outside vs REF  -0.449  worst house  0.000  FOR    59514
+    R09_day    req  11  export-more   143.2  export-less   220.0  PV cut   794.5 (vs REF    -7.1)  buy-outside vs REF  -5.475  worst house  0.000  FOR    48920
+    R10_sun    req   6  export-more    74.0  export-less    11.0  PV cut   733.8 (vs REF   -67.8)  buy-outside vs REF  +0.000  worst house  0.000  FOR    52967
+    R11_day    req   4  export-more   140.1  export-less     0.0  PV cut   678.0 (vs REF  -123.6)  buy-outside vs REF  -0.540  worst house  0.000  FOR    58338
+    WC_EXPORT  req  28  export-more   773.2  export-less     0.0  PV cut    77.0 (vs REF  -724.5)  buy-outside vs REF  +0.007  worst house  0.001  FOR    36360
+    WC_IMPORT  req  33  export-more     0.0  export-less   192.8  PV cut   962.9 (vs REF  +161.3)  buy-outside vs REF  -0.005  worst house  0.000  FOR    41482
+
+OPTION 2, COORDINATED CHARGING - against its own REF day
+  PV cut, run - REF, kWh (negative = PV saved): n = 15, total    -874.55, median   -55.229, IQR -121.247 ..  -11.126, positive in 3, negative in 12, Wilcoxon p = 0.041
+  purchases outside the requests, run - REF, kWh: n = 15, total     -19.36, median    -0.302, IQR   -0.966 ..   -0.004, positive in 0, negative in 9, Wilcoxon p = 0.0043
+  'export more' delivered, kWh: n = 15, total    2808.59, median   141.265, IQR  101.411 ..  271.397, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  'export less / import more' delivered, kWh: n = 15, total    2160.65, median   120.459, IQR   70.223 ..  203.715, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  PV saved per kWh of 'export more': 0.369 (pooled over 14 runs)
+    EDGE_SUN   req  21  export-more   513.9  export-less   371.9  PV cut   625.1 (vs REF  -176.1)  buy-outside vs REF  -0.175  worst house  0.000  FOR    57285
+    R00_sun    req  12  export-more   183.5  export-less   145.6  PV cut   746.0 (vs REF   -55.2)  buy-outside vs REF  -0.005  worst house  0.000  FOR    63223
+    R01_day    req   6  export-more    76.9  export-less   108.3  PV cut   795.1 (vs REF    -6.1)  buy-outside vs REF  -5.476  worst house  0.000  FOR    52992
+    R02_sun    req   5  export-more   109.7  export-less     0.3  PV cut   682.9 (vs REF  -118.3)  buy-outside vs REF  +0.000  worst house  0.000  FOR    66445
+    R03_day    req   7  export-more   112.4  export-less    74.8  PV cut   759.0 (vs REF   -42.2)  buy-outside vs REF  -1.337  worst house  0.000  FOR    66677
+    R04_sun    req  21  export-more   356.3  export-less   327.6  PV cut   732.2 (vs REF   -68.9)  buy-outside vs REF  -0.302  worst house  0.000  FOR    61442
+    R05_day    req   4  export-more   100.1  export-less    52.2  PV cut   748.2 (vs REF   -53.0)  buy-outside vs REF  -0.595  worst house  0.000  FOR    59049
+    R06_sun    req  14  export-more   344.9  export-less   214.3  PV cut   663.3 (vs REF  -137.9)  buy-outside vs REF  -0.004  worst house  0.000  FOR    63409
+    R07_day    req  11  export-more   154.6  export-less   100.7  PV cut   733.4 (vs REF   -67.8)  buy-outside vs REF  -5.028  worst house  0.000  FOR    58965
+    R08_sun    req  14  export-more   225.3  export-less   120.5  PV cut   677.0 (vs REF  -124.2)  buy-outside vs REF  -0.449  worst house  0.000  FOR    65494
+    R09_day    req  11  export-more   141.3  export-less   238.1  PV cut   815.7 (vs REF   +14.5)  buy-outside vs REF  -5.466  worst house  0.001  FOR    57176
+    R10_sun    req   6  export-more    69.4  export-less   147.6  PV cut   875.3 (vs REF   +74.1)  buy-outside vs REF  +0.009  worst house  0.003  FOR    55414
+    R11_day    req   4  export-more   102.7  export-less    65.7  PV cut   785.0 (vs REF   -16.2)  buy-outside vs REF  -0.540  worst house  0.000  FOR    62744
+    WC_EXPORT  req  28  export-more   317.5  export-less     0.0  PV cut   542.3 (vs REF  -258.9)  buy-outside vs REF  +0.007  worst house  0.004  FOR    36029
+    WC_IMPORT  req  33  export-more     0.0  export-less   193.1  PV cut   962.7 (vs REF  +161.6)  buy-outside vs REF  -0.005  worst house  0.000  FOR    41482
+
+PAIRED, same TSO behaviour (pattern): coordinated - today
+  option 1 mean FOR area at the requests, kW x kvar: n = 15, total   54978.10, median  2026.725, IQR  477.803 .. 6368.634, positive in 11, negative in 3, Wilcoxon p = 0.015
+  option 1 PV cut, kWh: n = 15, total     -18.17, median    -5.376, IQR  -15.226 ..    0.065, positive in 4, negative in 8, Wilcoxon p = 0.22
+  option 1 'export more', kWh: n = 15, total   -1183.84, median   -24.959, IQR  -93.461 ..    0.091, positive in 4, negative in 10, Wilcoxon p = 0.0076
+  option 1 'export less', kWh: n = 15, total    1021.29, median    42.279, IQR   21.076 ..  100.578, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  option 1 purchases, kWh: n = 15, total     288.38, median     5.835, IQR    0.007 ..   33.803, positive in 11, negative in 3, Wilcoxon p = 0.018
+  option 1 PV cut per kWh of 'export less' (batteries-first, pooled): today 0.641, coordinated 0.494
+  option 1 PV cut per kWh of 'export less', coordinated - today (per pattern): n = 14, total      -2.76, median    -0.206, IQR   -0.272 ..   -0.136, positive in 0, negative in 12, Wilcoxon p = 0.0015
+  option 2 mean FOR area at the requests, kW x kvar: n = 15, total   71953.15, median  4406.190, IQR 1659.013 .. 8106.536, positive in 12, negative in 2, Wilcoxon p = 0.0015
+  option 2 PV cut, kWh: n = 15, total    2467.16, median   139.235, IQR   42.488 ..  231.309, positive in 14, negative in 1, Wilcoxon p = 0.00012
+  option 2 'export more', kWh: n = 15, total   -1379.97, median   -41.863, IQR -135.181 ..   -6.413, positive in 1, negative in 13, Wilcoxon p = 0.0015
+  option 2 'export less', kWh: n = 15, total     979.18, median    35.947, IQR   11.909 ..  108.431, positive in 14, negative in 0, Wilcoxon p = 0.00098
+  option 2 purchases, kWh: n = 15, total     975.16, median    36.166, IQR   12.004 ..  109.668, positive in 14, negative in 0, Wilcoxon p = 6.1e-05
+
+PAIRED, same TSO behaviour: option 2 - option 1 (same charging)
+  today: mean FOR area at the requests, kW x kvar: n = 15, total -290260.98, median -17832.610, IQR -22873.034 .. -17093.082, positive in 0, negative in 15, Wilcoxon p = 6.1e-05
+  today: PV cut over the day, kWh: n = 15, total    6400.26, median   494.739, IQR  198.645 ..  680.713, positive in 14, negative in 1, Wilcoxon p = 0.00043
+  today: exports over the day, kWh: n = 15, total   -6942.46, median  -508.886, IQR -693.240 .. -268.420, positive in 0, negative in 15, Wilcoxon p = 6.1e-05
+  today: purchases, kWh: n = 15, total    -506.71, median   -16.479, IQR  -37.452 ..   -4.993, positive in 0, negative in 13, Wilcoxon p = 0.00018
+  coord: mean FOR area at the requests, kW x kvar: n = 15, total -273285.94, median -18073.646, IQR -23174.691 .. -15500.745, positive in 0, negative in 15, Wilcoxon p = 6.1e-05
+  coord: PV cut over the day, kWh: n = 15, total    8885.60, median   626.307, IQR  538.984 ..  761.505, positive in 15, negative in 0, Wilcoxon p = 6.1e-05
+  coord: exports over the day, kWh: n = 15, total   -8714.02, median  -653.100, IQR -763.612 .. -525.346, positive in 0, negative in 15, Wilcoxon p = 6.1e-05
+  coord: purchases, kWh: n = 15, total     180.07, median     6.863, IQR   -2.074 ..   18.283, positive in 9, negative in 4, Wilcoxon p = 0.17
+
+SMOKE runs (check, up to 14:30)
+  exp_coord    steps 30, requests 6, PV cut 138.9 kWh, exports 638.7, purchases 169.99, corners not Optimal 0.0, twins 30, usual-mix cut 147.86 kWh, batteries-first cut 138.91 kWh, realised vs chosen 0.0010 kW
+  noexp_coord  steps 30, requests 6, PV cut 625.6 kWh, exports 97.7, purchases 108.95, corners not Optimal 0.0, twins 0, usual-mix cut nan kWh, batteries-first cut nan kWh, realised vs chosen 0.0000 kW
