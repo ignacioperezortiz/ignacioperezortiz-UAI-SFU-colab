@@ -119,9 +119,10 @@ they give the time per step and the memory.
   sequential full-feeder sweep took 344 s per direction on average, plus ~34 min of matrix generation per period
   (`results/full_feeder_2026-08/README.md`). In this flow there is also one network check per step (a full-network
   solve), and the FOR is built only at requested steps.
-- **On Tulio's PC (i9-14900, 32 GB), `WF_PLUMB`:** the first step (P1 + network check on the full network) was still
-  running after 35 min, almost all of it in one single-threaded AIMMS phase (model generation), at about 10 GB.
-  So budget tens of minutes per step before any FOR; section 9 has the final numbers once the test ends.
+- **On Tulio's PC (i9-14900, 32 GB), `WF_PLUMB`:** 1,216 batteries, P1 Optimal and network check passed at both
+  steps; step 1 took 78 min (includes loading the data), step 2 took 31 min, almost all in one single-threaded
+  AIMMS phase (generating the full-network matrix of the check), peak ~10.6 GB. So budget about 30 min per step
+  before any FOR: a two-day run without requests is about 2 days of wall clock on such a PC.
 - **Watch for a stall**, as in `docs/whole-feeder-production.md` §3: `FOR_rolling_progress<tag>.txt` and
   `SCT_exec<tag>.csv` in the lane folder must keep growing; there is no resume (a stopped job restarts at step 1).
   The August hang happened with `BaseNoNetwork = 1` and the parallel sweep, which is this flow (P1 behind the meter):
@@ -181,7 +182,8 @@ half-hours), fleet totals, FOR statistics of REF_SWEEP.
 ## 9. Measured with this branch
 
 - TR4 REF: section 4. Nine transformers: Tulio runs `scripts/paper1/queues/tr_by_tr.txt` on his PC.
-- Whole feeder `WF_PLUMB` on Tulio's PC (9 Oct): first step > 35 min, peak ~10.6 GB (still running when this was written).
+- Whole feeder `WF_PLUMB` on Tulio's PC (9 Oct, speed a2x4p8fin): Return value = 0 in 108.9 min; step 1 78 min,
+  step 2 31 min; 1,216 batteries; P1 Optimal at both steps; 2 network checks, 0 failed; QCP + CPLEX 22.1.
 
 ## 10. Git steps for the fairness work (CONTRIBUTING.md)
 
