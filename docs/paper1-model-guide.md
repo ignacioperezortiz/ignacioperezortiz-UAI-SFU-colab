@@ -70,7 +70,9 @@ Only `MainProject/OPF.ams`. Use `git diff --histogram origin/main -- MainProject
 ## 3. Setup
 
 - AIMMS 26.x with CPLEX 22.1. Tulio's runs used AIMMS 26.3.2.1; `OPF.aimms` on `main` says 26.2.3.3. If your AIMMS
-  updates the library versions in `OPF.aimms`, do not commit that change.
+  updates the library versions in `OPF.aimms`, do not commit that change. With an AIMMS newer than the version in
+  `OPF.aimms`, AimmsCmd can crash on exit after a complete run, so the runner sees no `Return value = 0`: open the
+  project once in that AIMMS, keep the updated `OPF.aimms` outside Git and pass it to `prepare --project <file>`.
 - `Database.mdb`, `Database.dsn`, `OpData.xls` in the repository root (as always). SHA-256 prefixes of the files
   Tulio used: `Database.mdb` 8b474da7f5b57956, `OpData.xls` daf841adc4db08f3.
 - Python 3 with `pandas` and `numpy` for the runner and the analysis.
@@ -85,7 +87,8 @@ python scripts/paper1/run_paper1.py lane L1 scripts/paper1/queues/check_tr4.txt
 python scripts/paper1/analyze_paper1.py
 ```
 
-Expected for `REF free_today a2x4p8fin2 TR4` (model of this branch; Tulio's run on 3 lanes took 11.6 min):
+Expected for `REF free_today a2x4p8fin2 TR4` (reproduced exactly from this branch with this runner on Tulio's PC,
+9 Oct, 16 min alone; 11.6 min on 3 lanes in the original batch):
 
 | | day 1 | day 2 |
 |---|---|---|

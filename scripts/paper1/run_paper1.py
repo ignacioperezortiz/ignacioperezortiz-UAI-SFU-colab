@@ -23,7 +23,10 @@ another lane has claimed it (runs/claims/<tag>.claim; delete the claim to run it
 Usage (from the repository root):
   python scripts/paper1/run_paper1.py prepare L1 L2 L3            # copy the model into <work>/L1 ...
   python scripts/paper1/run_paper1.py lane L1 scripts/paper1/queues/tr_by_tr.txt
-Options: --work DIR (default ../paper1-runs, outside the repository), environment AIMMS_CMD = path of AimmsCmd.exe.
+Options: --work DIR (default ../paper1-runs, outside the repository), environment AIMMS_CMD = path of AimmsCmd.exe,
+--project FILE (prepare only): the OPF.aimms to copy into the lanes (default the repository's). With an AIMMS newer than
+the version in OPF.aimms, AimmsCmd can crash on exit after the run (no "Return value" line): open the project once in
+that AIMMS so it updates the library versions, save that OPF.aimms outside Git and pass it with --project.
 Re-run "prepare" after changing the model: it refreshes MainProject/ in every lane given.
 """
 import argparse
@@ -158,14 +161,14 @@ def run_job(work, lane_dir, lane, job):
     log(lane_dir, f"{tag}: gave up after 40 tries")
 
 
-def prepare(work, lanes):
+def prepare(work, lanes, project):
     missing = [f for f in DATA if not (REPO / f).exists()]
     if missing:
         raise SystemExit(f"input data missing in the repository root: {', '.join(missing)}")
     for lane in lanes:
         d = work / lane
         d.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(REPO / "OPF.aimms", d / "OPF.aimms")
+        shutil.copyfile(project, d / "OPF.aimms")
         for f in DATA:
             shutil.copyfile(REPO / f, d / f)
         if (d / "MainProject").exists():
@@ -180,10 +183,11 @@ def main():
     ap.add_argument("cmd", choices=["prepare", "lane", "show"])
     ap.add_argument("args", nargs="+")
     ap.add_argument("--work", default=str(REPO.parent / "paper1-runs"))
+    ap.add_argument("--project", default=str(REPO / "OPF.aimms"))
     a = ap.parse_args()
     work = Path(a.work)
     if a.cmd == "prepare":
-        prepare(work, a.args)
+        prepare(work, a.args, Path(a.project))
     elif a.cmd == "show":   # print the scenario.txt of one job line, nothing is run
         print(scenario_txt(*parse_job(a.args)), end="")
     else:
