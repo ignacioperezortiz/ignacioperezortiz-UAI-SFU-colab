@@ -164,6 +164,17 @@ half-hours), fleet totals, FOR statistics of REF_SWEEP.
 
 ## 8. Fairness: where it goes
 
+**Update (branch `feature/paper1-fairness`, 10 Oct 2026):** the paper's criteria are now implemented in section
+`FairnessPaper1`, and `docs/paper1-fairness.md` explains the code, the decision and the tests:
+- capacity-proportional, headroom-proportional and headroom band;
+- intra-aggregator and network-wide scopes;
+- the headroom box, eq. 13 of the methodology.
+
+The job-line knobs are `FairCrit=1|2|3`, `FairScope=1|2`, `FairEps=…` and `FairBox=0|1` (1 by default in PV2_Run).
+`FairBox=0` reproduces this branch's model exactly. κ = `FOR_ThruPenSlot` = 0.2 stays: the box does not replace it.
+The paper flow (PV2_Run) refuses `FairMode ≠ 0`. The bullets below describe the 2026-08 rows, which are kept only for the
+wrappers that reproduce earlier evidence.
+
 - The fairness rows (`FairMode` 1–4, section `Fairness` in `BatteryModel`, `docs/formulation-opf-aggregators-fairness.pdf`)
   are already in the model. `FairActive` is 0 in P1 and the network check, and 1 in the sweep: the sweep instance is
   generated after `FairActive := 1`, so with `FairMode > 0` the 12 corners are the **fair FOR**.

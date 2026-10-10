@@ -1542,6 +1542,210 @@ Model Main_OPF_VI_LG {
 				}
 			}
 		}
+		DeclarationSection FairnessPaper1 {
+			Comment: {
+				"PAPER-1 FAIRNESS (methodology subsection III-C, eqs. 12-16; implemented 9-Oct-2026, see
+				docs/paper1-fairness.md). Every quantity refers to the flexibility slot PeriodMaxP (= 2 in the rolling
+				flow) of the current rolling step.
+
+				Contribution of battery s: DeltaP_s = BattP_Balance(s,PeriodMaxP) - FairPsc(s), the deviation of its net
+				power from the committed P1 baseline. Headrooms (eq. 12): FairU / FairD, the largest increase / decrease
+				from that baseline that the power and energy limits allow from the SOC at the start of the slot
+				(RollSOCnext) without simultaneous charge and discharge. Box (eq. 13): -FairD <= DeltaP <= FairU in every
+				directional solve, fair or not (FairBox = 1). Criteria, per group G of the scope (FairScope 1 = one group
+				per aggregator through BattAgg, 2 = one network-wide group): CP (eq. 14) DeltaP = zeta_G*BattMaxP;
+				HP (eq. 15) DeltaP = zu_G*U - zd_G*D with zu, zd >= 0 and zu + zd <= 1; HB (eq. 16) the HP equality
+				relaxed to -eps*D <= DeltaP - (zu_G*U - zd_G*D) <= eps*U.
+
+				All rows are gated by FairActive: 0 in P1, the network check, NC RESCUE and the SC-safe re-plans; 1 in the
+				directional sweep and in the solves that deliver or diagnose a point of the region it produced (commitment
+				block, SRQ_Mode = 1 ray, FRQ_Diag; all off in the paper flow). The committed baseline - which DEFINES
+				FairPsc - therefore never sees them. All
+				rows are written in kW (x1000), as ZX_SCTight: the production Feasibility_Tolerance is 1e-3, which on
+				a p.u. row would be 1 kW per battery, about three times the phantom the box removes.
+
+				DECISION (9-Oct-2026 analysis, validator + adversarial reviewer, consensus): the box does NOT replace
+				the slot throughput penalty FOR_ThruPenSlot (kappa = 0.2), and neither is needed for convexity (every row
+				here is linear with parameters fixed before the instance is generated). The box removes the slot-2 net
+				phantom exactly, including the one that CP's group coupling unlocks and kappa cannot stop
+				(n/m > 18 kappa/(cos theta - kappa): one full battery in a group of 15 = 5.4 kW of fake import). Kappa
+				still blocks slot-2 energy disposal when a later slot is forced to absorb (midday Vmax with PV never
+				curtailed), which the box cannot see, and the degenerate charge/discharge split that delivery's
+				least-throughput triangle and the NC rescue rely on. Kappa blocks slot-2 disposal battery by battery; under CP or
+				HP group coupling with forced absorption it survives when n/m > 18 kappa/(cos theta - kappa), and the n_cyc column
+				of FOR_rolling_crit flags it. Not cut by any option: disposal at later slots.
+
+				The 2026-08 criteria (FairMode 1-4, section Fairness) are left untouched for the procedures that
+				reproduce Tulio's evidence, but they cannot be combined with these rows (RunFOR_Rolling halts) and
+				the paper flow (PV2_Run) refuses FairMode <> 0."
+			}
+			Parameter FairCrit {
+				Default: 0;
+				Comment: "Criterion: 0 = none (reference FOR), 1 = capacity-proportional (CP, eq. 14), 2 = headroom-proportional (HP, eq. 15), 3 = headroom band (HB, eq. 16, tolerance FairEps).";
+			}
+			Parameter FairScope {
+				Default: 1;
+				Comment: "Groups: 1 = intra-aggregator (one group per aggregator, membership BattAgg), 2 = network-wide (one group with every battery).";
+			}
+			Parameter FairEps {
+				Default: 0;
+				Comment: "HB tolerance epsilon in [0,1] (eq. 16). 0 = HP written as a zero-width band; 1 = adds nothing to the box.";
+			}
+			Parameter FairBox {
+				Default: 0;
+				Comment: "1 = headroom box (eq. 13) in every directional solve, fair or not. PV2_Run (paper flow) sets 1 before reading scenario.txt; the declared default stays 0 so that every older procedure reproduces exactly.";
+			}
+			Parameter FairAllowNoBox {
+				Default: 0;
+				Comment: "Diagnostic override. CP and HB require FairBox = 1 (without the box, CP's coupling can be met by phantom absorption that kappa does not stop, and HB with zu + eps > 1 does not imply the box); RunFOR_Rolling halts otherwise unless this is 1.";
+			}
+			Parameter FairLogOn {
+				Default: 0;
+				Comment: "1 = write FOR_rolling_crit<tag>.csv (one row per direction and group), the FAIRCLIP lines and the FAIRDELIV delivery check. PV2_Run sets 1.";
+			}
+			Parameter P2SlotPen {
+				Default: -1;
+				Comment: "Override of the slot throughput penalty kappa (FOR_ThruPenSlot) in SCT_RunBed: < 0 = keep 0.2 (production), >= 0 = use this value (tests only). Settable from a job line (P2SlotPen=0.1).";
+			}
+			Parameter FairPsc {
+				IndexDomain: bat;
+				Comment: "P1 baseline net battery power at the flexibility slot, p.u. (positive = charging). Captured in RunFOR_Rolling right after RollSOCnext, from the committed baseline (after the network check), before the sweep instance is generated.";
+			}
+			Parameter FairPchMax {
+				IndexDomain: bat;
+				Definition: min( BattMaxP(bat), max( 0, ( min( BattSOCmax(bat), if BattSOCmaxPhys(bat) > 0 then BattSOCmaxPhys(bat) else BattSOCmax(bat) endif ) - RollSOCnext(bat) )*BattEcap(bat)/(etaChg(bat)*DeltaT) ) );
+				Comment: "Largest charging power sustainable over the flexibility slot from RollSOCnext without simultaneous discharge, p.u. DEFINED, not assigned, so that it follows the SOC limits in force when the instance is generated, but capped at the PHYSICAL ceiling: the GMP sweep raises BattSOCmax by RollSOCCeilTol only so that the frozen slot-1 dispatch fits, and the box must not offer that tolerance at slot 2. A full idle battery therefore has U = 0 exactly, as in the paper, and the box matches the SOC cap that delivery applies (BattSOCmaxPhys - RollSOCEps), so netting shaves at most ~0.01 W.";
+			}
+			Parameter FairPdisMax {
+				IndexDomain: bat;
+				Definition: min( BattMaxP(bat), max( 0, (RollSOCnext(bat) - BattSOCmin(bat))*BattEcap(bat)*etaDis(bat)/DeltaT ) );
+				Comment: "Largest discharging power sustainable over the flexibility slot from RollSOCnext without simultaneous charge, p.u.";
+			}
+			Parameter FairU {
+				IndexDomain: bat;
+				Definition: max( 0, FairPchMax(bat) - FairPsc(bat) );
+				Comment: "Upward headroom U_s (eq. 12a), p.u.";
+			}
+			Parameter FairD {
+				IndexDomain: bat;
+				Definition: max( 0, FairPdisMax(bat) + FairPsc(bat) );
+				Comment: "Downward headroom D_s (eq. 12b), p.u.";
+			}
+			Parameter FairUGen {
+				IndexDomain: bat;
+				Comment: "FairU as it entered the sweep: snapshot taken right before the instance is generated (GMP) or solved (sequential path). Used by the logs and the delivery check, because BattSOCmax changes later in the step.";
+			}
+			Parameter FairDGen {
+				IndexDomain: bat;
+				Comment: "FairD as it entered the sweep (see FairUGen).";
+			}
+			Parameter FairPchGen {
+				IndexDomain: bat;
+				Comment: "FairPchMax as it entered the sweep (snapshot with FairUGen); FAIRCLIP is computed from it.";
+			}
+			Parameter FairPdisGen {
+				IndexDomain: bat;
+				Comment: "FairPdisMax as it entered the sweep (snapshot with FairUGen); FAIRCLIP is computed from it.";
+			}
+			ElementParameter FairGroup {
+				IndexDomain: bat;
+				Range: Aggregators;
+				Comment: "Group of battery bat for the selected scope, assigned with FairPsc: BattAgg(bat) when FairScope = 1, the FIRST element of Aggregators for every battery when FairScope = 2 (one network-wide group; the logs label it ALL). Elements of Aggregators are only group labels here.";
+			}
+			Variable FairZcp {
+				IndexDomain: a;
+				Range: free;
+				Comment: "CP factor zeta_G of group a (eq. 14); one per group and directional solve.";
+			}
+			Variable FairZu {
+				IndexDomain: a;
+				Range: nonnegative;
+				Comment: "HP/HB upward factor of group a (eqs. 15-16).";
+			}
+			Variable FairZd {
+				IndexDomain: a;
+				Range: nonnegative;
+				Comment: "HP/HB downward factor of group a (eqs. 15-16).";
+			}
+			Constraint FairBoxRow {
+				IndexDomain: bat | FairBox = 1 and FairActive;
+				Definition: -1000*FairD(bat) <= 1000*( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) ) <= 1000*FairU(bat);
+				Comment: "Headroom box (eq. 13), kW.";
+			}
+			Constraint FairCP {
+				IndexDomain: bat | FairCrit = 1 and FairActive;
+				Definition: 1000*( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) ) = 1000*BattMaxP(bat)*FairZcp(FairGroup(bat));
+				Comment: "CP (eq. 14), kW: every battery of a group deviates from its baseline by the same fraction of its rating.";
+			}
+			Constraint FairHP {
+				IndexDomain: bat | FairCrit = 2 and FairActive;
+				Definition: 1000*( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) ) = 1000*FairU(bat)*FairZu(FairGroup(bat)) - 1000*FairD(bat)*FairZd(FairGroup(bat));
+				Comment: "HP (eq. 15a), kW: the same fractions of the upward and downward headroom for every battery of a group.";
+			}
+			Constraint FairHB {
+				IndexDomain: bat | FairCrit = 3 and FairActive;
+				Definition: -1000*FairEps*FairD(bat) <= 1000*( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) ) - 1000*FairU(bat)*FairZu(FairGroup(bat)) + 1000*FairD(bat)*FairZd(FairGroup(bat)) <= 1000*FairEps*FairU(bat);
+				Comment: "HB (eq. 16), kW: HP relaxed by a band of FairEps times each battery's own headroom.";
+			}
+			Constraint FairSimplex {
+				IndexDomain: a | ( FairCrit = 2 or FairCrit = 3 ) and FairActive and sum( bat | FairGroup(bat) = a, 1 ) > 0;
+				Definition: FairZu(a) + FairZd(a) <= 1;
+				Comment: "Factor triangle (eq. 15b), one row per non-empty group.";
+			}
+			Parameter FairClipU {
+				Comment: "Diagnostic, per step: batteries whose baseline slot-2 power exceeds the charging envelope the sweep uses (the [.]^+ of U clips; a phantom baseline, e.g. from a network-forced P1 re-solve). Computed from the snapshots by FairClipLog.";
+			}
+			Parameter FairClipD {
+				Comment: "Diagnostic, per step: batteries whose baseline slot-2 discharge exceeds the physical discharging envelope (the [.]^+ of D clips).";
+			}
+			Parameter FairClipMax {
+				Comment: "Diagnostic, per step: largest excess of a baseline over its physical envelope, kW.";
+			}
+			Parameter FRQ_FZcp {
+				IndexDomain: (ia,a);
+				Comment: "CP factor of group a at corner ia, stored with the corner set-points (FRQ_Chg/FRQ_Dis) for the delivery check.";
+			}
+			Parameter FRQ_FZu {
+				IndexDomain: (ia,a);
+				Comment: "HP/HB upward factor of group a at corner ia.";
+			}
+			Parameter FRQ_FZd {
+				IndexDomain: (ia,a);
+				Comment: "HP/HB downward factor of group a at corner ia.";
+			}
+			Parameter FairDelZcp {
+				IndexDomain: a;
+				Comment: "Delivery check: CP factor implied by the delivered combination (same convex weights on the corner factors; S0 has zero factors).";
+			}
+			Parameter FairDelZu {
+				IndexDomain: a;
+			}
+			Parameter FairDelZd {
+				IndexDomain: a;
+			}
+			Parameter FairDelDP {
+				IndexDomain: bat;
+				Comment: "Delivery check: delivered DeltaP before netting and SOC capping, p.u.";
+			}
+			Parameter FairDelDPx {
+				IndexDomain: bat;
+				Comment: "Delivery check: delivered DeltaP after netting and SOC capping (what is executed), p.u.";
+			}
+			Parameter FairDelR {
+				IndexDomain: bat;
+			}
+			Parameter FairDelRx {
+				IndexDomain: bat;
+			}
+			Parameter FairDelResPre {
+				Comment: "Delivery check: largest violation of the criterion by the delivered combination before netting, kW (expected ~0: a convex combination of fair corners is fair).";
+			}
+			Parameter FairDelResPost {
+				Comment: "Delivery check: the same after netting and SOC capping, kW (expected up to ~1 W per battery: the capping tolerance).";
+			}
+			Parameter FairDelBoxPre;
+			Parameter FairDelBoxPost;
+		}
 		DeclarationSection ReverseFlowAndCurtailment {
 			Comment: {
 				"LIMITE DE FLUXO REVERSO E CURTAILMENT DE PV. Aditivo e DESLIGADO por default.
@@ -2550,6 +2754,14 @@ Model Main_OPF_VI_LG {
 				Mode: append;
 				Comment: "append + deleted before the header, for the same reason as FOR_RollCSV. Closed once per period, after the battery block - this file already grew in blocks, so per-period is the natural granularity.";
 			}
+			StringParameter FOR_RollCritCSVName {
+				Definition: "FOR_rolling_crit" + RollFileSuffix + FairFileTag + ".csv";
+			}
+			File FOR_RollCritCSV {
+				Name: FOR_RollCritCSVName;
+				Mode: append;
+				Comment: "Paper-1 fairness log (FairLogOn = 1): one row per (step, direction, group): factors, contributions, headrooms, residual of the criterion, box violation and slot-2 cycling. A separate file so that FOR_rolling_fair.csv keeps the schema check_fairness.py and make_viz_data.py parse.";
+			}
 			File FOR_RollFairCSV {
 				Name: FOR_RollFairCSVName;
 				Mode: append;
@@ -3543,6 +3755,19 @@ Model Main_OPF_VI_LG {
 				CyclicSOCBand             := if RelaxCyclicBand > 0 then RelaxCyclicBand else 0.05 endif;   ! PRODUCTION band 0.05 (via RelaxCyclicBand default); RunTR9_RelaxCyclic sets RelaxCyclicBand:=1.0 to relax it. Strict (=0) was numerically fragile (2026-06-11: 16 vs 119 fails on identical reruns). Must match the restore in the diag block below.
 				PeriodMaxP                := 2;   ! service slot is always window position 2 (= now+1)
 				FOR_TieEps                := 0;   ! pin the vertex tiebreaker: pure directional objective, independent of session history
+				! ---- PAPER-1 FAIRNESS guards (2026-10-09; see FairnessPaper1). Data-dependent guards sit at the capture point.
+				if FairCrit <> 0 and FairCrit <> 1 and FairCrit <> 2 and FairCrit <> 3 then halt with "FairCrit must be 0 (none), 1 (CP), 2 (HP) or 3 (HB)."; endif;
+				if FairScope <> 1 and FairScope <> 2 then halt with "FairScope must be 1 (intra-aggregator) or 2 (network-wide)."; endif;
+				if FairEps < 0 or FairEps > 1 then halt with "FairEps must lie in [0,1]."; endif;
+				if FairBox <> 0 and FairBox <> 1 then halt with "FairBox must be 0 or 1."; endif;
+				if FairCrit > 0 or FairBox = 1 then
+					if FairMode <> 0 then halt with "FairMode (the 2026-08 criteria) cannot be combined with FairCrit/FairBox: set FairMode = 0."; endif;
+					if FairBaseline <> 0 then halt with "FairBaseline must be 0 with FairCrit/FairBox: the baseline is the anchor of DeltaP."; endif;
+					if RollExecCap = 1 then halt with "RollExecCap = 1 is not supported with FairCrit/FairBox: P1's slot-2 plan and RollSOCnext would come from different slot-1 dispatches."; endif;
+				endif;
+				if ( FairCrit = 1 or FairCrit = 3 ) and FairBox = 0 and FairAllowNoBox = 0 then
+					halt with "CP and HB need the headroom box (FairBox = 1): without it CP can be met by phantom absorption that kappa does not stop. FairAllowNoBox = 1 overrides (diagnostic only).";
+				endif;
 				! UseBattComp is deliberately NOT pinned here. Every production wrapper (RunTrafoFOR, RunCoupledFOR,
 				! RunTR9_RelaxCyclic, RunTR9_RelaxFloor) already sets it to 0, and RunMicro_BattComp /
 				! RunFullTR9_BattComp set it to 1 on purpose before calling in - pinning it here would silently
@@ -3593,6 +3818,14 @@ Model Main_OPF_VI_LG {
 				put FOR_RollFairCSV;
 				put "now,target,angle_deg,FairMode,zeta,status,aggregator,n_batt,cap_pu,sumP_pu,util,util_min,util_max" / ;
 				if RollFlushCSV = 1 then putclose FOR_RollFairCSV; endif;
+				if FairLogOn = 1 then   ! PAPER-1 FAIRNESS: one row per (step, direction, group), see FOR_RollCritCSV
+					if FileExists( FOR_RollCritCSVName ) then FileDelete( FOR_RollCritCSVName ); endif;
+					FOR_RollCritCSV.PageWidth := 32767;
+					put FOR_RollCritCSV;
+					put "now,target,angle_deg,crit,scope,eps,box,kappa,status,group,n_batt,sum_dP_kW,sum_U_kW,sum_D_kW,zcp,zu,zd,",
+					    "cp_spread,cp_dev_max,rule_res_max_kW,hb_viol_max_kW,box_up_viol_kW,box_dn_viol_kW,n_cyc,cyc_kW,thr_kW" / ;
+					putclose FOR_RollCritCSV;
+				endif;
 				! ---- per-prosumer offer and take-up (RollOfferLog = 1 only; see FOR_RollOfferCSV) ----
 				if ProRataOn = 1 then
 					if FileExists( FOR_ProRataCSVName ) then FileDelete( FOR_ProRataCSVName ); endif;
@@ -3616,7 +3849,7 @@ Model Main_OPF_VI_LG {
 					FOR_RollOfferCSV.PageWidth := 32767;
 					put FOR_RollOfferCSV;
 					put "now,target,angle_deg,status,battery,aggregator,soc_pct,",
-					    "offer_chg_pu,offer_dis_pu,take_chg_pu,take_dis_pu,take_q_pu,cap_pu" / ;
+					    "offer_chg_pu,offer_dis_pu,take_chg_pu,take_dis_pu,take_q_pu,cap_pu,psc_pu,U_pu,D_pu" / ;
 					if RollFlushCSV = 1 then putclose FOR_RollOfferCSV; endif;
 				endif;
 				! ---- CLOSED-LOOP SERVICE setup (RollSvcMode > 0). Every line here is inert at 0. ----
@@ -3694,6 +3927,9 @@ Model Main_OPF_VI_LG {
 					! baseline and the sweep from it. Generated with FairActive = 1 so the fairness rows exist;
 					! they are deactivated for the baseline solve below, which is what FairActive = 0 used to
 					! achieve by regenerating.
+					if RollUseGMP = 1 and RollGMPBaseline = 1 and BaseNoNetwork = 0 and SCFirst = 0 and ( FairCrit > 0 or FairBox = 1 ) then
+						halt with "FairCrit/FairBox are not supported on the shared-instance path (RollGMPBaseline = 1): its matrix is generated before the baseline that defines FairPsc.";
+					endif;
 					RollGMPLive := 0;
 					if RollUseGMP = 1 and RollGMPBaseline = 1 and BaseNoNetwork = 0 and SCFirst = 0 then   ! BaseNoNetwork forces the conventional baseline: the shared instance carries the network rows
 						FairActive := 1;
@@ -3972,7 +4208,7 @@ Model Main_OPF_VI_LG {
 					SPD_S0Bad  := 0;
 					SPD_S0Done := 0;
 					SPD_S0Got  := 0;
-					if SPD_S0FOR = 1 and SPD_NCAll = 0 and SPD_P1NoNet = 1 and SPD_ForStep = 1 and FairMode = 0 and RollUseGMP = 1 and RollAsyncK >= 2
+					if SPD_S0FOR = 1 and SPD_NCAll = 0 and SPD_P1NoNet = 1 and SPD_ForStep = 1 and FairMode = 0 and FairCrit = 0 and RollUseGMP = 1 and RollAsyncK >= 2
 					and EnableRollDiag = 0 and ( ConvFlag = 'Optimal' or ConvFlag = 'LocallyOptimal' ) then
 						SPD_S0Live := 1;   ! S0 and the realised point come from the FOR problem below: no network check at this step
 					endif;
@@ -4229,6 +4465,7 @@ Model Main_OPF_VI_LG {
 						ZX_SOCEndRef(bat) := if SPD_NCDone = 1 then SPD_SOCP(bat, Element(Time, nPeriods)) else BattSOC(bat, Element(Time, nPeriods)) endif;   ! ZX: P1's energy at the window end
 						FRQ_VOK(ia)   := 0;
 						FRQ_GOK(ia)   := 0;   ! PV2: battery-only twins
+						empty FRQ_FZcp, FRQ_FZu, FRQ_FZd;   ! PAPER-1 FAIRNESS: a failed corner must not carry stale factors
 					endif;
 					! ---- SC-SAFE TEST (SCT_On = 1 only): B = the service-slot PCC point with NO service called, and
 					! ---- a clean slate for this period's vertices so a failed direction cannot reuse a stale one.
@@ -4337,6 +4574,25 @@ Model Main_OPF_VI_LG {
 					! ---- number the sweep is pinned to, or the two disagree by exactly the shave above.
 					RollSOCnext(bat)        := BattSOCini(bat)
 						+ (RollChgExec(bat)*etaChg(bat) - RollDisExec(bat)/etaDis(bat))*DeltaT/BattEcap(bat);
+					! ---- PAPER-1 FAIRNESS: the anchor of every fairness row and of the headroom box, captured at EVERY step from the
+					! ---- committed baseline (after the network check; no solve runs between here and the P1/network-check block), before
+					! ---- `empty allvariables` below and before the sweep instance is generated. FairU/FairD are DEFINED parameters and
+					! ---- pick up the SOC limits in force at generation; FairUGen/FairDGen snapshot them there (FAIRCLIP is logged there too).
+					if FairLogOn = 1 or FairCrit > 0 or FairBox = 1 then
+						FairPsc(bat)   := BattP_Chg(bat,PeriodMaxP) - BattP_Dis(bat,PeriodMaxP);
+						FairGroup(bat) := BattAgg(bat);
+						if FairScope = 2 then FairGroup(bat) := Element(Aggregators, 1); endif;
+						if FairCrit > 0 or FairBox = 1 then
+							if exists( bat | BattMaxP(bat) <= 0 ) then halt with "FairCrit/FairBox need BattMaxP > 0 for every battery."; endif;
+							if FairCrit > 0 and FairScope = 1 and exists( bat | BattAgg(bat) = '' ) then halt with "FairScope = 1 needs an aggregator (BattAgg) for every battery."; endif;
+							if FairCrit > 0 and FairScope = 2 and card( Aggregators ) = 0 then halt with "FairScope = 2 needs at least one element in Aggregators (used as the group label)."; endif;
+						endif;
+						if FairLogOn = 1 and SCT_On = 1 and ConvFlag <> 'Optimal' and ConvFlag <> 'LocallyOptimal' then
+							put SCT_Info;
+							put "FAIRBASE at step ", RollNow:3:0, ": the committed baseline is ", ConvFlag, " - FairPsc comes from a non-optimal solution" / ;
+							putclose SCT_Info;
+						endif;
+					endif;
 					put FOR_RollSOCCSV;
 					for (bat) do
 						put RollNow:3:0, ",", bat:24, ",", BattSOCstart(bat):12:6, ",", RollDispatchExec(bat,t):14:6, ",",
@@ -4389,6 +4645,10 @@ Model Main_OPF_VI_LG {
 						! convention is READ BACK off the generated row instead of assumed. A wrong sign mirrors the
 						! FOR with no visible symptom.
 						FOR_AngleRad := 4*arctan(1) / 4;
+						if FairLogOn = 1 or FairCrit > 0 or FairBox = 1 then   ! PAPER-1 FAIRNESS: the headrooms this instance is generated with
+							FairUGen(bat) := FairU(bat);  FairDGen(bat) := FairD(bat);  FairPchGen(bat) := FairPchMax(bat);  FairPdisGen(bat) := FairPdisMax(bat);
+							run FairClipLog;
+						endif;
 						FRQ_GenNow := 1;   ! PV2: FRQ_NoCut enters this instance only
 						RollGMP := GMP::Instance::Generate( FOR_VertexCont, "FORrollsweep" );
 						FRQ_GenNow := 0;
@@ -4467,16 +4727,20 @@ Model Main_OPF_VI_LG {
 									put ", guarantee off ", SPD_SDStat;
 									putclose SCT_Info;
 									GMP::Row::DeactivateMulti( SPD_SDG, (bat,tGMP), MaxSOC_def(bat,tGMP) );
+									if FairBox = 1 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;   ! the box encodes the ceiling too
 									GMP::Instance::Solve( SPD_SDG );
 									SPD_SDStat := GMP::Solution::GetProgramStatus( SPD_SDG, 1 );
 									GMP::Row::ActivateMulti( SPD_SDG, (bat,tGMP), MaxSOC_def(bat,tGMP) );
+									if FairBox = 1 then GMP::Row::ActivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;
 									put SCT_Info;
 									put ", SOC ceiling off ", SPD_SDStat;
 									putclose SCT_Info;
 									GMP::Row::DeactivateMulti( SPD_SDG, (bat,tGMP), MinSOC_def(bat,tGMP) );
+									if FairBox = 1 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;   ! the box encodes the floor too
 									GMP::Instance::Solve( SPD_SDG );
 									SPD_SDStat := GMP::Solution::GetProgramStatus( SPD_SDG, 1 );
 									GMP::Row::ActivateMulti( SPD_SDG, (bat,tGMP), MinSOC_def(bat,tGMP) );
+									if FairBox = 1 then GMP::Row::ActivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;
 									put SCT_Info;
 									put ", SOC floor off ", SPD_SDStat;
 									putclose SCT_Info;
@@ -4505,9 +4769,25 @@ Model Main_OPF_VI_LG {
 										put ", cyclic band off ", SPD_SDStat;
 										putclose SCT_Info;
 									endif;
+									if FairBox = 1 or FairCrit > 0 then   ! PAPER-1 FAIRNESS probe: the box and the criterion rows off
+										if FairBox = 1 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;
+										if FairCrit = 1 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairCrit = 1 and FairActive, FairCP(bat) ); endif;
+										if FairCrit = 2 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairCrit = 2 and FairActive, FairHP(bat) ); endif;
+										if FairCrit = 3 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairCrit = 3 and FairActive, FairHB(bat) ); endif;
+										GMP::Instance::Solve( SPD_SDG );
+										SPD_SDStat := GMP::Solution::GetProgramStatus( SPD_SDG, 1 );
+										if FairBox = 1 then GMP::Row::ActivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;
+										if FairCrit = 1 then GMP::Row::ActivateMulti( SPD_SDG, bat | FairCrit = 1 and FairActive, FairCP(bat) ); endif;
+										if FairCrit = 2 then GMP::Row::ActivateMulti( SPD_SDG, bat | FairCrit = 2 and FairActive, FairHP(bat) ); endif;
+										if FairCrit = 3 then GMP::Row::ActivateMulti( SPD_SDG, bat | FairCrit = 3 and FairActive, FairHB(bat) ); endif;
+										put SCT_Info;
+										put ", fairness rows off ", SPD_SDStat;
+										putclose SCT_Info;
+									endif;
 									GMP::Row::DeactivateMulti( SPD_SDG, (bat,tGMP) | SCTight and (SCFirst = 1 or SCT_Hard = 1) and ord(tGMP) > PeriodMaxP, ZX_SCTight(bat,tGMP) );
 									GMP::Row::DeactivateMulti( SPD_SDG, (bat,tGMP), MaxSOC_def(bat,tGMP) );
 									GMP::Row::DeactivateMulti( SPD_SDG, (bat,tGMP), MinSOC_def(bat,tGMP) );
+									if FairBox = 1 then GMP::Row::DeactivateMulti( SPD_SDG, bat | FairBox = 1 and FairActive, FairBoxRow(bat) ); endif;   ! with the ceiling
 									GMP::Row::DeactivateMulti( SPD_SDG, (n,f,tGMP), Vmax(n,f,tGMP) );
 									GMP::Row::DeactivateMulti( SPD_SDG, (n,f,tGMP), Vmin(n,f,tGMP) );
 									GMP::Instance::Solve( SPD_SDG );
@@ -4544,6 +4824,9 @@ Model Main_OPF_VI_LG {
 										FRQ_Dis(ia,bat) := BattP_Dis(bat,PeriodMaxP);
 										FRQ_Qv(ia,bat)  := Qinv(bat,PeriodMaxP);
 										FRQ_Cut(ia,bat) := PVC_Cut(bat,PeriodMaxP);
+										FRQ_FZcp(ia,a)  := FairZcp(a);   ! PAPER-1 FAIRNESS: this corner's factors, for the delivery check
+										FRQ_FZu(ia,a)   := FairZu(a);
+										FRQ_FZd(ia,a)   := FairZd(a);
 									endif;
 									put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",",
 									    FOR_Pcur:14:6, ",", FOR_Qcur:14:6, ",",
@@ -4590,6 +4873,7 @@ Model Main_OPF_VI_LG {
 									     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6 / ;
 								endfor;
 								if RollFlushCSV = 1 then putclose FOR_RollFairCSV; endif;   ! this direction's aggregator block is on disk now
+								if FairLogOn = 1 then run FairLogCorner; endif;   ! PAPER-1 FAIRNESS: this direction's groups (FOR_RollCritCSV)
 
 								! ---- per-prosumer offer and take-up for this direction (RollOfferLog = 1 only) ----
 								! offer_* is the single-slot physical envelope from the state entering the flexibility
@@ -4608,7 +4892,7 @@ Model Main_OPF_VI_LG {
 										    BattP_Chg(bat,PeriodMaxP):14:6, ",",
 										    BattP_Dis(bat,PeriodMaxP):14:6, ",",
 										    Qinv(bat,PeriodMaxP):14:6, ",",
-										    FairCap(bat):14:6 / ;
+										    FairCap(bat):14:6, ",", FairPsc(bat):14:6, ",", FairUGen(bat):14:6, ",", FairDGen(bat):14:6 / ;
 									endfor;
 									if RollFlushCSV = 1 then putclose FOR_RollOfferCSV; endif;
 								endif;
@@ -4901,6 +5185,10 @@ Model Main_OPF_VI_LG {
 							run MainExecution;                      ! cost-min start point; ~30% of wall-clock. See FOR_SweepWarmStart
 						endif;
 				
+						if FairLogOn = 1 or FairCrit > 0 or FairBox = 1 then   ! PAPER-1 FAIRNESS: the headrooms this solve sees
+							FairUGen(bat) := FairU(bat);  FairDGen(bat) := FairD(bat);  FairPchGen(bat) := FairPchMax(bat);  FairPdisGen(bat) := FairPdisMax(bat);
+							if ord(ia) = 1 then run FairClipLog; put FOR_RollCSV; endif;   ! FairClipLog may putclose SCT_Info: reselect the vertex CSV this path writes to
+						endif;
 						FOR_Lambda := 1;
 						solve FOR_VertexCont
 							where  MIP_Relative_Optimality_Tolerance := 0.01,
@@ -4943,6 +5231,9 @@ Model Main_OPF_VI_LG {
 								FRQ_Dis(ia,bat) := BattP_Dis(bat,PeriodMaxP);
 								FRQ_Qv(ia,bat)  := Qinv(bat,PeriodMaxP);
 								FRQ_Cut(ia,bat) := PVC_Cut(bat,PeriodMaxP);
+								FRQ_FZcp(ia,a)  := FairZcp(a);   ! PAPER-1 FAIRNESS: this corner's factors, for the delivery check
+								FRQ_FZu(ia,a)   := FairZu(a);
+								FRQ_FZd(ia,a)   := FairZd(a);
 							endif;
 							! TR4 walk-through: the whole-window plan behind this vertex, per prosumer, at chosen steps
 							if SCT_PlanDump = 1 and FindString( "," + SCT_PlanSteps + ",", "," + FormatString("%i", RollNow) + "," ) > 0 then
@@ -5000,6 +5291,7 @@ Model Main_OPF_VI_LG {
 							     else BattP_Balance(bat,PeriodMaxP) endif)/max(FairCap(bat),1e-9))):14:6 / ;
 						endfor;
 						if RollFlushCSV = 1 then putclose FOR_RollFairCSV; endif;   ! this direction's aggregator block is on disk now
+						if FairLogOn = 1 then run FairLogCorner; endif;   ! PAPER-1 FAIRNESS: this direction's groups (FOR_RollCritCSV)
 
 						! ---- per-prosumer offer and take-up for this direction (RollOfferLog = 1 only) ----
 						! offer_* is the single-slot physical envelope from the state entering the flexibility
@@ -5018,7 +5310,7 @@ Model Main_OPF_VI_LG {
 								    BattP_Chg(bat,PeriodMaxP):14:6, ",",
 								    BattP_Dis(bat,PeriodMaxP):14:6, ",",
 								    Qinv(bat,PeriodMaxP):14:6, ",",
-								    FairCap(bat):14:6 / ;
+								    FairCap(bat):14:6, ",", FairPsc(bat):14:6, ",", FairUGen(bat):14:6, ",", FairDGen(bat):14:6 / ;
 							endfor;
 							if RollFlushCSV = 1 then putclose FOR_RollOfferCSV; endif;
 						endif;
@@ -5409,7 +5701,7 @@ Model Main_OPF_VI_LG {
 										    RollSvcChg(bat):14:6, ",",
 										    RollSvcDis(bat):14:6, ",",
 										    RollSvcQ(bat):14:6, ",",
-										    FairCap(bat):14:6 / ;
+										    FairCap(bat):14:6, ",", FairPsc(bat):14:6, ",", FairUGen(bat):14:6, ",", FairDGen(bat):14:6 / ;
 									endfor;
 									putclose FOR_RollOfferCSV;
 								endif;
@@ -5829,6 +6121,49 @@ Model Main_OPF_VI_LG {
 						                        max( 0, (SRQ_SOCc(bat) - BattSOCmin(bat) - RollSOCEps)*BattEcap(bat)*etaDis(bat)/DeltaT ) );
 						FRQ_ShaveNow := 1000*DeltaT*sum(bat, (max(0, FRQ_C(bat) - FRQ_D(bat)) - RollSvcChg(bat)) + (max(0, FRQ_D(bat) - FRQ_C(bat)) - RollSvcDis(bat)));
 						SRQ_Shave       := SRQ_Shave + FRQ_ShaveNow;
+						! ---- PAPER-1 FAIRNESS delivery check: the delivered set-points are the same convex combination of the stored
+						! ---- corners (or of S0, whose factors are zero), so they satisfy the criterion with the combined factors. Measured
+						! ---- before netting (exact up to solver tolerance) and after netting and SOC capping (what is executed; up to
+						! ---- ~1 W per battery of capping). Not checked under batteries-first delivery (FRQ_BF), which re-mixes.
+						if FairLogOn = 1 and SCT_On = 1 and ( FairCrit > 0 or FairBox = 1 ) then
+							if FRQ_BFUsed = 1 or ( FRQ_BF = 1 and PVC_On = 1 ) then   ! the batteries-first loop rewrites FRQ_B1..3 / FRQ_BW1..3 even when unused
+								put SCT_Info;
+								put "FAIRDELIV,", RollNow:3:0, ",", RollSvcTgt:3:0, ",skipped (batteries-first delivery)" / ;
+								putclose SCT_Info;
+							else
+								if SPD_CornersOnly = 1 and FRQ_A0 > 1e-9 and SPD_COFound = 1 then
+									FairDelZcp(a) := FRQ_BW1*FRQ_FZcp(Element(FOR_AngleSet, ord(FRQ_B1) - 1), a) + FRQ_BW2*FRQ_FZcp(Element(FOR_AngleSet, ord(FRQ_B2) - 1), a) + FRQ_BW3*FRQ_FZcp(Element(FOR_AngleSet, ord(FRQ_B3) - 1), a);
+									FairDelZu(a)  := FRQ_BW1*FRQ_FZu(Element(FOR_AngleSet, ord(FRQ_B1) - 1), a)  + FRQ_BW2*FRQ_FZu(Element(FOR_AngleSet, ord(FRQ_B2) - 1), a)  + FRQ_BW3*FRQ_FZu(Element(FOR_AngleSet, ord(FRQ_B3) - 1), a);
+									FairDelZd(a)  := FRQ_BW1*FRQ_FZd(Element(FOR_AngleSet, ord(FRQ_B1) - 1), a)  + FRQ_BW2*FRQ_FZd(Element(FOR_AngleSet, ord(FRQ_B2) - 1), a)  + FRQ_BW3*FRQ_FZd(Element(FOR_AngleSet, ord(FRQ_B3) - 1), a);
+								else
+									FairDelZcp(a) := FRQ_A1*FRQ_FZcp(FRQ_I, a) + FRQ_A2*FRQ_FZcp(FRQ_J, a);   ! S0 (weight FRQ_A0) has zero factors
+									FairDelZu(a)  := FRQ_A1*FRQ_FZu(FRQ_I, a)  + FRQ_A2*FRQ_FZu(FRQ_J, a);
+									FairDelZd(a)  := FRQ_A1*FRQ_FZd(FRQ_I, a)  + FRQ_A2*FRQ_FZd(FRQ_J, a);
+								endif;
+								FairDelDP(bat)  := FRQ_C(bat) - FRQ_D(bat) - FairPsc(bat);
+								FairDelDPx(bat) := RollSvcChg(bat) - RollSvcDis(bat) - FairPsc(bat);
+								FairDelR(bat)   := FairDelDP(bat)  - ( FairUGen(bat)*FairDelZu(FairGroup(bat)) - FairDGen(bat)*FairDelZd(FairGroup(bat)) );
+								FairDelRx(bat)  := FairDelDPx(bat) - ( FairUGen(bat)*FairDelZu(FairGroup(bat)) - FairDGen(bat)*FairDelZd(FairGroup(bat)) );
+								FairDelResPre  := 1000*max( bat,
+								                     if FairCrit = 1 then abs( FairDelDP(bat) - BattMaxP(bat)*FairDelZcp(FairGroup(bat)) )
+								                     elseif FairCrit = 2 then abs( FairDelR(bat) )
+								                     elseif FairCrit = 3 then max( 0, max( FairDelR(bat) - FairEps*FairUGen(bat), -FairEps*FairDGen(bat) - FairDelR(bat) ) )
+								                     else 0 endif );
+								FairDelResPost := 1000*max( bat,
+								                     if FairCrit = 1 then abs( FairDelDPx(bat) - BattMaxP(bat)*FairDelZcp(FairGroup(bat)) )
+								                     elseif FairCrit = 2 then abs( FairDelRx(bat) )
+								                     elseif FairCrit = 3 then max( 0, max( FairDelRx(bat) - FairEps*FairUGen(bat), -FairEps*FairDGen(bat) - FairDelRx(bat) ) )
+								                     else 0 endif );
+								FairDelBoxPre  := 1000*max( bat, max( 0, max( FairDelDP(bat)  - FairUGen(bat), -FairDGen(bat) - FairDelDP(bat)  ) ) );
+								FairDelBoxPost := 1000*max( bat, max( 0, max( FairDelDPx(bat) - FairUGen(bat), -FairDGen(bat) - FairDelDPx(bat) ) ) );
+								put SCT_Info;
+								put "FAIRDELIV,", RollNow:3:0, ",", RollSvcTgt:3:0, ",crit ", FairCrit:2:0, ",scope ", FairScope:2:0, ",a0 ", FRQ_A0:8:5,
+								    ",corners_only ", (if SPD_CornersOnly = 1 and FRQ_A0 > 1e-9 and SPD_COFound = 1 then 1 else 0 endif):2:0,
+								    ",res_pre_kW ", FairDelResPre:12:8, ",res_post_kW ", FairDelResPost:12:8,
+								    ",box_pre_kW ", FairDelBoxPre:12:8, ",box_post_kW ", FairDelBoxPost:12:8, ",shave_kWh ", FRQ_ShaveNow:12:8 / ;
+								putclose SCT_Info;
+							endif;
+						endif;
 						RollSvcQ(bat)   := FRQ_QQ(bat);
 						SRQ_CutCommit(bat) := FRQ_K(bat);
 						ZX_CutCommit(bat) := ZX_CutRef(bat);   ! ZX: PV passive, the cut planned for that slot
@@ -5944,6 +6279,7 @@ Model Main_OPF_VI_LG {
 				putclose FOR_RollCSV;
 				putclose FOR_RollSOCCSV;
 				putclose FOR_RollFairCSV;
+				if FairLogOn = 1 then putclose FOR_RollCritCSV; endif;   ! PAPER-1 FAIRNESS
 				if RollSvcMode > 0 then
 					putclose FOR_RollSvcCSV;
 				endif;
@@ -14429,6 +14765,72 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "Pin CPLEX 22.1 for the QCP/QP/LP program types before any SC-safe run.";
 		}
+		Procedure FairLogCorner {
+			Body: {
+				! one row per non-empty group for the direction just collected. A direction that did not solve gets its status and
+				! empty columns: on the async path its solution never reaches the model, so the levels would be another direction's.
+				! A criterion column is written only for its own criterion (empty otherwise): with no rows, the factors are 0 and
+				! the column would report max |DeltaP| instead of a distance from the criterion. cp_spread is always written.
+				put FOR_RollCritCSV;
+				for (a | sum( bat | FairGroup(bat) = a, 1 ) > 0) do
+					put RollNow:3:0, ",", (mod(RollNow,nPeriods)+1):3:0, ",", FOR_Angle:6:1, ",", FairCrit:2:0, ",", FairScope:2:0, ",",
+					    FairEps:6:3, ",", FairBox:2:0, ",", FOR_ThruPenSlot:6:3, ",", FOR_StatCur, ",";
+					if FairScope = 2 then put "ALL,"; else put a:8, ","; endif;
+					if FOR_StatCur <> 'Optimal' and FOR_StatCur <> 'LocallyOptimal' then
+						put (sum( bat | FairGroup(bat) = a, 1 )):4:0, ",,,,,,,,,,,,,,," / ;
+					else
+						put (sum( bat | FairGroup(bat) = a, 1 )):4:0, ",",
+						    (1000*sum( bat | FairGroup(bat) = a, BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) )):14:6, ",",
+						    (1000*sum( bat | FairGroup(bat) = a, FairUGen(bat) )):14:6, ",",
+						    (1000*sum( bat | FairGroup(bat) = a, FairDGen(bat) )):14:6, ",";
+						if FairCrit = 1 then put FairZcp(a):12:8, ",,,"; endif;
+						if FairCrit = 2 or FairCrit = 3 then put ",", FairZu(a):12:8, ",", FairZd(a):12:8, ","; endif;
+						if FairCrit = 0 then put ",,,"; endif;
+						put (0.5*( max( bat | FairGroup(bat) = a, (BattP_Balance(bat,PeriodMaxP) - FairPsc(bat))/max(BattMaxP(bat), 1e-9) )
+						         - min( bat | FairGroup(bat) = a, (BattP_Balance(bat,PeriodMaxP) - FairPsc(bat))/max(BattMaxP(bat), 1e-9) ) )):12:8, ",";
+						if FairCrit = 1 then
+							put (max( bat | FairGroup(bat) = a, abs( (BattP_Balance(bat,PeriodMaxP) - FairPsc(bat))/max(BattMaxP(bat), 1e-9) - FairZcp(a) ) )):12:8, ",";
+						else
+							put ",";
+						endif;
+						if FairCrit = 2 then
+							put (1000*max( bat | FairGroup(bat) = a, abs( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) - ( FairUGen(bat)*FairZu(a) - FairDGen(bat)*FairZd(a) ) ) )):12:8, ",";
+						else
+							put ",";
+						endif;
+						if FairCrit = 3 then
+							put (1000*max( bat | FairGroup(bat) = a, max( 0, max( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) - ( FairUGen(bat)*FairZu(a) - FairDGen(bat)*FairZd(a) ) - FairEps*FairUGen(bat),
+							                                           ( FairUGen(bat)*FairZu(a) - FairDGen(bat)*FairZd(a) ) - ( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) ) - FairEps*FairDGen(bat) ) ) )):12:8, ",";
+						else
+							put ",";
+						endif;
+						put (1000*max( bat | FairGroup(bat) = a, max( 0, BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) - FairUGen(bat) ) )):12:8, ",",
+						    (1000*max( bat | FairGroup(bat) = a, max( 0, -FairDGen(bat) - ( BattP_Balance(bat,PeriodMaxP) - FairPsc(bat) ) ) )):12:8, ",",
+						    (sum( bat | FairGroup(bat) = a and min( BattP_Chg(bat,PeriodMaxP), BattP_Dis(bat,PeriodMaxP) ) > 1e-6, 1 )):4:0, ",",
+						    (1000*sum( bat | FairGroup(bat) = a, min( BattP_Chg(bat,PeriodMaxP), BattP_Dis(bat,PeriodMaxP) ) )):12:6, ",",
+						    (1000*sum( bat | FairGroup(bat) = a, BattP_Chg(bat,PeriodMaxP) + BattP_Dis(bat,PeriodMaxP) )):12:6 / ;
+					endif;
+				endfor;
+				if RollFlushCSV = 1 then putclose FOR_RollCritCSV; endif;
+			}
+			Comment: "PAPER-1 FAIRNESS log (FOR_RollCritCSV), called after every collected direction on both sweep paths. Columns: summed contribution and headrooms (kW); the factors of the active criterion (zcp under CP, zu and zd under HP/HB, empty otherwise); cp_spread = half the range of DeltaP/BattMaxP over the group = the smallest max|DeltaP/BattMaxP - zeta| over zeta (0 under CP; for the reference FOR, its distance from CP); cp_dev_max (CP only, 0 expected); rule_res_max_kW (HP only, 0 expected); hb_viol_max_kW (HB only, 0 expected); box violations (0 with FairBox = 1); n_cyc / cyc_kW = batteries charging and discharging at once in slot 2 above 1 W and the cycled power (with kappa = 0.2 a remaining cycle is slot-2 energy disposal that pays: a corner where the region may be optimistic); thr_kW = the group's slot-2 throughput (the kappa term of the objective is FOR_ThruPenSlot times its sum over groups).";
+		}
+		Procedure FairClipLog {
+			Body: {
+				! baselines outside the envelope the sweep actually uses (snapshots FairPchGen/FairPdisGen): the [.]^+ of U or D
+				! clips there, the only visible sign of a phantom baseline (e.g. a network-forced P1 re-solve that cycles)
+				FairClipU   := sum( bat | FairPsc(bat) > FairPchGen(bat) + 1e-6, 1 );
+				FairClipD   := sum( bat | -FairPsc(bat) > FairPdisGen(bat) + 1e-6, 1 );
+				FairClipMax := 1000*max( bat, max( 0, max( FairPsc(bat) - FairPchGen(bat), -FairPsc(bat) - FairPdisGen(bat) ) ) );
+				if FairLogOn = 1 and SCT_On = 1 and FairClipU + FairClipD > 0 then
+					put SCT_Info;
+					put "FAIRCLIP at step ", RollNow:3:0, ": slot-2 baseline above the charging envelope ", FairClipU:4:0,
+					    ", above the discharging envelope ", FairClipD:4:0, ", largest excess ", FairClipMax:10:6, " kW" / ;
+					putclose SCT_Info;
+				endif;
+			}
+			Comment: "PAPER-1 FAIRNESS diagnostic, called where FairUGen/FairDGen are snapshotted (before the GMP sweep instance is generated; before the first direction on the sequential path). Threshold 1e-6 p.u. = 1 W: P1 meets the SOC ceiling to solver tolerance (overshoots up to ~0.5 W), which is not a phantom baseline.";
+		}
 		Procedure SCT_RunBed {
 			Arguments: (Tag,Pattern);
 			Body: {
@@ -14439,7 +14841,7 @@ Model Main_OPF_VI_LG {
 				DetailTagCSV      := if SCT_Trafo = "" then "TR9" elseif SCT_Trafo = "ALL" then "" else SCT_Trafo endif;
 				DetailLoadPattern := Pattern;
 				UseBattComp       := 0;
-				FOR_ThruPenSlot   := 0.2;
+				FOR_ThruPenSlot   := if P2SlotPen >= 0 then P2SlotPen else 0.2 endif;   ! kappa = 0.2 stays with the headroom box (see FairnessPaper1); P2SlotPen only for tests
 				RollFileSuffix    := Tag;
 				SCT_On            := 1;
 				SCT_Checked       := 0;
@@ -14467,6 +14869,7 @@ Model Main_OPF_VI_LG {
 				put SCT_Info;
 				put "SC-safe test ", Tag, "   started ", CurrentToString("%c%y-%m-%d %H:%M:%S"),
 				    "   kappa ", FOR_SCWeight:8:4, "   shrink points ", SCT_nShrink:3:0, "   RollMaxPeriods ", RollMaxPeriods:3:0 / ;
+				put "FAIR settings: FairCrit ", FairCrit:2:0, "   FairScope ", FairScope:2:0, "   FairEps ", FairEps:6:3, "   FairBox ", FairBox:2:0, "   FairAllowNoBox ", FairAllowNoBox:2:0, "   kappa_slot (FOR_ThruPenSlot) ", FOR_ThruPenSlot:6:3, "   P2SlotPen ", P2SlotPen:6:3, "   FairMode ", FairMode:2:0 / ;
 				putclose SCT_Info;
 				run RunFOR_Rolling;
 				put SCT_Info;
@@ -15137,8 +15540,10 @@ Model Main_OPF_VI_LG {
 				! SRQ_Tag, SRQ_Coord, SRQ_Periods, FRQ_SweepAll, FRQ_U1/U2/U3/Edge(t), SRQ_MaxPer
 				SRQ_Coord := 0;  SRQ_Tag := "";  SRQ_Periods := "";  SRQ_MaxPer := 0;  FRQ_SweepAll := 0;  FRQ_PlanLog := 0;  ZX_GMP := 0;  SCTight := 0;  ZX_EndOn := 0;  ZX_AnchorOn := 0;  PV2_Regime := 0;  FRQ_BF := 0;
 				empty FRQ_U1, FRQ_U2, FRQ_U3, FRQ_Edge;
+				FairMode := 0;  FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 1;  FairAllowNoBox := 0;  FairLogOn := 1;  P2SlotPen := -1;  RollExecCap := 0;   ! PAPER-1 FAIRNESS: paper-flow defaults; scenario.txt may override (FairBox=0 P2SlotPen=0.2 reproduces Tulio's 9-Oct model)
 				nPeriods := 48;   ! Time must exist before the scenario's period data is read
 				read from file "scenario.txt";
+				if FairMode <> 0 then halt with "PV2_Run (paper flow): FairMode (the 2026-08 criteria) is retired here; use FairCrit (1 CP, 2 HP, 3 HB), FairScope (1 intra, 2 network-wide), FairEps."; endif;
 				if SRQ_Tag = "" then halt with "scenario.txt did not set SRQ_Tag"; endif;
 				if SPD_P1Threads > 0 then option global_thread_limit := SPD_P1Threads; endif;   ! SPEED TEST
 				BaseNoNetwork := SPD_P1NoNet;  SPD_NC := 0;  SPD_NCFail := 0;  SPD_NCResc := 0;  SPD_RescUnnet := 0;  SPD_RescOK := 0;  SPD_S0N := 0;  SPD_S0Fail := 0;
@@ -15241,6 +15646,7 @@ Model Main_OPF_VI_LG {
 				BaselineOnly := 0;  SCT_Regret := 1;  SCFirst := 0;  SCAlpha := 0;  PVC_On := 0;  PVC_Mode := 0;  PVC_ReplanPen := 10;  PVC_SweepPen := 0.01;
 				PVC_Exec(bat) := 0;  SRQ_CutCommit(bat) := 0;  SCT_Trafo := "";  RollMaxPeriods := 0;  SRQ_Coord := 0;  RollFileSuffix := "";
 				ZX_On := 0;  FRQ_Diag := 1;  RollUseGMP := 0;  SCTight := 0;  ZX_EndOn := 0;  ZX_AnchorOn := 0;  PV2_Regime := 0;  FRQ_BF := 0;  ZX_CutRef(bat) := 0;  ZX_CutCommit(bat) := 0;
+				FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 0;  FairAllowNoBox := 0;  FairLogOn := 0;  P2SlotPen := -1;   ! PAPER-1 FAIRNESS: back to the declared defaults
 			}
 			Comment: "TWO PV OPTIONS (2026-10-05): one TR4 rolling day under option 1 (PV exported by default, surplus cut only on TSO request) or option 2 (no export without agreement), today's or coordinated charging, optional batteries-first delivery. Derived from ZX_Run / FRQ_Run: FOR-first TSO requests (any point inside the published FOR, recovered by convex combination of stored solutions), today's (SRQ_Coord = 0) or coordinated (1) charging.";
 		}

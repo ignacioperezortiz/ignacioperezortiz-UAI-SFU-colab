@@ -1,0 +1,8 @@
+# T5 (docs/paper1-fairness.md): delivery and self-consumption, two days. Each pattern is compared with the REF of the
+# same settings by analyze_paper1.py, so every block carries its own REF.
+REF free_today a2x4p8fin2 TR4 FairCrit=2 FairScope=1
+WC_EXPORT free_today a2x4p8fin2 TR4 FairCrit=2 FairScope=1
+WC_IMPORT free_today a2x4p8fin2 TR4 FairCrit=2 FairScope=1
+REF free_today a2x4p8fin2 TR4 FairBox=1
+WC_EXPORT free_today a2x4p8fin2 TR4 FairBox=1
+WC_IMPORT free_today a2x4p8fin2 TR4 FairBox=1

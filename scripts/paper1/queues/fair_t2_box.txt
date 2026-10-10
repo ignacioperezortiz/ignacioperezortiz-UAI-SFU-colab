@@ -1,0 +1,3 @@
+# T2 (docs/paper1-fairness.md): reference FOR at every half-hour, headroom box on (paper flow) vs off (Tulio's 9-Oct model).
+REF_SWEEP free_today a2x4p8fin TR4 FairBox=1
+REF_SWEEP free_today a2x4p8fin TR4 FairBox=0

@@ -1,0 +1,3 @@
+# T6 (optional, docs/paper1-fairness.md): kappa = 0.1 with the box, reference and HP.
+REF_SWEEP free_today a2x4p8fin TR4 P2SlotPen=0.1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=2 FairScope=1 P2SlotPen=0.1
