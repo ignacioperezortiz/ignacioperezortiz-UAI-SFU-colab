@@ -131,11 +131,23 @@ def claim(work, tag, lane):
     return True
 
 
+def wait_free(lane_dir):
+    """Wait until the previous AIMMS session has released the lane (Access lock Database.ldb), then 15 s more:
+    a job started while the lock was still there failed within a minute (Tulio's PC, 9 Oct 2026)."""
+    for _ in range(36):
+        if not (lane_dir / "Database.ldb").exists():
+            break
+        time.sleep(5)
+    time.sleep(15)
+
+
 def run_job(work, lane_dir, lane, job):
     sid, case, speed, net, extra = job
     tag = job_tag(*job)
     (lane_dir / "scenario.txt").write_text(scenario_txt(*job))
+    early = 0
     for attempt in range(1, 41):
+        wait_free(lane_dir)
         t0, start = time.time(), datetime.now()
         out = lane_dir / f"stdout{tag}.txt"
         with open(out, "w") as fo:
@@ -150,6 +162,15 @@ def run_job(work, lane_dir, lane, job):
             continue
         ret = [l for l in text.splitlines() if "Return value" in l or "Error" in l]
         mins = (time.time() - t0) / 60
+        if "Return value = 0" not in text and mins < 3 and early < 2:   # failed while starting: retry after a minute
+            early += 1
+            if err.exists():
+                shutil.copyfile(err, lane_dir / f"aimms_err{tag}_early{early}.txt")
+            log(lane_dir, f"{tag}: failed after {mins:.1f} min while starting, retry {early} in 60 s")
+            time.sleep(60)
+            continue
+        if err.exists():   # keep each job's error log: the next job overwrites log/aimms.err
+            shutil.copyfile(err, lane_dir / f"aimms_err{tag}.txt")
         (lane_dir / f"done{tag}.txt").write_text((ret[-1] if ret else "no return line") + "\n")
         log(lane_dir, f"done {tag} in {mins:.1f} min: {ret[-1] if ret else 'no return line'}")
         jobs = work / "jobs.csv"
