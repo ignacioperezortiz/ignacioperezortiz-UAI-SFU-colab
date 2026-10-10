@@ -114,6 +114,9 @@ records that support the shared research workflow:
     nadir, FFR/FCR/FRR definitions, and how a steady-state PCC FOR relates to what a
     service actually requires in response time and sustained energy. Based on
     Section 3.2 of Miah et al. (2026).
+  - `network-free-baseline.md` — why the committed baseline must keep the network on
+    the whole feeder: solving it network-free makes every sweep direction infeasible at
+    the midday PV peak, and the baseline still reports Optimal.
   - [`meetings/`](docs/meetings/README.md) — curated meeting outcomes, technical
     decisions, action items, and editable source documents, organized by date.
 - **`scripts/README.md`, `results/README.md`:** next to what they document.

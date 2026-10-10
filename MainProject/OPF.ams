@@ -2165,6 +2165,16 @@ Model Main_OPF_VI_LG {
 					matters, and truncating keeps it to one page so it always flushes."
 				}
 			}
+			File FOR_RollCkpt {
+				Name: FOR_RollCkptName;
+				Comment: {
+					"CHUNKED RUN checkpoint, written by hand rather than with the WRITE statement. WRITE
+					rounds to the identifier display precision - it emitted the SOC as 0.140, three
+					decimals - and the rolling horizon chains the committed SOC from one period into the
+					next, so a rounded restart perturbs every period after it. The put block below emits
+					the same AIMMS data syntax at 17 decimals, which round-trips a double exactly."
+				}
+			}
 			File FOR_RollCSV {
 				Name: FOR_RollCSVName;
 				Mode: append;
@@ -2223,6 +2233,20 @@ Model Main_OPF_VI_LG {
 			StringParameter BaseFileTag {
 				Comment: "Appended to the baseline filename so a micro-consistent baseline does not overwrite the feeder one that combine_FOR_pertrafo.py consumes. Empty (default) keeps FOR_rolling_baseline.csv exactly as before.";
 			}
+			Parameter RollStartPeriod {
+				Default: 0;
+				Comment: "CHUNKED RUN: first period this process solves. 0 or 1 = start at period 1 from BattSOCini, the normal whole-day run. > 1 = resume: the committed SOC is read from the checkpoint FOR_rolling_ckpt<suffix>.dat that the previous chunk wrote, and periods before this one are not solved. WHY: a fresh process starts with an unfragmented address space, so splitting 48 periods into chunks bounds the degradation described in docs/parallel-sweep-address-space.md, at whatever RollAsyncK fits memory. It also gives resume, which two runs have now been lost for want of. Pair with RollMaxPeriods, which is the ABSOLUTE last period, not a count: chunk 2 of 4 is RollStartPeriod = 13, RollMaxPeriods = 24. Each chunk writes under its own RollFileSuffix; stitch them with scripts/concat_FOR_chunks.py.";
+			}
+			Parameter RollCkptPeriod {
+				Comment: "CHUNKED RUN working: the period the checkpoint file is good for, i.e. the one the next chunk must start at. Written with the SOC and checked against RollStartPeriod on resume, so a stale checkpoint cannot be used silently.";
+			}
+			StringParameter RollCkptTag {
+				Comment: "CHUNKED RUN: shared tag for the checkpoint, so the chunks of ONE run find each other even though each writes its CSVs under its own RollFileSuffix. Empty (the default) means the checkpoint is named after RollFileSuffix + FairFileTag, which is what a single-process run wants. Set it to the same string in every chunk runner of a campaign.";
+			}
+			StringParameter FOR_RollCkptName {
+				Definition: "FOR_rolling_ckpt" + (if RollCkptTag <> "" then RollCkptTag else RollFileSuffix + FairFileTag endif) + ".dat";
+				Comment: "CHUNKED RUN: checkpoint holding BattSOCstart and RollCkptPeriod at the end of every period. The only state the rolling horizon carries between periods.";
+			}
 			StringParameter FOR_RollBaseCSVName {
 				Definition: "FOR_rolling_baseline" + BaseFileTag + ".csv";
 			}
@@ -2280,7 +2304,7 @@ Model Main_OPF_VI_LG {
 			}
 			Parameter BaseNoNetGMP {
 				Default: 0;
-				Comment: "2026-08-22: 1 = the committed baseline is solved on the SHARED instance with the NetworkModel rows deactivated, instead of forcing RollGMPBaseline=0 the way BaseNoNetwork does. Same network-free baseline that Prof. Luis asked for, but the instance is generated once and SOLVED before the async sweep copies it - copying a never-solved whole-feeder instance is what hung for 9 h 06 on 2026-08-21. Needs RollUseGMP=1 and RollGMPBaseline=1, and BaseNoNetwork must stay 0 or the shared path is skipped. Validated at TR3 against BaseNoNetwork=1: 576/576 Optimal, max |dproj| = 0.000e+00, committed dispatch identical column by column. 0 = production default, inert.";
+				Comment: "NOT SAFE ON THE WHOLE FEEDER (2026-08-30). Deactivating the NetworkModel rows lets the baseline commit a slot-1 dispatch the network cannot support; the sweep then pins that dispatch AND enforces the network, so every direction is Infeasible. Measured at period 22, the midday PV peak: 0/12 with this at 1, 12/12 Optimal with it at 0, everything else identical. The baseline still reports Optimal, so there is no warning. It validated clean only where the network is slack - TR3, and six whole-feeder NIGHT periods. RULE: any whole-feeder run keeps this at 0. See docs/network-free-baseline.md. 2026-08-22: 1 = the committed baseline is solved on the SHARED instance with the NetworkModel rows deactivated, instead of forcing RollGMPBaseline=0 the way BaseNoNetwork does. Same network-free baseline that Prof. Luis asked for, but the instance is generated once and SOLVED before the async sweep copies it - copying a never-solved whole-feeder instance is what hung for 9 h 06 on 2026-08-21. Needs RollUseGMP=1 and RollGMPBaseline=1, and BaseNoNetwork must stay 0 or the shared path is skipped. Validated at TR3 against BaseNoNetwork=1: 576/576 Optimal, max |dproj| = 0.000e+00, committed dispatch identical column by column. 0 = production default, inert.";
 			}
 			Parameter SOCFloorOverride {
 				Default: -1;
@@ -2568,6 +2592,15 @@ Model Main_OPF_VI_LG {
 				Default: 2;
 				Comment: "CPLEX thread cap per concurrent sweep session (option global_thread_limit, set on each instance copy). This is a MEMORY knob as much as a CPU one: the barrier reserves working space per thread, so on the whole-feeder instance a session needs about 74 GB at 12 threads and about 42 GB at 5. What fits is base + RollAsyncK x memory_per_session <= the machine commit limit; a session that does not fit returns SolverFailure and is then silently re-solved by the rescue in RunFOR_Rolling. Lowering this raises how many directions can run at once. 0 = leave the solver default (all cores) - only sensible with RollAsyncK small. See docs/parallel-sweep-memory.md.";
 			}
+			Parameter RollAsyncReuse {
+				Default: 1;
+				Comment: "ASYNC sweep: reuse the RollAsyncK instance copies across the batches of a period instead of copying and deleting one per direction. 1 = create the pool once per period, rewrite only the two objective coefficients per batch, delete the pool when the period ends: the copy/delete count per period falls from 2 x FOR_nAngles to 2 x RollAsyncK. 0 = the pre-2026-08-28 behaviour, one copy and one delete per direction. WHY THIS EXISTS: GMP::Instance::Copy/Delete of the whole-feeder instance fragments the process address space in proportion to how often it is called - 41,982 private regions at period 1 against 314,519 at period 16, with committed bytes flat - and every allocation then slows down on one serialized thread until the sweep stops producing vertices. Two whole-feeder runs stalled that way. The mathematics is untouched: each direction still solves the identical matrix carrying its own two coefficients, so only WHICH physical copy carries a direction changes. See docs/parallel-sweep-address-space.md.";
+			}
+			ElementParameter RollSlotOf {
+				IndexDomain: ia;
+				Range: FOR_AngleSet;
+				Comment: "ASYNC sweep: which pool slot carries direction ia in the batch currently in flight. With RollAsyncReuse = 1 it is the position of ia within its batch (1..RollAsyncK); with RollAsyncReuse = 0 it is ia itself, so every RollGMPSlot(RollSlotOf(ia)) reads as the old RollGMPSlot(ia).";
+			}
 			ElementParameter RollGMPSlot {
 				IndexDomain: ia;
 				Range: AllGeneratedMathematicalPrograms;
@@ -2723,7 +2756,19 @@ Model Main_OPF_VI_LG {
 				Q0raw(d,t)        := Q0(d,t);
 				GenP0raw(d,t)     := GenP0(d,t);
 				Irrraw(t)         := Irradiance(t);
-				BattSOCstart(bat) := BattSOCini(bat);
+				! CHUNKED RUN: period 1 starts from the configured initial SOC; a resumed chunk starts
+				! from the committed SOC the previous chunk left in the checkpoint.
+				if RollStartPeriod > 1 then
+					if not FileExists( FOR_RollCkptName ) then
+						halt with "RollStartPeriod > 1 but there is no checkpoint " + FOR_RollCkptName + " - the previous chunk did not finish, or the suffix does not match.";
+					endif;
+					read from file FOR_RollCkptName;   ! restores BattSOCstart and RollCkptPeriod
+					if RollCkptPeriod <> RollStartPeriod then
+						halt with "checkpoint is good for period " + FormatString("%i", RollCkptPeriod) + " but RollStartPeriod is " + FormatString("%i", RollStartPeriod) + " - refusing to chain the wrong SOC.";
+					endif;
+				else
+					BattSOCstart(bat) := BattSOCini(bat);
+				endif;
 				
 				! CSV headers. Switch the active file with 'put <file>'. The three files are declared
 				! Mode: append (see RollFlushCSV), which makes deleting them HERE mandatory - otherwise this
@@ -2753,7 +2798,9 @@ Model Main_OPF_VI_LG {
 					put "now,target,angle_deg,pass,status,P,Q,proj,time" / ;
 				endif;
 				
-				for (t) do
+				! CHUNKED RUN: skip the periods an earlier chunk already solved. RollMaxPeriods below is
+				! the absolute last period, so a chunk is the closed range [RollStartPeriod, RollMaxPeriods].
+				for (t | RollStartPeriod <= 1 or ord(t) >= RollStartPeriod) do
 					RollNow     := ord(t);
 					if RollMaxPeriods > 0 and RollNow > RollMaxPeriods then break; endif;   ! SMOKE cap (whole-feeder sizing): 0 = full day; the putclose block below still runs, so capped CSVs are valid
 					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
@@ -2996,6 +3043,18 @@ Model Main_OPF_VI_LG {
 						! ---- sequential path below: the diag retries change the DATA (relaxed band, scaled PV),
 						! ---- out of scope for the shared-matrix machinery.
 						Roll_Done := 0;
+						! POOL OF COPIES. With RollAsyncReuse = 1 the RollAsyncK copies are made ONCE here and
+						! reused by every batch of this period, so a period costs 2 x RollAsyncK copy/delete calls
+						! instead of 2 x FOR_nAngles. That churn is what fragments the address space and eventually
+						! stalls the sweep - see docs/parallel-sweep-address-space.md.
+						if RollAsyncReuse = 1 then
+							for (ia | ord(ia) <= RollAsyncK) do
+								RollGMPSlot(ia) := GMP::Instance::Copy( RollGMP, FormatString("FORrollasync%i", ord(ia)) );
+								if RollAsyncThreads > 0 then
+									GMP::Instance::SetOptionValue( RollGMPSlot(ia), 'global_thread_limit', RollAsyncThreads );
+								endif;
+							endfor;
+						endif;
 						while Roll_Done < FOR_nAngles do
 							Roll_Batch := min( RollAsyncK, FOR_nAngles - Roll_Done );
 
@@ -3003,15 +3062,20 @@ Model Main_OPF_VI_LG {
 							empty RollAsyncSes;
 							for (ia | ord(ia) > Roll_Done and ord(ia) <= Roll_Done + Roll_Batch) do
 								FOR_AngleRad := FOR_AngleDeg(ia) * 4*arctan(1) / 180;
-								RollGMPSlot(ia) := GMP::Instance::Copy( RollGMP, FormatString("FORrollasync%i", ord(ia)) );
-								GMP::Coefficient::Set( RollGMPSlot(ia), OF_FOR_definition, P_PCC(PeriodMaxP), Roll_SignP*cos(FOR_AngleRad) );
-								GMP::Coefficient::Set( RollGMPSlot(ia), OF_FOR_definition, Q_PCC(PeriodMaxP), Roll_SignQ*sin(FOR_AngleRad) );
-								if RollAsyncThreads > 0 then
-									GMP::Instance::SetOptionValue( RollGMPSlot(ia), 'global_thread_limit', RollAsyncThreads );
+								! Which physical copy carries this direction: its position inside the batch when the pool
+								! is reused, its own copy otherwise. RollAsyncReuse = 0 reproduces the old code exactly.
+								RollSlotOf(ia) := if RollAsyncReuse = 1 then Element( FOR_AngleSet, ord(ia) - Roll_Done ) else ia endif;
+								if RollAsyncReuse = 0 then
+									RollGMPSlot(ia) := GMP::Instance::Copy( RollGMP, FormatString("FORrollasync%i", ord(ia)) );
+									if RollAsyncThreads > 0 then
+										GMP::Instance::SetOptionValue( RollGMPSlot(ia), 'global_thread_limit', RollAsyncThreads );
+									endif;
 								endif;
-								RollSesSlot(ia) := GMP::Instance::CreateSolverSession( RollGMPSlot(ia) );
-								GMP::SolverSession::AsynchronousExecute( RollSesSlot(ia) );
-								RollAsyncSes += RollSesSlot(ia);
+								GMP::Coefficient::Set( RollGMPSlot(RollSlotOf(ia)), OF_FOR_definition, P_PCC(PeriodMaxP), Roll_SignP*cos(FOR_AngleRad) );
+								GMP::Coefficient::Set( RollGMPSlot(RollSlotOf(ia)), OF_FOR_definition, Q_PCC(PeriodMaxP), Roll_SignQ*sin(FOR_AngleRad) );
+								RollSesSlot(RollSlotOf(ia)) := GMP::Instance::CreateSolverSession( RollGMPSlot(RollSlotOf(ia)) );
+								GMP::SolverSession::AsynchronousExecute( RollSesSlot(RollSlotOf(ia)) );
+								RollAsyncSes += RollSesSlot(RollSlotOf(ia));
 							endfor;
 							GMP::SolverSession::WaitForCompletion( RollAsyncSes );
 
@@ -3020,20 +3084,20 @@ Model Main_OPF_VI_LG {
 							for (ia | ord(ia) > Roll_Done and ord(ia) <= Roll_Done + Roll_Batch) do
 								FOR_Angle    := FOR_AngleDeg(ia);
 								FOR_AngleRad := FOR_Angle * 4*arctan(1) / 180;
-								Roll_SolState := GMP::SolverSession::GetProgramStatus( RollSesSlot(ia) );
-								Roll_SolTime  := GMP::SolverSession::GetTimeUsed( RollSesSlot(ia) ) / 100;   ! GetTimeUsed reports centiseconds; the CSV time column is seconds (verified against the sequential runs, 2026-08-14)
+								Roll_SolState := GMP::SolverSession::GetProgramStatus( RollSesSlot(RollSlotOf(ia)) );
+								Roll_SolTime  := GMP::SolverSession::GetTimeUsed( RollSesSlot(RollSlotOf(ia)) ) / 100;   ! GetTimeUsed reports centiseconds; the CSV time column is seconds (verified against the sequential runs, 2026-08-14)
 								if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
-									GMP::Solution::RetrieveFromSolverSession( RollSesSlot(ia), 1 );
+									GMP::Solution::RetrieveFromSolverSession( RollSesSlot(RollSlotOf(ia)), 1 );
 								else
 									option numeric_focus       := 3;
 									option barrier_homogeneous := 1;
-									GMP::Instance::Solve( RollGMPSlot(ia) );
-									Roll_SolState := GMP::Solution::GetProgramStatus( RollGMPSlot(ia), 1 );
+									GMP::Instance::Solve( RollGMPSlot(RollSlotOf(ia)) );
+									Roll_SolState := GMP::Solution::GetProgramStatus( RollGMPSlot(RollSlotOf(ia)), 1 );
 									option numeric_focus       := 0;
 									option barrier_homogeneous := 0;
 								endif;
 								if Roll_SolState = 'Optimal' or Roll_SolState = 'LocallyOptimal' then
-									GMP::Solution::SendToModel( RollGMPSlot(ia), 1 );   ! P_PCC/Q_PCC/Vre/Vim are read from the model below
+									GMP::Solution::SendToModel( RollGMPSlot(RollSlotOf(ia)), 1 );   ! P_PCC/Q_PCC/Vre/Vim are read from the model below
 								endif;
 								FOR_StatCur := Roll_SolState;
 				
@@ -3106,11 +3170,19 @@ Model Main_OPF_VI_LG {
 								putclose FOR_RollProgress;
 
 								put FOR_RollCSV;   ! restore the active file for the next direction
-								GMP::Instance::DeleteSolverSession( RollSesSlot(ia) );
-								GMP::Instance::Delete( RollGMPSlot(ia) );
+								GMP::Instance::DeleteSolverSession( RollSesSlot(RollSlotOf(ia)) );
+								if RollAsyncReuse = 0 then
+									GMP::Instance::Delete( RollGMPSlot(RollSlotOf(ia)) );   ! with the pool reused, the copies outlive the batch
+								endif;
 							endfor;
 							Roll_Done := Roll_Done + Roll_Batch;
 						endwhile;
+						! the pool lives exactly one period: the next period generates a new shared instance
+						if RollAsyncReuse = 1 then
+							for (ia | ord(ia) <= RollAsyncK) do
+								GMP::Instance::Delete( RollGMPSlot(ia) );
+							endfor;
+						endif;
 					else
 					for (ia) do
 						FOR_Angle    := FOR_AngleDeg(ia);
@@ -3342,6 +3414,23 @@ Model Main_OPF_VI_LG {
 				
 					! advance the realised SOC to the next step (executed slot-1 dispatch)
 					BattSOCstart(bat) := RollSOCnext(bat);
+					! CHUNKED RUN: the whole of the state the next period needs. Written every period so an
+					! interrupted run can be resumed from the last one that closed.
+					RollCkptPeriod := RollNow + 1;
+					! NOT the WRITE statement: it rounds to display precision (0.140), and the rolling
+					! chain is sensitive to the last digits. Same AIMMS data syntax, 17 decimals.
+					if FileExists( FOR_RollCkptName ) then FileDelete( FOR_RollCkptName ); endif;
+					put FOR_RollCkpt;
+					put "BattSOCstart(bat) := data" / ;
+					put "{" / ;
+					for (bat) do
+						if ord(bat) > 1 then put " ," / ; endif;
+						put "  ", bat:24, " : ", BattSOCstart(bat):24:17;
+					endfor;
+					put " } ;" / ;
+					put "RollCkptPeriod := ", RollCkptPeriod:4:0, " ;" / ;
+					putclose FOR_RollCkpt;
+					put FOR_RollCSV;   ! restore the active file
 				endfor;
 				
 				putclose FOR_RollCSV;
@@ -5433,6 +5522,162 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "TEST 3b VALIDATION: RunTR3_BaseNoNet's question answered through BaseNoNetGMP=1 on the shared instance. Compare FOR_rolling_TR3_base3b.csv and its soc companion against the _TR3_basenonet pair.";
 		}
+		Procedure RunTR3_ReuseA {
+			Body: {
+				! A/B FOR RollAsyncReuse, at TR3 scale. Clone of RunTR3_Base3b in every assignment
+				! except RollAsyncReuse and the output suffix, and run at K=3 so a period is four
+				! batches rather than two - the pool is then reused three times per period.
+				!   A: RollAsyncReuse = 0, one instance copy and one delete PER DIRECTION (old code)
+				!   B: RollAsyncReuse = 1, three copies made once per period and reused (new code)
+				! ACCEPTANCE: max abs dproj = 0 over all 576 directions and no status changed.
+				! proj is the invariant, not P/Q: the sweep maximises a linear functional over a convex
+				! set, so a flat face admits many argmaxes.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_reuseA.csv FOR_rolling_TR3_reuseB.csv
+				! A non-zero dproj here would mean a reused copy carries state from its previous solve
+				! - a retained basis or warm start - which is the one risk this change has.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_reuseA";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 4;
+				RollAsyncReuse    := 0;   ! <-- the only difference against RunTR3_ReuseB
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke leaves it at 2 if interrupted
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted
+				run RunFOR_Rolling;
+				RollAsyncReuse    := 1;   ! MUST reset: 1 is the declared default
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B for RollAsyncReuse at TR3, arm A (RollAsyncReuse = 0). Clone of RunTR3_Base3b at K=3 x 4, so each period runs four batches over a pool of three copies. Writes FOR_rolling_TR3_reuseA.csv. Acceptance: max abs dproj = 0 against the other arm, and no status changed. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunTR3_ReuseB {
+			Body: {
+				! A/B FOR RollAsyncReuse, at TR3 scale. Clone of RunTR3_Base3b in every assignment
+				! except RollAsyncReuse and the output suffix, and run at K=3 so a period is four
+				! batches rather than two - the pool is then reused three times per period.
+				!   A: RollAsyncReuse = 0, one instance copy and one delete PER DIRECTION (old code)
+				!   B: RollAsyncReuse = 1, three copies made once per period and reused (new code)
+				! ACCEPTANCE: max abs dproj = 0 over all 576 directions and no status changed.
+				! proj is the invariant, not P/Q: the sweep maximises a linear functional over a convex
+				! set, so a flat face admits many argmaxes.
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_reuseA.csv FOR_rolling_TR3_reuseB.csv
+				! A non-zero dproj here would mean a reused copy carries state from its previous solve
+				! - a retained basis or warm start - which is the one risk this change has.
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_reuseB";
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 4;
+				RollAsyncReuse    := 1;   ! <-- the only difference against RunTR3_ReuseA
+				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke leaves it at 2 if interrupted
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted
+				run RunFOR_Rolling;
+				RollAsyncReuse    := 1;   ! MUST reset: 1 is the declared default
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B for RollAsyncReuse at TR3, arm B (RollAsyncReuse = 1). Clone of RunTR3_Base3b at K=3 x 4, so each period runs four batches over a pool of three copies. Writes FOR_rolling_TR3_reuseB.csv. Acceptance: max abs dproj = 0 against the other arm, and no status changed. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunTR3_Chunk1 {
+			Body: {
+				! CHUNKED-RUN TEST at TR3, chunk 1: periods 1-24 in this process.
+				! Identical to RunTR3_ReuseB in every other assignment, so concatenating chunk 1 and
+				! chunk 2 must reproduce FOR_rolling_TR3_reuseB.csv, which is the same 48 periods run
+				! in ONE process. That is the acceptance test for the checkpoint: it proves the SOC
+				! survives the process boundary with enough precision to leave the rolling chain intact.
+				!   py -3 scripts/concat_FOR_chunks.py _TR3_c1 _TR3_c2 --out _TR3_chunked
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_reuseB.csv FOR_rolling_TR3_chunked.csv
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_c1";
+				RollCkptTag       := "_TR3chunk";   ! shared by both chunks - this is how chunk 2 finds chunk 1
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 4;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 1;
+				RollMaxPeriods    := 24;   ! ABSOLUTE last period of this chunk, not a count
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;   ! MUST reset: a leftover value would silently skip periods
+				RollMaxPeriods    := 0;   ! MUST reset: a leftover value would silently truncate a run
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CHUNKED-RUN TEST at TR3, chunk 1 of 2: periods 1-24. Same configuration as RunTR3_ReuseB; run chunk 1 then chunk 2, concatenate, and compare against FOR_rolling_TR3_reuseB.csv. Writes FOR_rolling_TR3_c1.csv and the shared checkpoint FOR_rolling_ckpt_TR3chunk.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunTR3_Chunk2 {
+			Body: {
+				! CHUNKED-RUN TEST at TR3, chunk 2: periods 25-48 in this process.
+				! Identical to RunTR3_ReuseB in every other assignment, so concatenating chunk 1 and
+				! chunk 2 must reproduce FOR_rolling_TR3_reuseB.csv, which is the same 48 periods run
+				! in ONE process. That is the acceptance test for the checkpoint: it proves the SOC
+				! survives the process boundary with enough precision to leave the rolling chain intact.
+				!   py -3 scripts/concat_FOR_chunks.py _TR3_c1 _TR3_c2 --out _TR3_chunked
+				!   py -3 scripts/compare_FOR_runs.py FOR_rolling_TR3_reuseB.csv FOR_rolling_TR3_chunked.csv
+				UseBattComp       := 0;
+				RollFileSuffix    := "_TR3_c2";
+				RollCkptTag       := "_TR3chunk";   ! shared by both chunks - this is how chunk 2 finds chunk 1
+				ReduceNetwork     := 1;
+				DetailTagCSV      := "TR3";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 4;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 25;
+				RollMaxPeriods    := 48;   ! ABSOLUTE last period of this chunk, not a count
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;   ! MUST reset: a leftover value would silently skip periods
+				RollMaxPeriods    := 0;   ! MUST reset: a leftover value would silently truncate a run
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "CHUNKED-RUN TEST at TR3, chunk 2 of 2: periods 25-48. Same configuration as RunTR3_ReuseB; run chunk 1 then chunk 2, concatenate, and compare against FOR_rolling_TR3_reuseB.csv. Writes FOR_rolling_TR3_c2.csv and the shared checkpoint FOR_rolling_ckpt_TR3chunk.dat. See docs/parallel-sweep-address-space.md.";
+		}
 		Procedure RunFullFeeder_Production {
 			Body: {
 				! WHOLE-FEEDER PRODUCTION, m=0. THE standard way to run the full network as of
@@ -5481,8 +5726,8 @@ Model Main_OPF_VI_LG {
 				DetailLoadPattern := "";
 				RollUseGMP        := 1;
 				RollGMPBaseline   := 1;
-				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
-				BaseNoNetGMP      := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! 2026-08-30: was 1. A network-free baseline commits a dispatch the network cannot support and every sweep direction of period 22 came back Infeasible; with this at 0, 12/12 Optimal. Costs back the ~9.6 h it saved. See docs/network-free-baseline.md
 				EnableRollDiag    := 0;
 				RollAsyncK        := 0;   ! SEQUENTIAL - the instance copy hangs at this scale, see above
 				RollAsyncThreads  := 2;
@@ -5542,10 +5787,11 @@ Model Main_OPF_VI_LG {
 				DetailLoadPattern := "";
 				RollUseGMP        := 1;
 				RollGMPBaseline   := 1;
-				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
-				BaseNoNetGMP      := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! 2026-08-30: was 1, see docs/network-free-baseline.md. The evidence quoted above (13 periods, zero rescues) was measured at 1 and stopped before the midday peak, where 1 makes every direction Infeasible.
 				EnableRollDiag    := 0;
 				RollFlushCSV      := 1;   ! every vertex reaches disk as it is produced; there is no resume
+				RollAsyncReuse    := 0;   ! pinned to the pre-2026-08-28 behaviour, because the evidence in this comment (13 periods, zero rescues) was measured at 12+12 copy/delete calls per period. RunFullFeeder_K3_C1..C4 are the same run with RollAsyncReuse = 1 and split across processes, which is what should actually be used - see docs/parallel-sweep-address-space.md
 				RollAsyncK        := 3;   ! <-- this and RollAsyncThreads are the only difference against RunFullFeeder_Production
 				RollAsyncThreads  := 5;   ! 3 x 5 = 15 threads, which also avoids oversubscribing a 22-thread machine
 				RollMaxPeriods    := 0;   ! defensive pin: RunFullFeeder_AsyncSmoke and RunTR6_AsyncTune leave it at 2 if interrupted -> a 2-period run with a complete-looking CSV
@@ -5559,6 +5805,1195 @@ Model Main_OPF_VI_LG {
 				RollGMPBaseline   := 0;
 			}
 			Comment: "WHOLE-FEEDER PRODUCTION, m=0, sweep parallel at K=3 x 5 threads. Same model and settings as RunFullFeeder_Production; only RollAsyncK and RollAsyncThreads differ. RollAsyncThreads is a MEMORY knob: the CPLEX barrier reserves working space per thread, so a session needs about 74 GB at 12 threads and about 42 GB at 5. At K=2 x 12 the second session of every batch failed and was silently re-solved by the rescue; at K=3 x 5 all three fit. Evidence: 13 periods, 156/156 Optimal, zero rescues, under results/parallel_k3_2026-08. Re-check the split on a different machine. Writes FOR_rolling_full_k3.csv plus its soc and fair companions. See docs/parallel-sweep-memory.md.";
+		}
+		Procedure RunFullFeeder_K3_C1 {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, K=3 x 5, CHUNK 1 OF 4: periods 1-12.
+				!
+				! Same model and settings as RunFullFeeder_ProductionK3. Two differences, both about
+				! surviving a 48-period run rather than about what is solved:
+				!   RollAsyncReuse = 1   the three instance copies are made once per period, not once
+				!                        per direction: 3+3 copy/delete calls per period instead of 12+12
+				!   this chunk         a fresh process, so the address space starts unfragmented
+				!
+				! WHY. GMP::Instance::Copy/Delete fragments the process address space in proportion to
+				! how often it is called, and every allocation then slows down on one serialized thread.
+				! A K=3 run stalled in period 16 on 2026-08-28 with 314,519 private regions against
+				! 41,982 at period 1 and committed bytes flat. See docs/parallel-sweep-address-space.md.
+				!
+				! RUN THEM IN ORDER, each in its own AimmsCmd process. Chunk 1 starts from BattSOCini;
+				! chunks 2-4 read the committed SOC from FOR_rolling_ckpt_fullk3.dat, which is rewritten
+				! after every period. A chunk that dies is re-run alone: set RollStartPeriod to the
+				! period the checkpoint names. THAT is the resume this model never had.
+				!
+				! When all four are done:
+				!   py -3 scripts/concat_FOR_chunks.py _full_k3_c1 _full_k3_c2 _full_k3_c3 _full_k3_c4 --out _full_k3
+				! The script refuses to stitch a gap or an overlap, so a chunk that stopped early cannot
+				! silently become a complete-looking CSV.
+				!
+				! VALIDATED AT TR3: chunked in two processes reproduces the single-process run in every
+				! column except the solver time - max abs dproj = 0.000e+00 over 576 directions, and the
+				! soc and fair CSVs byte for byte.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_c1";
+				RollCkptTag       := "_fullk3";   ! shared by all four chunks - this is how they chain
+				ReduceNetwork     := 0;   ! FULL feeder, every transformer in detail
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;   ! MEMORY knob: 37 + 3x42 = 163 GB, see docs/parallel-sweep-memory.md
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 1;
+				RollMaxPeriods    := 12;   ! ABSOLUTE last period of this chunk, not a count
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;   ! MUST reset: a leftover value would silently skip periods
+				RollMaxPeriods    := 0;   ! MUST reset: a leftover value would silently truncate a run
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, chunk 1 of 4: periods 1-12, in its own process. RunFullFeeder_ProductionK3 plus the two changes that let a 48-period run finish: copies reused within a period (RollAsyncReuse) and a fresh address space per chunk (RollStartPeriod + checkpoint). Run C1..C4 in order, then stitch with scripts/concat_FOR_chunks.py. Writes FOR_rolling_full_k3_c1.csv and the shared checkpoint FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_C2 {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, K=3 x 5, CHUNK 2 OF 4: periods 13-24.
+				!
+				! Same model and settings as RunFullFeeder_ProductionK3. Two differences, both about
+				! surviving a 48-period run rather than about what is solved:
+				!   RollAsyncReuse = 1   the three instance copies are made once per period, not once
+				!                        per direction: 3+3 copy/delete calls per period instead of 12+12
+				!   this chunk         a fresh process, so the address space starts unfragmented
+				!
+				! WHY. GMP::Instance::Copy/Delete fragments the process address space in proportion to
+				! how often it is called, and every allocation then slows down on one serialized thread.
+				! A K=3 run stalled in period 16 on 2026-08-28 with 314,519 private regions against
+				! 41,982 at period 1 and committed bytes flat. See docs/parallel-sweep-address-space.md.
+				!
+				! RUN THEM IN ORDER, each in its own AimmsCmd process. Chunk 1 starts from BattSOCini;
+				! chunks 2-4 read the committed SOC from FOR_rolling_ckpt_fullk3.dat, which is rewritten
+				! after every period. A chunk that dies is re-run alone: set RollStartPeriod to the
+				! period the checkpoint names. THAT is the resume this model never had.
+				!
+				! When all four are done:
+				!   py -3 scripts/concat_FOR_chunks.py _full_k3_c1 _full_k3_c2 _full_k3_c3 _full_k3_c4 --out _full_k3
+				! The script refuses to stitch a gap or an overlap, so a chunk that stopped early cannot
+				! silently become a complete-looking CSV.
+				!
+				! VALIDATED AT TR3: chunked in two processes reproduces the single-process run in every
+				! column except the solver time - max abs dproj = 0.000e+00 over 576 directions, and the
+				! soc and fair CSVs byte for byte.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_c2";
+				RollCkptTag       := "_fullk3";   ! shared by all four chunks - this is how they chain
+				ReduceNetwork     := 0;   ! FULL feeder, every transformer in detail
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;   ! MEMORY knob: 37 + 3x42 = 163 GB, see docs/parallel-sweep-memory.md
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 13;
+				RollMaxPeriods    := 24;   ! ABSOLUTE last period of this chunk, not a count
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;   ! MUST reset: a leftover value would silently skip periods
+				RollMaxPeriods    := 0;   ! MUST reset: a leftover value would silently truncate a run
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, chunk 2 of 4: periods 13-24, in its own process. RunFullFeeder_ProductionK3 plus the two changes that let a 48-period run finish: copies reused within a period (RollAsyncReuse) and a fresh address space per chunk (RollStartPeriod + checkpoint). Run C1..C4 in order, then stitch with scripts/concat_FOR_chunks.py. Writes FOR_rolling_full_k3_c2.csv and the shared checkpoint FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_C3 {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, K=3 x 5, CHUNK 3 OF 4: periods 25-36.
+				!
+				! Same model and settings as RunFullFeeder_ProductionK3. Two differences, both about
+				! surviving a 48-period run rather than about what is solved:
+				!   RollAsyncReuse = 1   the three instance copies are made once per period, not once
+				!                        per direction: 3+3 copy/delete calls per period instead of 12+12
+				!   this chunk         a fresh process, so the address space starts unfragmented
+				!
+				! WHY. GMP::Instance::Copy/Delete fragments the process address space in proportion to
+				! how often it is called, and every allocation then slows down on one serialized thread.
+				! A K=3 run stalled in period 16 on 2026-08-28 with 314,519 private regions against
+				! 41,982 at period 1 and committed bytes flat. See docs/parallel-sweep-address-space.md.
+				!
+				! RUN THEM IN ORDER, each in its own AimmsCmd process. Chunk 1 starts from BattSOCini;
+				! chunks 2-4 read the committed SOC from FOR_rolling_ckpt_fullk3.dat, which is rewritten
+				! after every period. A chunk that dies is re-run alone: set RollStartPeriod to the
+				! period the checkpoint names. THAT is the resume this model never had.
+				!
+				! When all four are done:
+				!   py -3 scripts/concat_FOR_chunks.py _full_k3_c1 _full_k3_c2 _full_k3_c3 _full_k3_c4 --out _full_k3
+				! The script refuses to stitch a gap or an overlap, so a chunk that stopped early cannot
+				! silently become a complete-looking CSV.
+				!
+				! VALIDATED AT TR3: chunked in two processes reproduces the single-process run in every
+				! column except the solver time - max abs dproj = 0.000e+00 over 576 directions, and the
+				! soc and fair CSVs byte for byte.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_c3";
+				RollCkptTag       := "_fullk3";   ! shared by all four chunks - this is how they chain
+				ReduceNetwork     := 0;   ! FULL feeder, every transformer in detail
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;   ! MEMORY knob: 37 + 3x42 = 163 GB, see docs/parallel-sweep-memory.md
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 25;
+				RollMaxPeriods    := 36;   ! ABSOLUTE last period of this chunk, not a count
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;   ! MUST reset: a leftover value would silently skip periods
+				RollMaxPeriods    := 0;   ! MUST reset: a leftover value would silently truncate a run
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, chunk 3 of 4: periods 25-36, in its own process. RunFullFeeder_ProductionK3 plus the two changes that let a 48-period run finish: copies reused within a period (RollAsyncReuse) and a fresh address space per chunk (RollStartPeriod + checkpoint). Run C1..C4 in order, then stitch with scripts/concat_FOR_chunks.py. Writes FOR_rolling_full_k3_c3.csv and the shared checkpoint FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_C4 {
+			Body: {
+				! WHOLE-FEEDER PRODUCTION, m=0, K=3 x 5, CHUNK 4 OF 4: periods 37-48.
+				!
+				! Same model and settings as RunFullFeeder_ProductionK3. Two differences, both about
+				! surviving a 48-period run rather than about what is solved:
+				!   RollAsyncReuse = 1   the three instance copies are made once per period, not once
+				!                        per direction: 3+3 copy/delete calls per period instead of 12+12
+				!   this chunk         a fresh process, so the address space starts unfragmented
+				!
+				! WHY. GMP::Instance::Copy/Delete fragments the process address space in proportion to
+				! how often it is called, and every allocation then slows down on one serialized thread.
+				! A K=3 run stalled in period 16 on 2026-08-28 with 314,519 private regions against
+				! 41,982 at period 1 and committed bytes flat. See docs/parallel-sweep-address-space.md.
+				!
+				! RUN THEM IN ORDER, each in its own AimmsCmd process. Chunk 1 starts from BattSOCini;
+				! chunks 2-4 read the committed SOC from FOR_rolling_ckpt_fullk3.dat, which is rewritten
+				! after every period. A chunk that dies is re-run alone: set RollStartPeriod to the
+				! period the checkpoint names. THAT is the resume this model never had.
+				!
+				! When all four are done:
+				!   py -3 scripts/concat_FOR_chunks.py _full_k3_c1 _full_k3_c2 _full_k3_c3 _full_k3_c4 --out _full_k3
+				! The script refuses to stitch a gap or an overlap, so a chunk that stopped early cannot
+				! silently become a complete-looking CSV.
+				!
+				! VALIDATED AT TR3: chunked in two processes reproduces the single-process run in every
+				! column except the solver time - max abs dproj = 0.000e+00 over 576 directions, and the
+				! soc and fair CSVs byte for byte.
+				UseBattComp       := 0;
+				FairMode          := 0;   ! m=0, explicit so the run cannot inherit a session value
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_c4";
+				RollCkptTag       := "_fullk3";   ! shared by all four chunks - this is how they chain
+				ReduceNetwork     := 0;   ! FULL feeder, every transformer in detail
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;   ! must stay 0 - BaseNoNetGMP is the network-free baseline here
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;   ! MEMORY knob: 37 + 3x42 = 163 GB, see docs/parallel-sweep-memory.md
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 37;
+				RollMaxPeriods    := 48;   ! ABSOLUTE last period of this chunk, not a count
+				RollLinearized    := 0;   ! defensive pin: RunTR3_Linear/RunTR7_Linear leave it at 1 if interrupted
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;   ! MUST reset: a leftover value would silently skip periods
+				RollMaxPeriods    := 0;   ! MUST reset: a leftover value would silently truncate a run
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, chunk 4 of 4: periods 37-48, in its own process. RunFullFeeder_ProductionK3 plus the two changes that let a 48-period run finish: copies reused within a period (RollAsyncReuse) and a fresh address space per chunk (RollStartPeriod + checkpoint). Run C1..C4 in order, then stitch with scripts/concat_FOR_chunks.py. Writes FOR_rolling_full_k3_c4.csv and the shared checkpoint FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P20 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 20-23.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p20";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 20;
+				RollMaxPeriods    := 23;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 20-23. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p20.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P24 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 24-27.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p24";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 24;
+				RollMaxPeriods    := 27;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 24-27. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p24.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P28 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 28-31.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p28";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 28;
+				RollMaxPeriods    := 31;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 28-31. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p28.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P32 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 32-35.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p32";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 32;
+				RollMaxPeriods    := 35;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 32-35. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p32.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P36 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 36-39.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p36";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 36;
+				RollMaxPeriods    := 39;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 36-39. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p36.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P40 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 40-43.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p40";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 40;
+				RollMaxPeriods    := 43;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 40-43. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p40.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P44 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 44-47.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p44";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 44;
+				RollMaxPeriods    := 47;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 44-47. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p44.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P48 {
+			Body: {
+				! WHOLE-FEEDER K=3 x 5, SHORT CHUNK: periods 48-48.
+				!
+				! Same case as RunFullFeeder_K3_C1..C4 - m=0, full feeder, network-free committed
+				! baseline - in FOUR-period chunks instead of twelve.
+				!
+				! WHY FOUR. The twelve-period chunks were sized on the belief that instance copies drive
+				! the address-space fragmentation of docs/parallel-sweep-address-space.md. They do not:
+				! chunk 2 (periods 13-19) reached 298,565 private regions after 21 copies, where the
+				! 2026-08-27 run needed 192 copies to reach 314,519. Same fragmentation, nine times fewer
+				! copies - so the driver is per-PERIOD work, not per-copy. Chunk 1 (periods 1-12) finished;
+				! chunk 2 stalled in its eighth period. Four periods leaves 2-3x of margin against the
+				! shorter of those two, and the morning-ramp periods appear to be the expensive ones.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p48";
+				RollCkptTag       := "_fullk3";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
+				BaseNoNetGMP      := 1;
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 48;
+				RollMaxPeriods    := 48;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				BaseNoNetGMP      := 0;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER K=3 x 5, four-period chunk: periods 48-48. Same case as the C1..C4 chunks, shorter because the fragmentation driver turned out to be per-period, not per-copy. Writes FOR_rolling_full_k3_p48.csv, chains through FOR_rolling_ckpt_fullk3.dat. See docs/parallel-sweep-address-space.md.";
+		}
+		Procedure RunFullFeeder_K3_P20_NetBase {
+			Body: {
+				! A/B PARTNER of RunFullFeeder_K3_P20: periods 20-23 with the committed baseline solved
+				! WITH the network (BaseNoNetGMP = 0). Identical in every other assignment.
+				!
+				! THE QUESTION. On 2026-08-30, RunFullFeeder_K3_P20 produced 24/24 Optimal in periods 20
+				! and 21 and then ALL TWELVE directions Infeasible in period 22, at 1000-1966 s each. The
+				! 2026-08-17 sequential reference has 576/576 Optimal including period 22, and it ran with
+				! BaseNoNetGMP = 0.
+				!
+				! THE HYPOTHESIS. A network-free baseline can commit a slot-1 dispatch the network cannot
+				! support. The sweep then pins slot 1 to that dispatch AND enforces the network, so it has
+				! no feasible point. At night this cannot show - the network is not binding - which is why
+				! BaseNoNetGMP validated clean on TR3 and on six whole-feeder periods, ALL OF THEM NIGHT
+				! PERIODS (docs/whole-feeder-production.md section 2). By period 17 the sweep already had
+				! 7 of 12 directions pinned at VmaxTrue = 1.10000 and OVviol had risen off its 1.8668e-10
+				! floor. Period 22 is the midday PV peak.
+				!
+				! WHAT DECIDES IT. If period 22 comes back Optimal here, the network-free baseline is the
+				! cause and BaseNoNetGMP is not usable through the middle of the day. If it is Infeasible
+				! here too, the cause is elsewhere and the derivative fix becomes the next suspect.
+				!
+				! Reads the same checkpoint, so restore FOR_rolling_ckpt_fullk3.dat to period 20 first.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_p20nb";
+				RollCkptTag       := "_fullk3nb";   ! su propio checkpoint: no debe pisar el de la campana
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! <-- LA UNICA DIFERENCIA: baseline CON restricciones de red
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 20;
+				RollMaxPeriods    := 23;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "A/B for the period-22 infeasibility: periods 20-23 with BaseNoNetGMP = 0, the committed baseline solved WITH the network. Everything else matches RunFullFeeder_K3_P20. Needs FOR_rolling_ckpt_fullk3.dat restored to period 20, and writes its own checkpoint under the _fullk3nb tag so the campaign checkpoint is not overwritten. Writes FOR_rolling_full_k3_p20nb.csv.";
+		}
+		Procedure RunFullFeeder_NB_P24 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 24-27.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb24";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 24;
+				RollMaxPeriods    := 27;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 24-27. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb24.csv.";
+		}
+		Procedure RunFullFeeder_NB_P28 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 28-31.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb28";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 28;
+				RollMaxPeriods    := 31;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 28-31. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb28.csv.";
+		}
+		Procedure RunFullFeeder_NB_P30 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 30-31.
+				!
+				! RESUME of RunFullFeeder_NB_P28, which the 2026-08-31 06:40 hard stop killed with
+				! period 30 in flight. Periods 28-29 are already in FOR_rolling_full_k3_nb28.csv and
+				! the checkpoint FOR_rolling_ckpt_fullk3nb.dat is good for period 30, so this picks up
+				! exactly where that process died. Its own RollFileSuffix so the nb28 CSV is not
+				! overwritten; stitch nb24 + nb28 + nb30 + nb32.. with scripts/concat_FOR_chunks.py.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb30";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 30;
+				RollMaxPeriods    := 31;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 30-31. Resume of RunFullFeeder_NB_P28 after the 2026-08-31 06:40 hard stop; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb30.csv.";
+		}
+		Procedure RunFullFeeder_NB_P32 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 32-35.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb32";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 32;
+				RollMaxPeriods    := 35;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 32-35. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb32.csv.";
+		}
+		Procedure RunFullFeeder_NB_P36 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 36-39.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb36";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 36;
+				RollMaxPeriods    := 39;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 36-39. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb36.csv.";
+		}
+		Procedure RunFullFeeder_NB_P37 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 37-39.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				!
+				! Added 2026-09-02. The 2-sep run stopped at its scheduled cutoff with the checkpoint
+				! at 37, mid-chunk, so RunFOR_Rolling halts on P36 (RollCkptPeriod <> RollStartPeriod).
+				! Same reason RunFullFeeder_NB_P30 exists. Three periods, not four. Its own
+				! RollFileSuffix keeps it from overwriting the P36 chunk.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb37";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 37;
+				RollMaxPeriods    := 39;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 37-39. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb37.csv.";
+		}
+		Procedure RunFullFeeder_NB_P38 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 38-39.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				!
+				! Added 2026-09-02 (second time that day). The stall watchdog killed a HEALTHY run
+				! whose vertices had merely slowed to ~2x, leaving the checkpoint at 38, mid-chunk.
+				! Same shape as P30 and P37. Two periods, not four. Its own
+				! RollFileSuffix keeps it from overwriting the P37 chunk.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb38";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 38;
+				RollMaxPeriods    := 39;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 38-39. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb38.csv.";
+		}
+		Procedure RunFullFeeder_NB_P40 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 40-43.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb40";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 40;
+				RollMaxPeriods    := 43;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 40-43. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb40.csv.";
+		}
+		Procedure RunFullFeeder_NB_P44 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 44-47.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb44";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 44;
+				RollMaxPeriods    := 47;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 44-47. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb44.csv.";
+		}
+		Procedure RunFullFeeder_NB_P46 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 46-47.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				!
+				! Added 2026-09-03. The run hit its scheduled cutoff mid-chunk with the checkpoint at
+				! 46, so P44 would halt (RollCkptPeriod <> RollStartPeriod). Same shape as P30, P37
+				! and P38. Two periods, not four. Its own RollFileSuffix keeps it from overwriting
+				! the P44 chunk, which holds periods 44 and 45.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb46";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 46;
+				RollMaxPeriods    := 47;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 46-47. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb46.csv.";
+		}
+		Procedure RunFullFeeder_NB_P48 {
+			Body: {
+				! WHOLE-FEEDER m=0, baseline solved WITH the network, periods 48-48.
+				!
+				! Continuation of RunFullFeeder_K3_P20_NetBase. BaseNoNetGMP = 0 because the
+				! network-free baseline made every direction of period 22 Infeasible: it commits a
+				! slot-1 dispatch the network cannot support, and the sweep pins that dispatch AND
+				! enforces the network. Invisible at night, fatal at the midday PV peak.
+				! Four-period chunks, each its own process - see docs/parallel-sweep-address-space.md.
+				UseBattComp       := 0;
+				FairMode          := 0;
+				FairFileTag       := "";
+				RollFileSuffix    := "_full_k3_nb48";
+				RollCkptTag       := "_fullk3nb";
+				ReduceNetwork     := 0;
+				DetailTagCSV      := "";
+				DetailLoadPattern := "";
+				RollUseGMP        := 1;
+				RollGMPBaseline   := 1;
+				BaseNoNetwork     := 0;
+				BaseNoNetGMP      := 0;   ! baseline WITH the network
+				EnableRollDiag    := 0;
+				RollFlushCSV      := 1;
+				RollAsyncK        := 3;
+				RollAsyncThreads  := 5;
+				RollAsyncReuse    := 1;
+				RollStartPeriod   := 48;
+				RollMaxPeriods    := 48;
+				RollLinearized    := 0;
+				run RunFOR_Rolling;
+				RollStartPeriod   := 0;
+				RollMaxPeriods    := 0;
+				RollCkptTag       := "";
+				RollAsyncK        := 0;
+				RollAsyncThreads  := 2;
+				RollFileSuffix    := "";
+				RollUseGMP        := 0;
+				RollGMPBaseline   := 0;
+			}
+			Comment: "WHOLE-FEEDER m=0 with the committed baseline solved WITH the network, periods 48-48. Continuation of RunFullFeeder_K3_P20_NetBase; chains through FOR_rolling_ckpt_fullk3nb.dat. Writes FOR_rolling_full_k3_nb48.csv.";
 		}
 		Procedure RunFullFeeder_ParallelRepro {
 			Body: {
@@ -5601,6 +7036,10 @@ Model Main_OPF_VI_LG {
 				RollUseGMP        := 1;
 				RollGMPBaseline   := 1;
 				BaseNoNetwork     := 0;
+				! SUPERSEDED 2026-08-30: on the WHOLE FEEDER this makes every sweep direction Infeasible
+				! at the midday PV peak - the baseline commits a dispatch the network cannot support.
+				! Kept only because this configuration is what produced the finding. Use the
+				! RunFullFeeder_NB_P* runners instead. See docs/network-free-baseline.md.
 				BaseNoNetGMP      := 1;
 				EnableRollDiag    := 0;
 				RollAsyncK        := 2;   ! <-- this and RollAsyncThreads are what changes against RunFullFeeder_Production;

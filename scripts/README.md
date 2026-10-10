@@ -20,15 +20,30 @@ the script's own location.
 ## `combine_FOR_pertrafo.py`
 Minkowski-combines the per-transformer rolling FORs into a whole-feeder FOR.
 
-- **Inputs:** `FOR_rolling_TR<n>.csv` for each tag, plus `FOR_rolling_baseline.csv`
-  (the passive background, needed when combining more than one transformer). These
-  are model outputs (git-ignored) — generate them by running the model first.
+- **Inputs:** `FOR_rolling_TR<n>.csv` for each tag, plus the passive background `B`
+  (needed when combining more than one transformer). These are model outputs
+  (git-ignored) — generate them by running the model first.
 - **Output:** `FOR_rolling_combined.csv`.
 - **Run:**
   ```bash
-  python combine_FOR_pertrafo.py --tags TR1,TR2,...,TR9 --dir <path-to-csv-folder>
+  python combine_FOR_pertrafo.py --tags TR1,TR2,...,TR9 --dir <path-to-csv-folder> \
+      --baseline FOR_rolling_baseline_full.csv
   ```
   Add `--compare <coupled-run.csv>` to print coupling-gap metrics.
+
+> **Pass `--baseline` explicitly for a full nine-transformer combination.** The default,
+> `FOR_rolling_baseline.csv`, is the *reduced-network* background from
+> `RunFOR_Rolling_Baseline`; it omits the eight lumped transformers' LV losses. The
+> formula subtracts `(N-1)*B`, so with nine tags that omission is multiplied by eight —
+> measured at up to **832 kW** against `FOR_rolling_baseline_full.csv`, on a region whose
+> extent is about 4,400 kW. Use `RunFOR_Rolling_Baseline_Full` instead.
+>
+> **`B` depends on the linearization, so regenerate it whenever the linearization
+> changes.** Across the 2026-08-24 derivative fix, `B` moved by a median of 0.72 % of
+> `|B|` (7.8 kW) and a worst case of 2.91 % (65 kW) — which the factor of eight turns
+> into 63 kW and 522 kW per combined vertex. A stale `B` silently swamps the coupling gap
+> being measured. It is one solve, not a sweep: 80 s of CPLEX inside a 28 min run, most
+> of which is loading the feeder.
 
 ## `compare_FOR_to_NCQ.py`
 Cell-by-cell comparison of two AIMMS `.xls` workbooks, aligned by row-header label —

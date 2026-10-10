@@ -24,6 +24,16 @@ the shared instance carries the network rows and so cannot serve a network-free 
 
 ## 2. What works: `BaseNoNetGMP`
 
+> **Superseded, 2026-08-30. It does not work on the whole feeder.** At the midday PV peak a
+> network-free baseline commits a slot-1 dispatch the network cannot support, and the sweep —
+> which pins that dispatch and enforces the network — comes back `Infeasible` in **all twelve
+> directions**. Measured at period 22: 0/12 with `BaseNoNetGMP = 1`, 12/12 `Optimal` with it
+> at 0, every other assignment identical. The validation reported below could not have caught
+> it: TR3 has a slack network, and the six whole-feeder periods were all night periods. The
+> rule now is that any whole-feeder run keeps the network in the baseline. See
+> `docs/network-free-baseline.md`. What follows is kept because the mechanism and the
+> measurements are still accurate for what they measured.
+
 `Default: 0`, inert unless set. With `RollUseGMP = 1` and `RollGMPBaseline = 1` it deactivates
 the `NetworkModel` rows around the committed baseline solve **on the shared instance**, so the
 baseline is network-free without giving up the single generation per period.
@@ -73,6 +83,15 @@ Two design points worth keeping:
 > fit. The synchronous rescue re-solves it correctly, which is why the CSVs never
 > showed it. The two stalls recorded below were **not** reproduced. See
 > `docs/parallel-sweep-memory.md`.
+>
+> **Update, 2026-08-28.** A third stall, at period 16 of a K=3 production run, was
+> captured and explained: **address-space fragmentation from the 12 instance
+> copy/delete cycles each period performs**. The thread is not stuck — its stack
+> moves between samples — it is doing serialized allocator work that has become
+> pathologically slow. Region count grows 7.5x from period 1 to period 16 while
+> committed bytes stay flat, which is why three investigations watching memory
+> missed it. The sequential path performs zero copies, which is why it completed
+> 48 periods. See `docs/parallel-sweep-address-space.md`.
 
 `GMP::Instance::Copy` **does not return**. One thread at 100 %, memory flat, no vertex, no
 error, and no time limit fires because nothing ever reaches a solver.
@@ -293,6 +312,7 @@ seconds**. Run the reduced bench first. And when a whole-feeder run does start, 
 
 ## 9. Open
 
+- **The stalls are explained as of 2026-08-28: address-space fragmentation driven by the copy/delete cycles.** Not the copy hanging — the copy getting slower as the address space is carved into ever more regions. See `docs/parallel-sweep-address-space.md` for the measurement and for fixes that keep the sweep parallel. The superseded reading follows.
 - **The two stalls are still not explained, but the copy is ruled out.** Six
   instrumented runs on 2026-08-25/26 produced no stall at all, including a K=3 run that
   went through period 7 cleanly. What they did surface is a systematic memory limit that

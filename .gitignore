@@ -34,6 +34,7 @@ FOR_rolling*.csv
 FOR_rolling_preflight_progress.txt
 # progress marker of RunFOR_Rolling: same reasoning as the preflight one above
 FOR_rolling_progress*.txt
+FOR_rolling_ckpt*.dat
 # matrix size / memory / objective-row signs, written when PreflightGMPProbe = 1
 FOR_gmp_probe*.txt
 /*.png

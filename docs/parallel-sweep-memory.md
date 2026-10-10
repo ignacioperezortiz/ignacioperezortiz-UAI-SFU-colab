@@ -207,15 +207,25 @@ The rule travels; the numbers do not. On a new machine:
 
 ## 7. Open
 
+> **Resolved, 2026-08-28.** A whole-feeder K=3 production run stalled in period 16 and was
+> captured. The cause is **address-space fragmentation driven by the 12 `GMP::Instance::Copy`
+> / `Delete` cycles each period performs** — 314 519 private regions at period 16 against
+> 41 982 at period 1, with committed bytes flat. The stalls and the period 6–8 slowdown below
+> are the same effect at different severities. See `docs/parallel-sweep-address-space.md`,
+> which also lists fixes that keep the sweep parallel.
+
 - **The 2026-08-21 and 2026-08-22 stalls were not reproduced.** Six instrumented runs on
   2026-08-25/26, ~60 copies, none stalled — including a K=3 run that went through period 7
   cleanly, where the 2026-08-22 run had stopped. That the stalls are the occasional bad
   outcome of the same memory limit is a plausible reading, not a measured fact.
+  *None of the six went past period 13; the 2026-08-28 stall came at period 16.*
 - **The rescue hides a real failure.** Recording that a rescue happened — a column, or
   adding the rescue's time to `time` — would have surfaced this in the first parallel run,
   and would make the step-1 check work as intended. Worth doing before the async path is
   used more widely.
-- **The period 6–8 slowdown is unexplained**, as described above.
+- **The period 6–8 slowdown is unexplained**, as described above. *Answered: it is the
+  same fragmentation, sampled before it becomes fatal. The 2026-08-28 run reproduced the
+  climb and then stalled — one curve, not a slowdown plus an unrelated hang.*
 - **The instance size is the larger lever.** 6.21 M rows comes from building the full
   48-slot horizon in every period. The sweep pins slot 1 to the committed dispatch and
   looks for the region of slot 2. If that region could be obtained on a shorter horizon the
