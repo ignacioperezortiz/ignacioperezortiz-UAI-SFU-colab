@@ -1551,7 +1551,9 @@ Model Main_OPF_VI_LG {
 				Contribution of battery s: DeltaP_s = BattP_Balance(s,PeriodMaxP) - FairPsc(s), the deviation of its net
 				power from the committed P1 baseline. Headrooms (eq. 12): FairU / FairD, the largest increase / decrease
 				from that baseline that the power and energy limits allow from the SOC at the start of the slot
-				(RollSOCnext) without simultaneous charge and discharge. Box (eq. 13): -FairD <= DeltaP <= FairU in every
+				(RollSOCnext) without simultaneous charge and discharge; with FairEffHead = 1 (paper flow), to the SOC band FairSOCLo..FairSOCHi
+				from which the prosumer can still keep the self-consumption guarantee and the cyclic band later in the window (FairEffBand).
+				Box (eq. 13): -FairD <= DeltaP <= FairU in every
 				directional solve, fair or not (FairBox = 1). Criteria, per group G of the scope (FairScope 1 = one group
 				per aggregator through BattAgg, 2 = one network-wide group): CP (eq. 14) DeltaP = zeta_G*BattMaxP;
 				HP (eq. 15) DeltaP = zu_G*U - zd_G*D with zu, zd >= 0 and zu + zd <= 1; HB (eq. 16) the HP equality
@@ -1621,16 +1623,67 @@ Model Main_OPF_VI_LG {
 				Definition: min( BattMaxP(bat), max( 0, (RollSOCnext(bat) - BattSOCmin(bat))*BattEcap(bat)*etaDis(bat)/DeltaT ) );
 				Comment: "Largest discharging power sustainable over the flexibility slot from RollSOCnext without simultaneous charge, p.u.";
 			}
+			Parameter FairEffHead {
+				Default: 0;
+				Comment: "1 = effective headrooms (11-Oct-2026): U and D are measured to the SOC band FairSOCLo..FairSOCHi at the end of the flexibility slot from which the prosumer can still meet what binds it later in the window (its SOC limits, the self-consumption guarantee SCNoImportFuture / ZX_SCTight and the cyclic end-of-window band), not to the physical SOC limits. With physical headrooms a battery the guarantee keeps from going down still has D > 0, and HP/HB can use the downward factor only by mixing in the upward one, which makes the batteries with a large U charge during an export request (WC_EXPORT, 11-Oct: 41 of 84 group-corners mixed at 180 deg, 21 houses buying inside the requested half-hours). PV2_Run (paper flow) sets 1; the declared default 0 keeps the physical headrooms of commit 866c053 exactly.";
+			}
+			Parameter FairSOCLo {
+				IndexDomain: bat;
+				Comment: "Lowest SOC (p.u. of BattEcap) at the end of the flexibility slot from which the rest of the window stays feasible for this prosumer, network ignored. Set by FairEffBand at every step when FairEffHead = 1.";
+			}
+			Parameter FairSOCHi {
+				IndexDomain: bat;
+				Comment: "Highest SOC at the end of the flexibility slot from which the rest of the window stays feasible for this prosumer (the physical ceiling unless the cyclic band binds). Set by FairEffBand.";
+			}
+			Parameter FairEffGap {
+				IndexDomain: bat;
+				Comment: "Work value of FairEffBand: largest net battery power the guarantee allows at the slot being walked (import reference + SCAlpha*rating + row slack - own net load), p.u.; negative = discharge the battery must give.";
+			}
+			ElementParameter FairEffSlot {
+				Range: Time;
+				Comment: "Work value of FairEffBand: the slot being walked, backwards from the end of the window.";
+			}
+			Parameter FairPlo {
+				IndexDomain: bat;
+				Definition: {
+					if FairEffHead = 1 then
+					    if FairSOCLo(bat) <= RollSOCnext(bat) then -min( BattMaxP(bat), (RollSOCnext(bat) - FairSOCLo(bat))*BattEcap(bat)*etaDis(bat)/DeltaT )
+					    else min( BattMaxP(bat), (FairSOCLo(bat) - RollSOCnext(bat))*BattEcap(bat)/(etaChg(bat)*DeltaT) ) endif
+					else -FairPdisMax(bat) endif
+				}
+				Comment: "Lowest net battery power at the flexibility slot, p.u. (+ = charging): -FairPdisMax with physical headrooms; with FairEffHead = 1 the lowest that ends the slot at or above FairSOCLo (positive when the battery must charge).";
+			}
+			Parameter FairPhi {
+				IndexDomain: bat;
+				Definition: {
+					if FairEffHead = 1 then
+					    if FairSOCHi(bat) >= RollSOCnext(bat) then min( BattMaxP(bat), (FairSOCHi(bat) - RollSOCnext(bat))*BattEcap(bat)/(etaChg(bat)*DeltaT) )
+					    else -min( BattMaxP(bat), (RollSOCnext(bat) - FairSOCHi(bat))*BattEcap(bat)*etaDis(bat)/DeltaT ) endif
+					else FairPchMax(bat) endif
+				}
+				Comment: "Highest net battery power at the flexibility slot, p.u.: FairPchMax with physical headrooms; with FairEffHead = 1 the highest that ends the slot at or below FairSOCHi.";
+			}
 			Parameter FairU {
 				IndexDomain: bat;
-				Definition: max( 0, FairPchMax(bat) - FairPsc(bat) );
+				Definition: max( 0, FairPhi(bat) - FairPsc(bat) );
 				Comment: "Upward headroom U_s (eq. 12a), p.u.";
 			}
 			Parameter FairD {
 				IndexDomain: bat;
-				Definition: max( 0, FairPdisMax(bat) + FairPsc(bat) );
+				Definition: max( 0, FairPsc(bat) - FairPlo(bat) );
 				Comment: "Downward headroom D_s (eq. 12b), p.u.";
 			}
+			Parameter FairEffNd {
+				Comment: "FAIREFF diagnostic, per step: batteries whose D the band cuts by more than 1 W (FairEffNd0 of them to below 1 W), and the total cut in kW (FairEffCutD); the same for U.";
+			}
+			Parameter FairEffNd0;
+			Parameter FairEffCutD;
+			Parameter FairEffNu;
+			Parameter FairEffCutU;
+			Parameter FairEffOut {
+				Comment: "FAIREFF diagnostic, per step: baselines outside [FairPlo, FairPhi] by more than 1 W, and the largest excess in kW (FairEffOutMax). The baseline meets everything the band is walked from, so this is expected 0 up to solver tolerance; a count here means the walk is stricter than the model.";
+			}
+			Parameter FairEffOutMax;
 			Parameter FairUGen {
 				IndexDomain: bat;
 				Comment: "FairU as it entered the sweep: snapshot taken right before the instance is generated (GMP) or solved (sequential path). Used by the logs and the delivery check, because BattSOCmax changes later in the step.";
@@ -4592,6 +4645,7 @@ Model Main_OPF_VI_LG {
 							put "FAIRBASE at step ", RollNow:3:0, ": the committed baseline is ", ConvFlag, " - FairPsc comes from a non-optimal solution" / ;
 							putclose SCT_Info;
 						endif;
+						if FairEffHead = 1 then run FairEffBand; endif;   ! effective headrooms: the SOC band FairU/FairD are measured to
 					endif;
 					put FOR_RollSOCCSV;
 					for (bat) do
@@ -14831,6 +14885,67 @@ Model Main_OPF_VI_LG {
 			}
 			Comment: "PAPER-1 FAIRNESS diagnostic, called where FairUGen/FairDGen are snapshotted (before the GMP sweep instance is generated; before the first direction on the sequential path). Threshold 1e-6 p.u. = 1 W: P1 meets the SOC ceiling to solver tolerance (overshoots up to ~0.5 W), which is not a phantom baseline.";
 		}
+		Procedure FairEffBand {
+			Body: {
+				! Effective headrooms (FairEffHead = 1): the SOC band at the end of the flexibility slot from which the prosumer can
+				! still meet, at every later slot of the window, what binds it there in the sweep: its SOC limits, the self-consumption
+				! guarantee (the battery must cover its own net load down to the baseline's import) and the cyclic end-of-window band.
+				! Walked backwards from the end of the window, per battery and without the network: the band contains every slot-2
+				! point the sweep can reach, so the box it implies is redundant in the reference FOR and what it changes is the
+				! HP/HB rule, which now splits only what each prosumer can actually give.
+				if ZX_On = 1 or PVC_On = 1 then
+					halt with "FairEffHead = 1 is written for rule (i) (ZX_On = 0, PVC_On = 0): the PV-cut columns would enter the house balance it walks.";
+				endif;
+				if exists( (n,f) | sum( bat | BattBus(bat) = n and BattPhase(bat) = f, 1 ) > 1 ) then
+					halt with "FairEffHead = 1 needs one battery per bus and phase: the guarantee binds the node, and the walk splits it per battery.";
+				endif;
+
+				! end of the window: SOC limits, cyclic band (CyclicSOC, or CyclicSOC_lb/_ub with the anchor shift) and ZX_EndCap
+				FairSOCLo(bat) := max( BattSOCmin(bat),
+				                       if RollCyclicSOC = 1 and CyclicSOCBand > 0 then BattSOCini(bat) - CyclicSOCBand + ZX_AnchorOn*max( 0, ZX_SOCAnchor(bat) - BattSOCini(bat) )
+				                       elseif RollCyclicSOC = 1 then BattSOCini(bat)
+				                       else BattSOCmin(bat) endif,
+				                       if ZX_EndOn = 1 then ZX_SOCEndRef(bat) - ZX_EndTol/1000 else BattSOCmin(bat) endif );
+				FairSOCHi(bat) := min( BattSOCmax(bat), if BattSOCmaxPhys(bat) > 0 then BattSOCmaxPhys(bat) else BattSOCmax(bat) endif,
+				                       if RollCyclicSOC = 1 and CyclicSOCBand > 0 then BattSOCini(bat) + CyclicSOCBand + ZX_AnchorOn*max( 0, ZX_SOCAnchor(bat) - BattSOCini(bat) )
+				                       elseif RollCyclicSOC = 1 then BattSOCini(bat)
+				                       else BattSOCmax(bat) endif );
+
+				! one slot back at a time: the lowest SOC at the end of the previous slot is the one that still reaches FairSOCLo after
+				! the most this slot can add (charging only up to what the guarantee leaves room for; a negative gap is discharge the
+				! battery must give), the highest the one that still reaches FairSOCHi discharging at full power
+				FairEffSlot := Element( Time, nPeriods );
+				while ord( FairEffSlot ) > PeriodMaxP do
+					FairEffGap(bat) := if SCFirst = 1 or SCT_Hard = 1 then
+					                      SCImpRef(bat,FairEffSlot) + SCAlpha*BattMaxP(bat) + ( if SCTight <> 0 then ZX_TightTol/1000 else SCEps endif )
+					                      - sum( d | LoadBus(d) = BattBus(bat) and LoadPhase(d) = BattPhase(bat), P0minGenP(d,FairEffSlot) )
+					                   else BattMaxP(bat) endif;
+					FairSOCLo(bat) := max( BattSOCmin(bat),
+					                       FairSOCLo(bat) - ( if FairEffGap(bat) >= 0 then etaChg(bat)*min( BattMaxP(bat), FairEffGap(bat) )
+					                                          else FairEffGap(bat)/etaDis(bat) endif )*DeltaT/BattEcap(bat) );
+					FairSOCHi(bat) := min( BattSOCmax(bat), if BattSOCmaxPhys(bat) > 0 then BattSOCmaxPhys(bat) else BattSOCmax(bat) endif,
+					                       FairSOCHi(bat) + BattMaxP(bat)*DeltaT/(etaDis(bat)*BattEcap(bat)) );
+					FairEffSlot := Element( Time, ord( FairEffSlot ) - 1 );
+				endwhile;
+
+				! FAIREFF: what the band cuts from the physical headrooms (FairPchMax/FairPdisMax, at the physical ceiling here), and
+				! baselines outside it (expected 0: the baseline meets everything the walk uses)
+				FairEffNd     := sum( bat | FairD(bat) < max( 0, FairPsc(bat) + FairPdisMax(bat) ) - 1e-6, 1 );
+				FairEffNd0    := sum( bat | FairD(bat) < 1e-6 and max( 0, FairPsc(bat) + FairPdisMax(bat) ) >= 1e-6, 1 );
+				FairEffCutD   := 1000*sum( bat, max( 0, FairPsc(bat) + FairPdisMax(bat) ) - FairD(bat) );
+				FairEffNu     := sum( bat | FairU(bat) < max( 0, FairPchMax(bat) - FairPsc(bat) ) - 1e-6, 1 );
+				FairEffCutU   := 1000*sum( bat, max( 0, FairPchMax(bat) - FairPsc(bat) ) - FairU(bat) );
+				FairEffOut    := sum( bat | FairPsc(bat) < FairPlo(bat) - 1e-6 or FairPsc(bat) > FairPhi(bat) + 1e-6, 1 );
+				FairEffOutMax := 1000*max( bat, max( 0, FairPlo(bat) - FairPsc(bat), FairPsc(bat) - FairPhi(bat) ) );
+				if FairLogOn = 1 and SCT_On = 1 then
+					put SCT_Info;
+					put "FAIREFF,", RollNow:3:0, ",d_cut ", FairEffNd:4:0, ",d_zero ", FairEffNd0:4:0, ",d_cut_kW ", FairEffCutD:12:6,
+					    ",u_cut ", FairEffNu:4:0, ",u_cut_kW ", FairEffCutU:12:6, ",base_out ", FairEffOut:4:0, ",base_out_max_kW ", FairEffOutMax:12:8 / ;
+					putclose SCT_Info;
+				endif;
+			}
+			Comment: "PAPER-1 FAIRNESS, effective headrooms: sets FairSOCLo/FairSOCHi for FairPlo/FairPhi (and so FairU/FairD) and writes the FAIREFF line. Called in RunFOR_Rolling right after FairPsc is captured, when FairEffHead = 1: SCImpRef, RollSOCnext and the window's load and PV are those of the committed baseline there.";
+		}
 		Procedure SCT_RunBed {
 			Arguments: (Tag,Pattern);
 			Body: {
@@ -14869,7 +14984,7 @@ Model Main_OPF_VI_LG {
 				put SCT_Info;
 				put "SC-safe test ", Tag, "   started ", CurrentToString("%c%y-%m-%d %H:%M:%S"),
 				    "   kappa ", FOR_SCWeight:8:4, "   shrink points ", SCT_nShrink:3:0, "   RollMaxPeriods ", RollMaxPeriods:3:0 / ;
-				put "FAIR settings: FairCrit ", FairCrit:2:0, "   FairScope ", FairScope:2:0, "   FairEps ", FairEps:6:3, "   FairBox ", FairBox:2:0, "   FairAllowNoBox ", FairAllowNoBox:2:0, "   kappa_slot (FOR_ThruPenSlot) ", FOR_ThruPenSlot:6:3, "   P2SlotPen ", P2SlotPen:6:3, "   FairMode ", FairMode:2:0 / ;
+				put "FAIR settings: FairCrit ", FairCrit:2:0, "   FairScope ", FairScope:2:0, "   FairEps ", FairEps:6:3, "   FairBox ", FairBox:2:0, "   FairEffHead ", FairEffHead:2:0, "   FairAllowNoBox ", FairAllowNoBox:2:0, "   kappa_slot (FOR_ThruPenSlot) ", FOR_ThruPenSlot:6:3, "   P2SlotPen ", P2SlotPen:6:3, "   FairMode ", FairMode:2:0 / ;
 				putclose SCT_Info;
 				run RunFOR_Rolling;
 				put SCT_Info;
@@ -15540,7 +15655,7 @@ Model Main_OPF_VI_LG {
 				! SRQ_Tag, SRQ_Coord, SRQ_Periods, FRQ_SweepAll, FRQ_U1/U2/U3/Edge(t), SRQ_MaxPer
 				SRQ_Coord := 0;  SRQ_Tag := "";  SRQ_Periods := "";  SRQ_MaxPer := 0;  FRQ_SweepAll := 0;  FRQ_PlanLog := 0;  ZX_GMP := 0;  SCTight := 0;  ZX_EndOn := 0;  ZX_AnchorOn := 0;  PV2_Regime := 0;  FRQ_BF := 0;
 				empty FRQ_U1, FRQ_U2, FRQ_U3, FRQ_Edge;
-				FairMode := 0;  FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 1;  FairAllowNoBox := 0;  FairLogOn := 1;  P2SlotPen := -1;  RollExecCap := 0;   ! PAPER-1 FAIRNESS: paper-flow defaults; scenario.txt may override (FairBox=0 P2SlotPen=0.2 reproduces Tulio's 9-Oct model)
+				FairMode := 0;  FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 1;  FairEffHead := 1;  FairAllowNoBox := 0;  FairLogOn := 1;  P2SlotPen := -1;  RollExecCap := 0;   ! PAPER-1 FAIRNESS: paper-flow defaults; scenario.txt may override (FairBox=0 P2SlotPen=0.2 reproduces Tulio's 9-Oct model; FairEffHead=0 the physical headrooms of 866c053)
 				nPeriods := 48;   ! Time must exist before the scenario's period data is read
 				read from file "scenario.txt";
 				if FairMode <> 0 then halt with "PV2_Run (paper flow): FairMode (the 2026-08 criteria) is retired here; use FairCrit (1 CP, 2 HP, 3 HB), FairScope (1 intra, 2 network-wide), FairEps."; endif;
@@ -15646,7 +15761,7 @@ Model Main_OPF_VI_LG {
 				BaselineOnly := 0;  SCT_Regret := 1;  SCFirst := 0;  SCAlpha := 0;  PVC_On := 0;  PVC_Mode := 0;  PVC_ReplanPen := 10;  PVC_SweepPen := 0.01;
 				PVC_Exec(bat) := 0;  SRQ_CutCommit(bat) := 0;  SCT_Trafo := "";  RollMaxPeriods := 0;  SRQ_Coord := 0;  RollFileSuffix := "";
 				ZX_On := 0;  FRQ_Diag := 1;  RollUseGMP := 0;  SCTight := 0;  ZX_EndOn := 0;  ZX_AnchorOn := 0;  PV2_Regime := 0;  FRQ_BF := 0;  ZX_CutRef(bat) := 0;  ZX_CutCommit(bat) := 0;
-				FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 0;  FairAllowNoBox := 0;  FairLogOn := 0;  P2SlotPen := -1;   ! PAPER-1 FAIRNESS: back to the declared defaults
+				FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 0;  FairEffHead := 0;  FairAllowNoBox := 0;  FairLogOn := 0;  P2SlotPen := -1;   ! PAPER-1 FAIRNESS: back to the declared defaults
 			}
 			Comment: "TWO PV OPTIONS (2026-10-05): one TR4 rolling day under option 1 (PV exported by default, surplus cut only on TSO request) or option 2 (no export without agreement), today's or coordinated charging, optional batteries-first delivery. Derived from ZX_Run / FRQ_Run: FOR-first TSO requests (any point inside the published FOR, recovered by convex combination of stored solutions), today's (SRQ_Coord = 0) or coordinated (1) charging.";
 		}

@@ -5,7 +5,7 @@ Branch `feature/paper1-fairness`, created from `feature/paper1-model` (October 2
 - why the headroom box (eq. 13) is added **and** the slot throughput penalty κ is kept;
 - the tests that validate both.
 
-**No optimisation has been run with this code yet.** Section 5 lists the tests to run before any number is used.
+Tests T0–T6 (section 5) ran on 10–11 Oct 2026 on commit 866c053 (TR4). T5 found that HP clashes with the self-consumption guarantee, which led to the effective headrooms below; T7 tests them.
 
 ## 1. What the paper says, and where it is in the code
 
@@ -14,7 +14,7 @@ Each quantity below refers to the flexibility slot `PeriodMaxP` (= 2 in the roll
 | Paper | Code (declaration section `FairnessPaper1`) |
 |---|---|
 | ΔP_s = P^b_{s,k+1} − P^{b,sc}_{s,k+1} | `BattP_Balance(bat,PeriodMaxP) - FairPsc(bat)`. `FairPsc` is captured at every step from the committed baseline, after the network check (right after `RollSOCnext`). |
-| U_s, D_s (eq. 12) | Defined parameters `FairU`, `FairD`, built on `FairPchMax`/`FairPdisMax`. They come from `RollSOCnext` and the SOC limits in force when the sweep instance is generated, and are snapshotted in `FairUGen`/`FairDGen`. |
+| U_s, D_s (eq. 12) | Defined parameters `FairU = [FairPhi − FairPsc]⁺` and `FairD = [FairPsc − FairPlo]⁺`. `FairPhi`/`FairPlo` are the highest and lowest slot power from `RollSOCnext`: the physical envelope `FairPchMax`/`−FairPdisMax`, or the effective one (below) when `FairEffHead = 1`. They are snapshotted in `FairUGen`/`FairDGen` when the sweep instance is generated. |
 | Box −D_s ≤ ΔP_s ≤ U_s (eq. 13) | `FairBoxRow(bat)`, a ranged row in kW, active when `FairBox = 1` and `FairActive`. |
 | CP, ΔP_s = ζ_G P̄_s (eq. 14) | `FairCP(bat)` with `FairZcp(group)`. |
 | HP, ΔP_s = ζ↑U_s − ζ↓D_s, ζ↑ + ζ↓ ≤ 1 (eq. 15) | `FairHP(bat)` and `FairSimplex(group)`, with `FairZu` and `FairZd`. |
@@ -28,6 +28,23 @@ Each quantity below refers to the flexibility slot `PeriodMaxP` (= 2 in the roll
 - a full idle battery has U = 0 exactly, as in the paper;
 - the box matches the SOC cap that delivery applies, so netting shaves at most ~0.01 W.
 
+**Effective headrooms (`FairEffHead = 1`, paper flow).** With physical headrooms, T5 found the following on `WC_EXPORT` with HP intra:
+- the self-consumption guarantee (`ZX_SCTight`) keeps a battery with a low SOC from charging less at slot 2, because its house would then buy later, but its physical D is still > 0;
+- HP can then use ζ↓ only by mixing in ζ↑, so the batteries with a large U charge during an export request: 41 of 84 group-corners were mixed at 180°;
+- 21 % less was served, and 21 houses bought inside the requested half-hours. Making the guarantee slack (`SCAlpha=99`) removed all of it.
+
+`FairEffHead = 1` measures U and D to the SOC band [`FairSOCLo`, `FairSOCHi`] at the end of the slot from which the prosumer can still meet everything that binds it later in the window:
+- its SOC limits;
+- the guarantee: at every t > k+1 the battery must cover its own net load down to the baseline's import, `SCImpRef + SCAlpha·P̄`;
+- the cyclic end-of-window band (and `ZX_EndCap` when on).
+
+`FairEffBand` walks the window backwards, one slot at a time and per battery, after `FairPsc` is captured. The walk is exact for a single prosumer and ignores the network, so the band contains every slot-2 point the sweep can reach. Three consequences:
+- the box (13) it implies is redundant in the reference FOR, which must not change;
+- U and D can only shrink;
+- HP and HB now split only what each prosumer can actually give.
+
+The walk covers rule (i) only (PV never cut) and one battery per bus and phase. It halts otherwise.
+
 **Knobs.** All of them can be set on a job line as `NAME=VALUE`.
 
 | Parameter | Values | Paper-flow default (PV2_Run) |
@@ -36,11 +53,12 @@ Each quantity below refers to the flexibility slot `PeriodMaxP` (= 2 in the roll
 | `FairScope` | 1 intra-aggregator, 2 network-wide | 1 |
 | `FairEps` | ε in [0,1] (HB) | 0 |
 | `FairBox` | 1 = box in every directional solve | **1** |
+| `FairEffHead` | 1 = effective headrooms, 0 = physical (commit 866c053) | **1** |
 | `P2SlotPen` | κ override: < 0 keeps 0.2 | −1 (κ = 0.2) |
 | `FairAllowNoBox` | 1 lets CP/HB run without the box (diagnostic only) | 0 |
 | `FairLogOn` | 1 writes the logs of section 4 | 1 |
 
-`FairBox=0` on a job line reproduces Tulio's 9-Oct model exactly. With no requests, the box is never generated at all, because P2 only runs when the TSO asks.
+`FairBox=0` on a job line reproduces Tulio's 9-Oct model exactly: without the box or a criterion, the band is only logged. `FairEffHead=0` reproduces commit 866c053. With no requests, the box is never generated at all, because P2 only runs when the TSO asks.
 
 **The 2026-08 criteria** (`FairMode` 1–4, section `Fairness`) are left untouched. The wrappers that reproduce earlier evidence use them, including the κ evidence (`RunTR4_ThruPen*` ran with `FairMode = 2`). They cannot be combined with the new rows (`RunFOR_Rolling` halts), and the paper flow refuses `FairMode ≠ 0`.
 
@@ -51,7 +69,8 @@ Each quantity below refers to the flexibility slot `PeriodMaxP` (= 2 in the roll
 - CP or HB is selected without the box (unless FairAllowNoBox = 1);
 - the shared-instance GMP path (`RollGMPBaseline = 1`) would be taken, because its matrix is generated before the baseline that defines FairPsc;
 - a battery has BattMaxP ≤ 0;
-- under intra-aggregator scope, a battery has no aggregator.
+- under intra-aggregator scope, a battery has no aggregator;
+- `FairEffHead = 1` with PV cut (`ZX_On` or `PVC_On`), or with two batteries on one bus and phase.
 
 ## 2. Does the box replace the throughput penalty κ? No. Both stay.
 
@@ -116,6 +135,7 @@ The penalty κ is `FOR_ThruPenSlot = 0.2` in P2's objective, μ^f in the paper.
   - `FAIR settings` (written by SCT_RunBed);
   - `FAIRCLIP`, at steps where the baseline lies outside the envelope the sweep uses by more than 0.1 W. It is computed from the snapshots, where the box is built, and is the only visible sign of a phantom baseline, e.g. a network-forced P1 re-solve that cycles;
   - `FAIRBASE`, when the committed baseline that defines FairPsc is not optimal;
+  - `FAIREFF` (`FairEffHead = 1`), at every step. It gives the batteries whose D or U the band cuts by more than 1 W, how many are left with D below 1 W, the total cut in kW, and the baselines outside the band (expected 0: a count means the walk is stricter than the model);
   - `FAIRDELIV`, after each delivered request. It reports the residual of the criterion and the box violation, before and after netting/capping, plus the shave.
 - **SWEEPDIAG**, when a direction fails, also probes "fairness rows off". Its SOC-ceiling probes also switch the box off.
 
@@ -176,13 +196,20 @@ Run `REF_SWEEP … TR4` with `FairCrit=1|2|3` × `FairScope=1|2`, using `FairEps
 ### T5. Delivery and self-consumption with fairness (two-day, ~16 min each)
 Run `WC_EXPORT`, `WC_IMPORT` and `REF` (`free_today a2x4p8fin2 TR4`), each with `FairCrit=2 FairScope=1` and with `FairCrit=0`. Queue: `fair_t5_delivery.txt`.
 - **Pass:**
-  - `FAIRDELIV` res_pre ≈ 0 and res_post ≤ 2e-5 kW (0.02 W) per battery;
+  - `FAIRDELIV` res_pre ≈ 0 and res_post ≤ 1e-4 kW (0.1 W) per battery. That is the corners' own solver tolerance (T4: ≤ 1e-4 kW), and netting adds nothing to it. The 2e-5 kW of the first version was below the solver tolerance;
   - `EXECFAIL` = 0;
-  - `analyze_paper1.py` shows no extra purchase beyond the REF of the same settings (Tulio's guarantee unchanged);
+  - `analyze_paper1.py` shows no extra purchase beyond the REF of the same settings (Tulio's guarantee unchanged), and no house buys more inside the requested half-hours than without the criterion;
   - day-2 lines present.
 
 ### T6 (optional). κ = 0.1 with the box
 Run `REF_SWEEP … TR4 P2SlotPen=0.1`, and the same with `FairCrit=2`.
 - Measure the distortion against T2, and `n_cyc`, which reveals disposal that pays at κ = 0.1.
+
+### T7. Effective headrooms (`FairEffHead=1`)
+Queue: `fair_t7_effhead.txt`. It runs the following:
+- `REF_SWEEP` with `FairCrit=0`. **Pass:** the FOR equals T2 (box on) up to solver tolerance, and `FAIREFF` reports base_out = 0;
+- `REF_SWEEP` with CP, HP and HB × intra and network-wide. **Pass:** the T4 criteria. CP equals T4, because the box is redundant there too. Report the area against T2, and the mixed group-corners (ζ↑ > 0 and ζ↓ > 0) against T4;
+- T5 with HP intra (`WC_EXPORT`, `WC_IMPORT`, `REF`). **Pass:** the T5 criteria, including no extra purchase inside the requested half-hours;
+- `REF_SWEEP` HP intra with `FairEffHead=0`. **Pass:** equal to T4 (the switch is inert when off).
 
 **When reporting a number,** write down the commit hash and that the tree was clean (model guide, section 10).
