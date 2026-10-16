@@ -14,7 +14,8 @@ Job line (queue file):   <scenario> <case> <speed> [network] [NAME=VALUE ...]
               d / s = rescue / sweep diagnostics (off in production)
   network   TR1 ... TR9 (that transformer in detail, the others lumped as passive load; default TR4),
             a comma list (TR3,TR4), or ALL = the whole feeder, no reduction, every battery
-  NAME=VALUE  any further model parameter, e.g. FairMode=2 (also added to the output tag)
+  NAME=VALUE  any further model parameter, e.g. FairCrit=2 FairScope=1 (fairness, docs/paper1-fairness.md) or
+              FairBox=0 (this branch without the headroom box); also added to the output tag
 
 Outputs go to the lane folder, named with the tag _<scenario>_<case>_<speed>[_<network>][_<NAME><VALUE>...];
 day-2 files end in _d2. A job is skipped when a done file with "Return value = 0" exists in any lane, or when

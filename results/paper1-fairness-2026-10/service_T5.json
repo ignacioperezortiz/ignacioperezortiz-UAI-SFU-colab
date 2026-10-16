@@ -1,0 +1,480 @@
+{
+ "title": "Delivery over two days: export requests every half-hour 06:00–20:00 on day 1, none on day 2",
+ "network": "TR4, 46 PV–BESS prosumers, two days",
+ "request": "at each requested flexibility slot (06:00–19:30 starts, 28 slots) the TSO requests the boundary point of F_{k+1} with the most export (θ = 180°)",
+ "definitions": {
+  "export_served_kWh": "Σ over requests of 0.5 h × max(0, −ΔP_req), ΔP_req = requested point − no-request point of the same step",
+  "extra_purchase_inside": "per prosumer, grid purchase inside the requested half-hours minus the same quantity in the run without requests (same settings), summed over the two days; counted when > 1 Wh",
+  "extra_purchase_outside": "the same outside the requested half-hours"
+ },
+ "cases": [
+  {
+   "id": "no_fairness",
+   "label": "No fairness",
+   "source_tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairBox1",
+   "no_request_tag": "_REF_free_today_a2x4p8fin2_TR4_FairBox1"
+  },
+  {
+   "id": "HP_old_floor",
+   "label": "HP, intra-aggregator, old floor (1 − DOD_s)Ē_s",
+   "source_tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairCrit2_FairScope1",
+   "no_request_tag": "_REF_free_today_a2x4p8fin2_TR4_FairCrit2_FairScope1"
+  },
+  {
+   "id": "HP_energy_floor",
+   "label": "HP, intra-aggregator, energy floor",
+   "source_tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairCrit2_FairScope1_FairEffHead1",
+   "no_request_tag": "_REF_free_today_a2x4p8fin2_TR4_FairCrit2_FairScope1_FairEffHead1"
+  }
+ ],
+ "summary": {
+  "no_fairness": {
+   "requests_served": 28,
+   "requests_planned": 28,
+   "requested_halfhours_in_exec_log": 28,
+   "export_served_kWh": 854.3,
+   "export_reduced_kWh": 0.0,
+   "prosumers_buying_more_inside": 0,
+   "worst_prosumer_inside_kWh": 0.0,
+   "worst_prosumer_inside_id": null,
+   "prosumers_buying_more_inside_by_10Wh": 0,
+   "fleet_extra_purchase_inside_kWh": 0.0,
+   "worst_prosumer_outside_Wh": 2.16,
+   "worst_prosumer_outside_id": "BES_TR4_one446_B",
+   "fleet_extra_purchase_outside_kWh": 0.046
+  },
+  "HP_old_floor": {
+   "requests_served": 28,
+   "requests_planned": 28,
+   "requested_halfhours_in_exec_log": 28,
+   "export_served_kWh": 675.2,
+   "export_reduced_kWh": 0.0,
+   "prosumers_buying_more_inside": 22,
+   "worst_prosumer_inside_kWh": 1.099,
+   "worst_prosumer_inside_id": "BES_TR4_three368_A",
+   "prosumers_buying_more_inside_by_10Wh": 21,
+   "fleet_extra_purchase_inside_kWh": 7.67,
+   "worst_prosumer_outside_Wh": 1.19,
+   "worst_prosumer_outside_id": "BES_TR4_three233_A",
+   "fleet_extra_purchase_outside_kWh": -0.945
+  },
+  "HP_energy_floor": {
+   "requests_served": 28,
+   "requests_planned": 28,
+   "requested_halfhours_in_exec_log": 28,
+   "export_served_kWh": 854.3,
+   "export_reduced_kWh": 0.0,
+   "prosumers_buying_more_inside": 0,
+   "worst_prosumer_inside_kWh": 0.0,
+   "worst_prosumer_inside_id": null,
+   "prosumers_buying_more_inside_by_10Wh": 0,
+   "fleet_extra_purchase_inside_kWh": 0.0,
+   "worst_prosumer_outside_Wh": 1.82,
+   "worst_prosumer_outside_id": "BES_TR4_one446_B",
+   "fleet_extra_purchase_outside_kWh": 0.04
+  }
+ },
+ "per_request": {
+  "no_fairness": {
+   "time": [
+    "06:00",
+    "06:30",
+    "07:00",
+    "07:30",
+    "08:00",
+    "08:30",
+    "09:00",
+    "09:30",
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "12:00",
+    "12:30",
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "15:30",
+    "16:00",
+    "16:30",
+    "17:00",
+    "17:30",
+    "18:00",
+    "18:30",
+    "19:00",
+    "19:30"
+   ],
+   "dP_kW": [
+    -107.34,
+    -40.8,
+    -47.95,
+    -60.35,
+    -68.86,
+    -74.74,
+    -83.9,
+    -91.89,
+    -96.96,
+    -105.74,
+    -103.82,
+    -103.73,
+    -110.47,
+    -107.41,
+    -101.02,
+    -93.4,
+    -83.74,
+    -73.05,
+    -58.27,
+    -42.73,
+    -28.79,
+    -14.67,
+    -5.2,
+    -0.44,
+    -0.28,
+    -0.64,
+    -0.87,
+    -1.49
+   ],
+   "dQ_kvar": [
+    143.17,
+    166.89,
+    167.5,
+    168.09,
+    168.63,
+    168.99,
+    169.69,
+    169.96,
+    170.3,
+    171.24,
+    171.12,
+    171.0,
+    171.32,
+    171.4,
+    170.79,
+    170.18,
+    168.31,
+    166.23,
+    164.45,
+    162.05,
+    161.28,
+    160.7,
+    140.42,
+    8.48,
+    -160.86,
+    -162.31,
+    -163.83,
+    -162.44
+   ]
+  },
+  "HP_old_floor": {
+   "time": [
+    "06:00",
+    "06:30",
+    "07:00",
+    "07:30",
+    "08:00",
+    "08:30",
+    "09:00",
+    "09:30",
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "12:00",
+    "12:30",
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "15:30",
+    "16:00",
+    "16:30",
+    "17:00",
+    "17:30",
+    "18:00",
+    "18:30",
+    "19:00",
+    "19:30"
+   ],
+   "dP_kW": [
+    -56.06,
+    -62.14,
+    -53.54,
+    -79.11,
+    -55.81,
+    -69.26,
+    -83.97,
+    -79.57,
+    -122.28,
+    -102.1,
+    -80.53,
+    -98.69,
+    -94.16,
+    -82.05,
+    -60.77,
+    -58.49,
+    -37.31,
+    -34.92,
+    -15.84,
+    -13.73,
+    -2.62,
+    -1.02,
+    -0.62,
+    -2.62,
+    -0.28,
+    -0.64,
+    -0.87,
+    -1.49
+   ],
+   "dQ_kvar": [
+    161.79,
+    162.19,
+    167.54,
+    166.35,
+    166.93,
+    168.83,
+    169.69,
+    168.81,
+    166.19,
+    171.14,
+    167.52,
+    167.67,
+    169.31,
+    169.01,
+    165.47,
+    166.51,
+    163.55,
+    162.52,
+    161.67,
+    162.71,
+    163.21,
+    164.34,
+    144.67,
+    8.24,
+    -162.03,
+    -162.62,
+    -163.87,
+    -162.46
+   ]
+  },
+  "HP_energy_floor": {
+   "time": [
+    "06:00",
+    "06:30",
+    "07:00",
+    "07:30",
+    "08:00",
+    "08:30",
+    "09:00",
+    "09:30",
+    "10:00",
+    "10:30",
+    "11:00",
+    "11:30",
+    "12:00",
+    "12:30",
+    "13:00",
+    "13:30",
+    "14:00",
+    "14:30",
+    "15:00",
+    "15:30",
+    "16:00",
+    "16:30",
+    "17:00",
+    "17:30",
+    "18:00",
+    "18:30",
+    "19:00",
+    "19:30"
+   ],
+   "dP_kW": [
+    -107.34,
+    -40.8,
+    -47.95,
+    -60.35,
+    -68.86,
+    -74.74,
+    -83.9,
+    -91.89,
+    -96.96,
+    -105.74,
+    -103.82,
+    -103.73,
+    -110.47,
+    -107.41,
+    -101.02,
+    -93.4,
+    -83.74,
+    -73.05,
+    -58.27,
+    -42.72,
+    -28.79,
+    -14.67,
+    -5.19,
+    -0.44,
+    -0.28,
+    -0.64,
+    -0.87,
+    -1.49
+   ],
+   "dQ_kvar": [
+    143.17,
+    166.89,
+    167.5,
+    168.09,
+    168.63,
+    168.99,
+    169.69,
+    169.96,
+    170.3,
+    171.24,
+    171.12,
+    171.0,
+    171.32,
+    171.39,
+    170.79,
+    170.18,
+    168.33,
+    166.23,
+    164.45,
+    162.05,
+    161.29,
+    160.7,
+    140.42,
+    8.46,
+    -160.9,
+    -162.32,
+    -163.83,
+    -162.45
+   ]
+  }
+ },
+ "extra_purchase_inside_by_prosumer_kWh": {
+  "no_fairness": [],
+  "HP_old_floor": [
+   {
+    "prosumer": "BES_TR4_three368_A",
+    "kWh": 1.099
+   },
+   {
+    "prosumer": "BES_TR4_one320_B",
+    "kWh": 0.768
+   },
+   {
+    "prosumer": "BES_TR4_one617_A",
+    "kWh": 0.754
+   },
+   {
+    "prosumer": "BES_TR4_three388_A",
+    "kWh": 0.671
+   },
+   {
+    "prosumer": "BES_TR4_one223_B",
+    "kWh": 0.617
+   },
+   {
+    "prosumer": "BES_TR4_three312_A",
+    "kWh": 0.544
+   },
+   {
+    "prosumer": "BES_TR4_three233_A",
+    "kWh": 0.438
+   },
+   {
+    "prosumer": "BES_TR4_one195_C",
+    "kWh": 0.425
+   },
+   {
+    "prosumer": "BES_TR4_one410_B",
+    "kWh": 0.377
+   },
+   {
+    "prosumer": "BES_TR4_three321_B",
+    "kWh": 0.354
+   },
+   {
+    "prosumer": "BES_TR4_one137_A",
+    "kWh": 0.326
+   },
+   {
+    "prosumer": "BES_TR4_one590_A",
+    "kWh": 0.241
+   },
+   {
+    "prosumer": "BES_TR4_three253_C",
+    "kWh": 0.193
+   },
+   {
+    "prosumer": "BES_TR4_three248_C",
+    "kWh": 0.176
+   },
+   {
+    "prosumer": "BES_TR4_one50_A",
+    "kWh": 0.169
+   },
+   {
+    "prosumer": "BES_TR4_one544_A",
+    "kWh": 0.165
+   },
+   {
+    "prosumer": "BES_TR4_one260_C",
+    "kWh": 0.126
+   },
+   {
+    "prosumer": "BES_TR4_one76_A",
+    "kWh": 0.09
+   },
+   {
+    "prosumer": "BES_TR4_one345_A",
+    "kWh": 0.064
+   },
+   {
+    "prosumer": "BES_TR4_one321_C",
+    "kWh": 0.055
+   },
+   {
+    "prosumer": "BES_TR4_one423_B",
+    "kWh": 0.014
+   },
+   {
+    "prosumer": "BES_TR4_one446_B",
+    "kWh": 0.001
+   }
+  ],
+  "HP_energy_floor": []
+ },
+ "mixing_180deg": {
+  "definition": "group-direction pairs at θ = 180° with both HP factors ζ↑ > 1e-3 and ζ↓ > 1e-3 (HP, intra-aggregator, 3 aggregators); also given with a 1e-6 threshold",
+  "one_day_FOR": {
+   "energy floor": {
+    "mixed": 6,
+    "of": 144,
+    "count_at_1e-6": 78,
+    "source_tag": "_REF_SWEEP_free_today_a2x4p8fin_TR4_FairCrit2_FairScope1_FairEffHead1"
+   },
+   "old floor": {
+    "mixed": 72,
+    "of": 144,
+    "count_at_1e-6": 121,
+    "source_tag": "_REF_SWEEP_free_today_a2x4p8fin_TR4_FairCrit2_FairScope1"
+   }
+  },
+  "two_day_service": {
+   "energy floor": {
+    "mixed": 0,
+    "of": 84,
+    "count_at_1e-6": 11,
+    "source_tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairCrit2_FairScope1_FairEffHead1"
+   },
+   "old floor": {
+    "mixed": 42,
+    "of": 84,
+    "count_at_1e-6": 55,
+    "source_tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairCrit2_FairScope1"
+   }
+  }
+ }
+}

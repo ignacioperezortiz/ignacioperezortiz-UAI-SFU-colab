@@ -1,0 +1,12 @@
+# T7 (docs/paper1-fairness.md): effective headrooms (FairEffHead=1). First the checks that decide, then the area table.
+REF_SWEEP free_today a2x4p8fin TR4 FairEffHead=1
+WC_EXPORT free_today a2x4p8fin2 TR4 FairCrit=2 FairScope=1 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=2 FairScope=1 FairEffHead=1
+REF free_today a2x4p8fin2 TR4 FairCrit=2 FairScope=1 FairEffHead=1
+WC_IMPORT free_today a2x4p8fin2 TR4 FairCrit=2 FairScope=1 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=2 FairScope=2 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=3 FairScope=1 FairEps=0.1 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=3 FairScope=2 FairEps=0.1 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=1 FairScope=1 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=1 FairScope=2 FairEffHead=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=2 FairScope=1 FairEffHead=0

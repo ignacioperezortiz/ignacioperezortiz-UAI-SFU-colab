@@ -1,0 +1,7 @@
+# T4 (docs/paper1-fairness.md): the three criteria at both scopes on the reference sweep (box on, kappa = 0.2).
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=1 FairScope=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=1 FairScope=2
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=2 FairScope=1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=2 FairScope=2
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=3 FairScope=1 FairEps=0.1
+REF_SWEEP free_today a2x4p8fin TR4 FairCrit=3 FairScope=2 FairEps=0.1

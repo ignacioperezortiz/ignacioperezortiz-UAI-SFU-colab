@@ -1,0 +1,677 @@
+{
+ "generated": "2026-10-14T00:06:18",
+ "definitions": {
+  "export_served_kWh": "dt * sum over requested flexibility slots of max(0, -(requested P - P1-baseline P)) [FRQ dP_kW]",
+  "export_vs_no_request_realised_kWh": "dt * sum over requested slots of (interface P of the no-request run - interface P of the run)",
+  "extra_import": "per prosumer, grid import of the run minus that of the no-request run (SCT_exec imp1_kWh, two days)",
+  "inside/outside": "half-hours with a TSO request (svc = 1) / all other half-hours of the two days",
+  "above_1Wh": "> 0.001 kWh",
+  "units": "kWh; dt = 0.5 h"
+ },
+ "no_request": {
+  "lane": "N2",
+  "tag": "_REF_free_today_a2x4p8fin2_TR4_FairBox1"
+ },
+ "guarantee_on": {
+  "tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairBox1_RollOfferLog1_SCAlpha0",
+  "lane": "N3",
+  "requests_served": 28,
+  "requested_slots": [
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30,
+   31,
+   32,
+   33,
+   34,
+   35,
+   36,
+   37,
+   38,
+   39,
+   40
+  ],
+  "export_served_kWh": 854.27,
+  "export_vs_no_request_realised_kWh": 69.68,
+  "extra_import_inside_requested": {
+   "prosumers_above_1Wh": 0,
+   "total_kWh": 0.0004,
+   "worst_kWh": 0.0004,
+   "worst_prosumer": "BES_TR4_one560_C"
+  },
+  "extra_import_outside_requested": {
+   "prosumers_above_1Wh": 15,
+   "total_kWh": 0.0403,
+   "worst_kWh": 0.0018,
+   "worst_prosumer": "BES_TR4_one446_B"
+  },
+  "released_services_EXECFAIL": 0,
+  "pre_request_max_soc_gap_vs_no_request": 0.0,
+  "mean_soc_end_day1_pct": 26.54,
+  "mean_soc_end_day1_no_request_pct": 50.31,
+  "per_prosumer": [
+   {
+    "prosumer": "BES_TR4_one133_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00059
+   },
+   {
+    "prosumer": "BES_TR4_one137_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00131
+   },
+   {
+    "prosumer": "BES_TR4_one176_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0008
+   },
+   {
+    "prosumer": "BES_TR4_one195_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00092
+   },
+   {
+    "prosumer": "BES_TR4_one223_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0013
+   },
+   {
+    "prosumer": "BES_TR4_one235_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00067
+   },
+   {
+    "prosumer": "BES_TR4_one242_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0008
+   },
+   {
+    "prosumer": "BES_TR4_one252_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00057
+   },
+   {
+    "prosumer": "BES_TR4_one260_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00054
+   },
+   {
+    "prosumer": "BES_TR4_one299_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00068
+   },
+   {
+    "prosumer": "BES_TR4_one320_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00045
+   },
+   {
+    "prosumer": "BES_TR4_one321_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00136
+   },
+   {
+    "prosumer": "BES_TR4_one328_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00068
+   },
+   {
+    "prosumer": "BES_TR4_one345_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00123
+   },
+   {
+    "prosumer": "BES_TR4_one366_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00057
+   },
+   {
+    "prosumer": "BES_TR4_one410_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00165
+   },
+   {
+    "prosumer": "BES_TR4_one416_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0008
+   },
+   {
+    "prosumer": "BES_TR4_one423_B",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00111
+   },
+   {
+    "prosumer": "BES_TR4_one446_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00181
+   },
+   {
+    "prosumer": "BES_TR4_one480_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0008
+   },
+   {
+    "prosumer": "BES_TR4_one50_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00126
+   },
+   {
+    "prosumer": "BES_TR4_one544_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00069
+   },
+   {
+    "prosumer": "BES_TR4_one560_C",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.00037,
+    "outside_kWh": 0.00016
+   },
+   {
+    "prosumer": "BES_TR4_one570_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00092
+   },
+   {
+    "prosumer": "BES_TR4_one585_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00068
+   },
+   {
+    "prosumer": "BES_TR4_one590_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00137
+   },
+   {
+    "prosumer": "BES_TR4_one617_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00046
+   },
+   {
+    "prosumer": "BES_TR4_one61_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0006
+   },
+   {
+    "prosumer": "BES_TR4_one76_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0013
+   },
+   {
+    "prosumer": "BES_TR4_three160_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00084
+   },
+   {
+    "prosumer": "BES_TR4_three193_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00057
+   },
+   {
+    "prosumer": "BES_TR4_three232_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00072
+   },
+   {
+    "prosumer": "BES_TR4_three233_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00101
+   },
+   {
+    "prosumer": "BES_TR4_three248_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00046
+   },
+   {
+    "prosumer": "BES_TR4_three253_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00044
+   },
+   {
+    "prosumer": "BES_TR4_three312_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00079
+   },
+   {
+    "prosumer": "BES_TR4_three321_B",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00131
+   },
+   {
+    "prosumer": "BES_TR4_three368_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00068
+   },
+   {
+    "prosumer": "BES_TR4_three388_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00102
+   },
+   {
+    "prosumer": "BES_TR4_three409_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00057
+   },
+   {
+    "prosumer": "BES_TR4_three64_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00078
+   },
+   {
+    "prosumer": "BES_TR4_three66_C",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00136
+   },
+   {
+    "prosumer": "BES_TR4_three76_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00092
+   },
+   {
+    "prosumer": "BES_TR4_three81_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00105
+   },
+   {
+    "prosumer": "BES_TR4_three90_C",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.0008
+   },
+   {
+    "prosumer": "BES_TR4_three97_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 0.00087
+   }
+  ]
+ },
+ "guarantee_relaxed": {
+  "tag": "_WC_EXPORT_free_today_a2x4p8fin2_TR4_FairBox1_RollOfferLog1_SCAlpha99",
+  "lane": "N3",
+  "requests_served": 28,
+  "requested_slots": [
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30,
+   31,
+   32,
+   33,
+   34,
+   35,
+   36,
+   37,
+   38,
+   39,
+   40
+  ],
+  "export_served_kWh": 993.47,
+  "export_vs_no_request_realised_kWh": 180.67,
+  "extra_import_inside_requested": {
+   "prosumers_above_1Wh": 43,
+   "total_kWh": 28.2384,
+   "worst_kWh": 3.5221,
+   "worst_prosumer": "BES_TR4_three253_C"
+  },
+  "extra_import_outside_requested": {
+   "prosumers_above_1Wh": 46,
+   "total_kWh": 98.806,
+   "worst_kWh": 3.4801,
+   "worst_prosumer": "BES_TR4_three97_B"
+  },
+  "released_services_EXECFAIL": 0,
+  "pre_request_max_soc_gap_vs_no_request": 0.0,
+  "mean_soc_end_day1_pct": 10.0,
+  "mean_soc_end_day1_no_request_pct": 50.31,
+  "per_prosumer": [
+   {
+    "prosumer": "BES_TR4_one133_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.51653,
+    "outside_kWh": 3.17452
+   },
+   {
+    "prosumer": "BES_TR4_one137_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.63324,
+    "outside_kWh": 3.12655
+   },
+   {
+    "prosumer": "BES_TR4_one176_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.26425,
+    "outside_kWh": 1.53604
+   },
+   {
+    "prosumer": "BES_TR4_one195_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.4513,
+    "outside_kWh": 2.22341
+   },
+   {
+    "prosumer": "BES_TR4_one223_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 1.39055,
+    "outside_kWh": 1.8302
+   },
+   {
+    "prosumer": "BES_TR4_one235_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.14424,
+    "outside_kWh": 2.03403
+   },
+   {
+    "prosumer": "BES_TR4_one242_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 2.61841
+   },
+   {
+    "prosumer": "BES_TR4_one252_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.05242,
+    "outside_kWh": 0.93894
+   },
+   {
+    "prosumer": "BES_TR4_one260_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.15,
+    "outside_kWh": 1.29901
+   },
+   {
+    "prosumer": "BES_TR4_one299_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.46396,
+    "outside_kWh": 1.38791
+   },
+   {
+    "prosumer": "BES_TR4_one320_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 2.83465,
+    "outside_kWh": 0.803
+   },
+   {
+    "prosumer": "BES_TR4_one321_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.23188,
+    "outside_kWh": 3.1987
+   },
+   {
+    "prosumer": "BES_TR4_one328_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.0,
+    "outside_kWh": 1.70252
+   },
+   {
+    "prosumer": "BES_TR4_one345_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.38176,
+    "outside_kWh": 3.4011
+   },
+   {
+    "prosumer": "BES_TR4_one366_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.02886,
+    "outside_kWh": 1.51786
+   },
+   {
+    "prosumer": "BES_TR4_one410_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.34478,
+    "outside_kWh": 2.37035
+   },
+   {
+    "prosumer": "BES_TR4_one416_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.17505,
+    "outside_kWh": 2.68931
+   },
+   {
+    "prosumer": "BES_TR4_one423_B",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.41694,
+    "outside_kWh": 3.16914
+   },
+   {
+    "prosumer": "BES_TR4_one446_B",
+    "aggregator": "Agg1",
+    "inside_kWh": 1.18604,
+    "outside_kWh": 3.07837
+   },
+   {
+    "prosumer": "BES_TR4_one480_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.26114,
+    "outside_kWh": 1.76315
+   },
+   {
+    "prosumer": "BES_TR4_one50_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.64886,
+    "outside_kWh": 1.49343
+   },
+   {
+    "prosumer": "BES_TR4_one544_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.23726,
+    "outside_kWh": 3.41002
+   },
+   {
+    "prosumer": "BES_TR4_one560_C",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.14123,
+    "outside_kWh": 3.44485
+   },
+   {
+    "prosumer": "BES_TR4_one570_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.13773,
+    "outside_kWh": 2.1225
+   },
+   {
+    "prosumer": "BES_TR4_one585_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.28656,
+    "outside_kWh": 1.77773
+   },
+   {
+    "prosumer": "BES_TR4_one590_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.28206,
+    "outside_kWh": 2.78765
+   },
+   {
+    "prosumer": "BES_TR4_one617_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.0,
+    "outside_kWh": 1.0346
+   },
+   {
+    "prosumer": "BES_TR4_one61_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.11616,
+    "outside_kWh": 3.46993
+   },
+   {
+    "prosumer": "BES_TR4_one76_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.62779,
+    "outside_kWh": 2.22396
+   },
+   {
+    "prosumer": "BES_TR4_three160_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.00965,
+    "outside_kWh": 2.3836
+   },
+   {
+    "prosumer": "BES_TR4_three193_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.00477,
+    "outside_kWh": 1.26043
+   },
+   {
+    "prosumer": "BES_TR4_three232_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.18443,
+    "outside_kWh": 1.30403
+   },
+   {
+    "prosumer": "BES_TR4_three233_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 2.7444,
+    "outside_kWh": 1.28985
+   },
+   {
+    "prosumer": "BES_TR4_three248_C",
+    "aggregator": "Agg3",
+    "inside_kWh": 2.87036,
+    "outside_kWh": 0.76101
+   },
+   {
+    "prosumer": "BES_TR4_three253_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 3.52208,
+    "outside_kWh": 0.78314
+   },
+   {
+    "prosumer": "BES_TR4_three312_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 1.31754,
+    "outside_kWh": 2.62456
+   },
+   {
+    "prosumer": "BES_TR4_three321_B",
+    "aggregator": "Agg3",
+    "inside_kWh": 1.29532,
+    "outside_kWh": 3.31181
+   },
+   {
+    "prosumer": "BES_TR4_three368_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.03331,
+    "outside_kWh": 0.6708
+   },
+   {
+    "prosumer": "BES_TR4_three388_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 2.17997,
+    "outside_kWh": 1.86892
+   },
+   {
+    "prosumer": "BES_TR4_three409_C",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.08662,
+    "outside_kWh": 0.93234
+   },
+   {
+    "prosumer": "BES_TR4_three64_A",
+    "aggregator": "Agg1",
+    "inside_kWh": 0.65493,
+    "outside_kWh": 2.93115
+   },
+   {
+    "prosumer": "BES_TR4_three66_C",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.15724,
+    "outside_kWh": 2.29051
+   },
+   {
+    "prosumer": "BES_TR4_three76_A",
+    "aggregator": "Agg3",
+    "inside_kWh": 0.17839,
+    "outside_kWh": 2.58657
+   },
+   {
+    "prosumer": "BES_TR4_three81_A",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.26623,
+    "outside_kWh": 3.1624
+   },
+   {
+    "prosumer": "BES_TR4_three90_C",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.222,
+    "outside_kWh": 1.53755
+   },
+   {
+    "prosumer": "BES_TR4_three97_B",
+    "aggregator": "Agg2",
+    "inside_kWh": 0.10594,
+    "outside_kWh": 3.48014
+   }
+  ]
+ }
+}
