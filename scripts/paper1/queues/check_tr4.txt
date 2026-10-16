@@ -1,0 +1,3 @@
+# Setup check on TR4 (about 12 min each on a normal PC): compare with docs/paper1-model-guide.md, section 4.
+REF free_today a2x4p8fin2 TR4
+SPD_SMOKE free_today a2x4p8fin TR4

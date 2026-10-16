@@ -1,0 +1,7 @@
+{
+ "id": "REF_SWEEP",
+ "family": "reference",
+ "sweep_all": 1,
+ "note": "no request, FOR built at every half-hour (FOR samples)",
+ "requests": {}
+}

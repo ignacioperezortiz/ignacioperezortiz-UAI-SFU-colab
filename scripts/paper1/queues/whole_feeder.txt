@@ -1,0 +1,13 @@
+# Whole feeder (every battery, no reduction). One lane, run in this order; adjust a<K>x<T>p<P> to the machine
+# (docs/parallel-sweep-memory.md: K = 3 directions x 5 threads ran the full feeder without a failed session).
+# 1. plumbing: P1 + network check at 2 half-hours (no FOR)
+WF_PLUMB free_today a3x5p16fin ALL
+# 2. smoke: 26 half-hours, FOR and delivery at 24, 25, 26 (first FORs at full scale: time and memory)
+SPD_SMOKE free_today a3x5p16fin ALL
+# 3. the paper runs: two days each (day 2 without requests), then the FOR at every half-hour of one day
+REF free_today a3x5p16fin2 ALL
+R04_sun free_today a3x5p16fin2 ALL
+WC_EXPORT free_today a3x5p16fin2 ALL
+WC_IMPORT free_today a3x5p16fin2 ALL
+EDGE_SUN free_today a3x5p16fin2 ALL
+REF_SWEEP free_today a3x5p16fin ALL

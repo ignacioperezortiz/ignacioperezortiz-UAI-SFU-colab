@@ -1,0 +1,8 @@
+{
+ "id": "WF_PLUMB",
+ "family": "check",
+ "sweep_all": 0,
+ "max_per": 2,
+ "note": "whole-feeder plumbing check: no request, first 2 half-hours only (P1 + network check on the full network)",
+ "requests": {}
+}

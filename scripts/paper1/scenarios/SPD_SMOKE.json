@@ -1,0 +1,27 @@
+{
+ "id": "SPD_SMOKE",
+ "family": "smoke",
+ "sweep_all": 0,
+ "max_per": 26,
+ "note": "speed-test smoke: R04_sun requests at 24-26 only, day stopped after step 26",
+ "requests": {
+  "24": [
+   0.84784,
+   0.05277,
+   0.88656,
+   1
+  ],
+  "25": [
+   0.37502,
+   0.4576,
+   0.31034,
+   0
+  ],
+  "26": [
+   0.25452,
+   0.41398,
+   0.57113,
+   0
+  ]
+ }
+}

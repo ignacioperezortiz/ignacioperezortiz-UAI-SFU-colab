@@ -1,0 +1,33 @@
+{
+ "id": "R05_day",
+ "family": "random",
+ "sweep_all": 0,
+ "note": "4 requests anywhere inside the FOR, whole day",
+ "requests": {
+  "5": [
+   0.60548,
+   0.83313,
+   0.56517,
+   0
+  ],
+  "18": [
+   0.09846,
+   0.25623,
+   0.51112,
+   0
+  ],
+  "22": [
+   0.46133,
+   0.52222,
+   0.67609,
+   0
+  ],
+  "34": [
+   0.57498,
+   0.74347,
+   0.92204,
+   0
+  ]
+ },
+ "source": "2026-10-04_for-requests/scenarios/R05_day.json"
+}
