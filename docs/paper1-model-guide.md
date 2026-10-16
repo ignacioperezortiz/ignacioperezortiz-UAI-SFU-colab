@@ -170,7 +170,8 @@ half-hours), fleet totals, FOR statistics of REF_SWEEP.
 - intra-aggregator and network-wide scopes;
 - the headroom box, eq. 13 of the methodology.
 
-The job-line knobs are `FairCrit=1|2|3`, `FairScope=1|2`, `FairEps=…` and `FairBox=0|1` (1 by default in PV2_Run).
+The job-line knobs are `FairCrit=1|2|3`, `FairScope=1|2`, `FairEps=…`, `FairBox=0|1` and `FairEffHead=0|1` (both 1 by
+default in PV2_Run; `FairEffHead=1` measures the headrooms net of the self-consumption guarantee, 11 Oct 2026).
 `FairBox=0` reproduces this branch's model exactly. κ = `FOR_ThruPenSlot` = 0.2 stays: the box does not replace it.
 The paper flow (PV2_Run) refuses `FairMode ≠ 0`. The bullets below describe the 2026-08 rows, which are kept only for the
 wrappers that reproduce earlier evidence.

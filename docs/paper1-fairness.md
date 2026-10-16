@@ -5,7 +5,7 @@ Branch `feature/paper1-fairness`, created from `feature/paper1-model` (October 2
 - why the headroom box (eq. 13) is added **and** the slot throughput penalty κ is kept;
 - the tests that validate both.
 
-Tests T0–T6 (section 5) ran on 10–11 Oct 2026 on commit 866c053 (TR4). T5 found that HP clashes with the self-consumption guarantee, which led to the effective headrooms below; T7 tests them.
+Tests T0–T6 (section 5) ran on 10–11 Oct 2026 on commit 866c053 (TR4). T5 found that HP clashes with the self-consumption guarantee, which led to the effective headrooms below; T7 (commit 2f68674) tests them. All tests pass; section 6 gives the results and the reference data to validate a merge against.
 
 ## 1. What the paper says, and where it is in the code
 
@@ -213,3 +213,30 @@ Queue: `fair_t7_effhead.txt`. It runs the following:
 - `REF_SWEEP` HP intra with `FairEffHead=0`. **Pass:** equal to T4 (the switch is inert when off).
 
 **When reporting a number,** write down the commit hash and that the tree was clean (model guide, section 10).
+
+## 6. Results (10–11 Oct 2026) and the reference to validate against
+
+All runs are TR4, `free_today`, lane N2 (N3 for the guarantee pair), with the tree clean. One-day sweeps have 48 steps × 12 directions = 576 solves.
+
+| Test | Result |
+|---|---|
+| T0 | compiles |
+| T1 | `FairBox=0` is bit-identical to Tulio's 9-Oct model; 3 requests served |
+| T2 | 576/576 Optimal with the box; the box only removes the tolerance band (~0.9 W per battery) |
+| T3 | box + κ = 0: cycling in 505/576 solves (up to 101 kW), FOR +1.01 %; no box + κ = 0: phantom absorption, area +8.04 % (max +19.86 % at 17:30), +16.38 kW at 0° |
+| T4 | all six criteria × scope: 576/576 Optimal, residuals ≤ 1e-4 kW, box violation 0, no cycling; nestings (nw ≤ intra, HP ≤ HB ≤ ref) within 1 W |
+| T5 | delivery correct (28/28 and 33/33 requests), but HP with physical headrooms serves 675.2 instead of 854.3 kWh on `WC_EXPORT` and 22 houses buy more inside the requested half-hours |
+| T6 | κ = 0.1: no cycling; FOR +0.71 % against κ = 0.2 |
+| T7 | `FairEffHead=1`: reference FOR equal to T2 (area ratio 1.0000, ≤ 4 W per corner); `FairEffHead=0` reproduces T4 bit for bit; HP on `WC_EXPORT` serves 854.3 kWh with 0 houses buying more inside the requested half-hours |
+
+**FOR area against the reference (mean over 48 steps):**
+
+| | intra, effective (T7) | intra, physical (T4) | network-wide, effective | network-wide, physical |
+|---|---|---|---|---|
+| CP | 51.48 % | 51.48 % | 40.27 % | 40.27 % |
+| HP | 98.71 % (min 93.70) | 73.83 % | 98.58 % (min 92.52) | 63.42 % |
+| HB (ε = 0.1) | 99.83 % | 82.20 % | 99.77 % | 73.72 % |
+
+**The self-consumption guarantee** (`WC_EXPORT`, two days, `SCAlpha=0` against `SCAlpha=99`): 854.3 against 993.5 kWh of export served. Relaxed, all 46 prosumers buy more than 10 Wh more later (98.8 kWh for the fleet, worst 3.48 kWh). This pair used a diagnostic copy of the model in which PV2_Run does not overwrite `SCAlpha` and `RollOfferLog` after reading scenario.txt, so it cannot be reproduced from the repo as is.
+
+**Reference data:** `results/paper1-fairness-2026-10/` holds compact JSON files extracted from these runs, with a README giving the provenance of each file. `scripts/paper1/check_fairness_reference.py` recomputes the same quantities from a lane's `FOR_rolling*` outputs and compares them with the reference, within stated tolerances. It is a draft that has not been tested yet: validate it on the N2/N3 lanes before relying on it. Until then, compare by hand against the JSON files and the tables above.
