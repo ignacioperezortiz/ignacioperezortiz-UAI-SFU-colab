@@ -186,7 +186,7 @@ def main():
     ap.add_argument("--work", default=str(REPO.parent / "paper1-runs"))
     ap.add_argument("--project", default=str(REPO / "OPF.aimms"))
     a = ap.parse_args()
-    work = Path(a.work)
+    work = Path(a.work).resolve()   # absolute: AimmsCmd runs inside the lane folder, a relative path fails to start
     if a.cmd == "prepare":
         prepare(work, a.args, Path(a.project))
     elif a.cmd == "show":   # print the scenario.txt of one job line, nothing is run

@@ -15656,6 +15656,7 @@ Model Main_OPF_VI_LG {
 				SRQ_Coord := 0;  SRQ_Tag := "";  SRQ_Periods := "";  SRQ_MaxPer := 0;  FRQ_SweepAll := 0;  FRQ_PlanLog := 0;  ZX_GMP := 0;  SCTight := 0;  ZX_EndOn := 0;  ZX_AnchorOn := 0;  PV2_Regime := 0;  FRQ_BF := 0;
 				empty FRQ_U1, FRQ_U2, FRQ_U3, FRQ_Edge;
 				FairMode := 0;  FairCrit := 0;  FairScope := 1;  FairEps := 0;  FairBox := 1;  FairEffHead := 1;  FairAllowNoBox := 0;  FairLogOn := 1;  P2SlotPen := -1;  RollExecCap := 0;   ! PAPER-1 FAIRNESS: paper-flow defaults; scenario.txt may override (FairBox=0 P2SlotPen=0.2 reproduces Tulio's 9-Oct model; FairEffHead=0 the physical headrooms of 866c053)
+				SCAlpha := 0;  RollOfferLog := 0;   ! SCALPHA SWITCH (2026-10-19): paper-flow defaults set BEFORE the read, so a job line may override them (SCAlpha=99 relaxes the self-consumption guarantee: protection-off benchmark)
 				nPeriods := 48;   ! Time must exist before the scenario's period data is read
 				read from file "scenario.txt";
 				if FairMode <> 0 then halt with "PV2_Run (paper flow): FairMode (the 2026-08 criteria) is retired here; use FairCrit (1 CP, 2 HP, 3 HB), FairScope (1 intra, 2 network-wide), FairEps."; endif;
@@ -15672,12 +15673,12 @@ Model Main_OPF_VI_LG {
 				else                    ! option 2: no export without agreement, surplus cut by default (FOR = batteries, PV passive)
 					ZX_On := 1;  PVC_On := 0;  PVC_Mode := 0;  FRQ_BF := 0;
 				endif;
-				SCFirst := 1;  SCAlpha := 0;  PVC_ReplanPen := 3;  FRQ_Diag := 0;  RollUseGMP := ZX_GMP;
+				SCFirst := 1;  PVC_ReplanPen := 3;  FRQ_Diag := 0;  RollUseGMP := ZX_GMP;   ! SCALPHA SWITCH (2026-10-19): SCAlpha set before the read
 				if FRQ_BF = 1 and RollUseGMP = 0 then halt with "batteries-first delivery needs the GMP sweep (ZX_GMP = 1)"; endif;
 				FRQ_NTwin := 0;  FRQ_NTwinFail := 0;  SRQ_Retry2 := 0;  SRQ_Fall2 := 0;  SRQ_ExecRescued := 0;
 				PVC_SweepPen := 0.1;   ! a corner cuts PV only where that really moves it (0.01 let the reactive-only corners cut ~115 kW for ~2 kvar)
 				SRQ_Mode := 2;  RollSvcMode := 4;  RollSvcPeriodsCSV := SRQ_Periods;  RollSvcTol := 1e-4;  SRQ_Sweep := FRQ_PlanLog;
-				BaselineOnly := 0;  SCT_Regret := 0;  SCT_PlanDump := 0;  RollOfferLog := 0;  SCT_Trafo := "TR4";
+				BaselineOnly := 0;  SCT_Regret := 0;  SCT_PlanDump := 0;  SCT_Trafo := "TR4";   ! SCALPHA SWITCH (2026-10-19): RollOfferLog set before the read
 				RollMaxPeriods := SRQ_MaxPer;
 				RollFileSuffix := SRQ_Tag;
 				if FileExists( FRQ_CSVName ) then FileDelete( FRQ_CSVName ); endif;
@@ -15734,6 +15735,7 @@ Model Main_OPF_VI_LG {
 					"  of which service as the exact combination ", SPD_RescUnnet:3:0, "  execution failures ", SRQ_ExecFail:3:0 / ;
 				put "DECISION TEST: SPD_FixSlotK ", SPD_FixSlotK:2:0, "  kept plans ", SPD_FixN:4:0, "  infeasible ", SPD_FixFail:3:0,
 					"  SPD_CornersOnly ", SPD_CornersOnly:2:0, "  rebuilt from corners ", SPD_CON:4:0, "  outside corners polygon ", SPD_COMiss:3:0 / ;
+				put "SCALPHA SWITCH: SCAlpha ", SCAlpha:10:4, "  (0 = self-consumption guarantee on; large = relaxed)  RollOfferLog ", RollOfferLog:2:0 / ;
 				putclose SCT_Info;
 				if SPD_TwoDays = 1 then   ! TWO DAYS (2026-10-08): day 2 continues day 1 (same profiles, no TSO request)
 					SeedCount := 0;
