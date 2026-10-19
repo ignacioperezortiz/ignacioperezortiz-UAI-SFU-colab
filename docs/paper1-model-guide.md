@@ -24,7 +24,8 @@ One simulation = one or two days of 48 rolling half-hour steps (PV2_Run). At eve
 6. **Two days** (`SPD_TwoDays = 1`): day 2 continues day 1 (same profiles) without requests, so effects that cross
    midnight are counted.
 
-Where it lives in `MainProject/OPF.ams`: procedure **`PV2_Run`** (entry point, reads `scenario.txt`), which calls
+Where it lives in `MainProject/OPF.ams`: section **`Paper1`** (read-me and entry point, see "Model layout" below),
+procedure **`PV2_Run`** (entry point, reads `scenario.txt`), which calls
 `SCT_RunBed` (network scope) and then **`RunFOR_Rolling`** (the rolling loop: P1, network check, sweep, delivery).
 Search for these markers inside `RunFOR_Rolling`:
 
@@ -51,6 +52,32 @@ The settings are written by the runner into `scenario.txt` (see `python scripts/
 | `SPD_TwoDays` | 1 for `...fin2` | two days |
 | `RollAsyncK`, `RollAsyncThreads`, `SPD_P1Threads` | from the speed name | parallel directions, threads per direction, threads for P1/check |
 | `SPD_Trafo` | `TR4` (default), `TR9`, `TR3,TR4`, `ALL` | network in detail; `ALL` = whole feeder |
+| `SCAlpha` | 0 | self-consumption guarantee on; a job line `SCAlpha=99` relaxes it (protection-off benchmark) |
+
+### Model layout (19 October 2026)
+
+`OPF.ams` was reorganised so that the paper code is easy to find. **Only procedures moved, verbatim; no declaration
+moved or changed** (Variables and Constraints keep their order, so the generated matrices are the same), and the
+reorganised model reproduces the previous one in every output file (see the PR).
+
+| Section | What is there |
+|---|---|
+| `ModelOverview` | read-me of the whole model (updated) |
+| **`Paper1`** | read-me of the paper-1 flow (how to run, switches, outputs), `PV2_Run` and the helpers only the paper flow uses: `SCT_RunBed`, `SCT_SolveCase`, `SCT_TypeCheck`, `SRQ_TypeCheck`, `SCT_UseCPLEX`, `FairEffBand`, `FairLogCorner`, `FairClipLog` |
+| `Configuration` … `NetworkReduction` | shared model, unchanged (`Load_data_*`, `MinImports`, `ApplyNetworkReduction`, constraints, guarantee, fairness rows) |
+| `RollingHorizonFOR` | `RunFOR_Rolling` (the rolling loop of every run) and its switches |
+| `DOE_Dispatch`, `Validation`, `ResultsOutput` | side sections, unchanged, not used by paper 1 |
+| `SCSafeTest` | declarations only: the switches of the paper and TSO-service flow (`PV2_`, `SPD_`, `FRQ_`, `SRQ_`, `SCT_`, `ZX_`, `PVC_`) |
+| `Archive_TransformerAndFeederRuns` | 61 earlier entry points: `RunTR1`..`RunTR9`, `RunTrafoFOR`, GMP / baseline / linearized / async / preflight variants, `RunFullFeeder_*` |
+| `Archive_ServiceExperiments` | 52 TR4 / TR9 experiments (services, offers, throughput penalty, reactive power, probes) |
+| `Archive_MicroBed` | 14 micro-bed runs |
+| `Archive_Fairness2026Aug` | the 8 runs of the August fairness levels (FairMode 1–4) |
+| `Archive_SelfConsumptionSafety` | 53 runs that led to the guarantee and the service flow (`SCT_*`, `SRQ_Run`, `FRQ_Run`, `ZX_Run`) |
+| `Archive_SingleSolveCases` | 4 single-day case runners |
+
+Everything in the `Archive_*` sections still compiles and runs; the paper runs (`PV2_Run`) never call it. The paper
+flow reaches 18 procedures: the 9 in `Paper1`, `RunFOR_Rolling`, `Load_data_static/reset/dsn`, `ReadExcelFile`,
+`MinOFminImports`, `MinOFminImportsmaxReverseP`, `MainExecution` and `ApplyNetworkReduction`.
 
 ## 2. What changed against `main`
 

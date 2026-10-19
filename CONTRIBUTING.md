@@ -124,9 +124,10 @@ Do not start the next piece of work from the old branch. Go back to step 1.
 
 The model is organised into these sections (see `MainProject/OPF.ams`):
 
-`Configuration` · `InputData` · `NetworkModel` · `BatteryModel` ·
+`Paper1` · `Configuration` · `InputData` · `NetworkModel` · `BatteryModel` ·
 `SelfConsumptionOPF` · `FOR_Computation` · `NetworkReduction` ·
-`RollingHorizonFOR` · `Validation` · `ResultsOutput`
+`RollingHorizonFOR` · `DOE_Dispatch` · `Validation` · `ResultsOutput` · `SCSafeTest` ·
+`Archive_*` (procedures the paper-1 runs do not call; layout of 19 Oct 2026, see `docs/paper1-model-guide.md`)
 
 **Divide work by section, not by file.** Two people in different sections of the same
 file still conflict textually, but the conflicts are localised and resolvable. Two
