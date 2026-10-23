@@ -89,7 +89,8 @@ python scripts/paper1/run_paper1.py lane L1 scripts/paper1/queues/case_study_A_t
 (one `lane` command per seat: L1, L2, L3; start them about a minute apart). The queue holds 27 jobs: three variants ×
 nine transformers, longest first. TR6 and TR7 use the sequential sweep and never run at the same time (memory); the
 other lanes take the next job meanwhile. Expected: about 14 h per variant on three seats, so about 2–2.5 days in all
-(TR6 / TR7 take 8–9 h each), plus about 10–25 % for the AC audit (`ACAudit=1`, a log only).
+(TR6 / TR7 take 8–9 h each), plus up to about 45 % for the AC audit (`ACAudit=1`, a log only; most on transformers whose corners often
+fail in AC, e.g. TR1 at night: 41 instead of 28.5 min for 16 periods).
 
 ### 5.3 Nacho: the whole feeder
 
