@@ -169,7 +169,7 @@ if a.check:
     ok = True
     for name in ("aggregators.csv", "aggregators_case_study.txt"):
         old = (INP / name).read_text(encoding="utf-8") if (INP / name).exists() else ""
-        same = old == files[name]
+        same = old.replace(chr(13) + chr(10), chr(10)) == files[name]   # Git on Windows may check the files out with CRLF
         ok &= same
         print(f"{name}: {'identical' if same else 'DIFFERENT'}")
     sys.exit(0 if ok else 1)
