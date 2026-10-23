@@ -80,8 +80,9 @@ for tgt in targets:
             row["area_ratio_feeder_over_sum"] = row["area_feeder_kVA2"] / row["area_sum_kVA2"] if row["area_sum_kVA2"] else np.nan
     rows.append(row)
 out = pd.DataFrame(rows)
-(RES / "analysis").mkdir(parents=True, exist_ok=True)
-fn = RES / "analysis" / f"minkowski_{a.run}_{a.variant}_{a.repeat}.csv"
+OUT = S.parent / "analysis"   # next to the summaries that were read
+OUT.mkdir(parents=True, exist_ok=True)
+fn = OUT / f"minkowski_{a.run}_{a.variant}_{a.repeat}.csv"
 out.to_csv(fn, index=False, float_format="%.4f")
 pd.set_option("display.width", 200)
 print(out.describe().T[["mean", "min", "max"]].to_string())

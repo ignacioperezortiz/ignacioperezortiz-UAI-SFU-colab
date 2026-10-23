@@ -35,6 +35,7 @@ ap.add_argument("runs", nargs="*")
 ap.add_argument("--summary", default=str(RES / "summary"))
 a = ap.parse_args()
 SUMDIR = Path(a.summary)
+OUT = SUMDIR.parent / "analysis"   # next to the summaries that were read
 runs = a.runs or sorted(p.name for p in SUMDIR.iterdir() if (p / "for_corners.csv").exists())
 rows = []
 for rid in runs:
