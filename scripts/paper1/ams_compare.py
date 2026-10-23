@@ -58,14 +58,29 @@ print(f"procedures: {len(pa)} -> {len(pb)}, moved to another section: {len(moved
 glob = lambda ns: [n for n in sorted(ns, key=lambda n: n["s"])
                    if not n["local"] and n["kind"] not in ("Procedure", "Function", "Section", "DeclarationSection", "Model")]
 ga, gb = glob(a), glob(b)
-if [(n["kind"], n["name"]) for n in ga] != [(n["kind"], n["name"]) for n in gb]:
+ka, kb = [(n["kind"], n["name"]) for n in ga], [(n["kind"], n["name"]) for n in gb]
+common = set(ka) & set(kb)
+new_decl, gone_decl = [k for k in kb if k not in common], [k for k in ka if k not in common]
+if gone_decl:
     bad += 1
-    print("DECLARATION ORDER CHANGED")
+    print("DECLARATIONS REMOVED:", gone_decl)
+if new_decl:
+    print("declarations added:", new_decl)
+order_ok = [k for k in ka if k in common] == [k for k in kb if k in common]
+mat = lambda ks: [k for k in ks if k[0] in ("Variable", "Constraint")]
+matrix_ok = mat(ka) == mat(kb)
+if not order_ok:
+    bad += 1
+    print("ORDER OF THE EXISTING DECLARATIONS CHANGED")
+if not matrix_ok:
+    bad += 1
+    print("VARIABLES / CONSTRAINTS ADDED, REMOVED OR REORDERED (generated matrices change)")
 db = {(n["kind"], n["name"]): n for n in gb}
 dch = [n["name"] for n in ga if (n["kind"], n["name"]) in db and n["text"] != db[(n["kind"], n["name"])]["text"]]
 if dch:
     bad += 1
     print("DECLARATIONS WITH CHANGED TEXT:", dch)
-print(f"global declarations: {len(ga)} -> {len(gb)}, order identical: {not bad or 'see above'}, text changed: {len(dch)}")
-print("OK: only moved procedures and new sections / comments" if not bad else "DIFFERENCES FOUND")
+print(f"global declarations: {len(ga)} -> {len(gb)} ({len(new_decl)} added), order of existing ones identical: {order_ok}, "
+      f"variables/constraints identical and in order: {matrix_ok}, text changed: {len(dch)}")
+print("OK: only moved procedures and new sections / comments" if not bad else "DIFFERENCES FOUND (see above)")
 sys.exit(1 if bad else 0)

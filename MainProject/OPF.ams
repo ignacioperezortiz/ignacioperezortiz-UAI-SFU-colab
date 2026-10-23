@@ -119,6 +119,18 @@ Model Main_OPF_VI_LG {
 			FOR_rolling (FOR corners), FOR_rolling_soc and SCT_exec (per prosumer and step), FRQ and FOR_rolling_svc
 			(requests and delivery), FOR_rolling_crit and FOR_rolling_fair (fairness), SCT_info (summary), SPDtime (time)."
 		}
+		DeclarationSection CaseStudy_Declarations {
+			Parameter CaseAggMap {
+				Range: binary;
+				Default: 0;
+				Comment: {
+					"CASE STUDY (meeting 22 Oct 2026): 1 = the aggregator of every battery comes from aggregators_case_study.txt
+					(copied into the project folder by the runner from inputs/case-study/), read right after the Batteries table in
+					Load_data_static, instead of BattAgg from Database.mdb. Distance-based assignment: one aggregator (Agg3) with
+					more prosumers far from their LV transformer (inputs/case-study/aggregators_stats.md). 0 = Database.mdb."
+				}
+			}
+		}
 		Procedure PV2_Run {
 			Body: {
 				! one TR4 day with FOR-first TSO requests from scenario.txt (written by scripts/run_frq.py):
@@ -279,6 +291,9 @@ Model Main_OPF_VI_LG {
 				putclose SCT_Info;
 				run RunFOR_Rolling;
 				put SCT_Info;
+				put "AGGREGATORS: CaseAggMap ", CaseAggMap:2:0, "   batteries per aggregator:";   ! CASE STUDY (2026-10)
+				for (a) do put "  ", a, " ", (sum(bat | BattAgg(bat) = a, 1)):5:0; endfor;
+				put / ;
 				put "finished ", CurrentToString("%c%y-%m-%d %H:%M:%S") / ;
 				putclose SCT_Info;
 				SCT_On            := 0;
@@ -1111,6 +1126,9 @@ Model Main_OPF_VI_LG {
 				            !read from table GenData;
 				            !read from table CapacitorsData;
 				            read from table BatteriesData;
+				            if CaseAggMap = 1 then   ! CASE STUDY (2026-10): distance-based aggregator mapping (inputs/case-study), replaces BattAgg from the database
+				            	read from file "aggregators_case_study.txt";
+				            endif;
 				
 				            run ReadExcelFile;	!reads OpData in time for GenP, P0 and Q0 
 				
