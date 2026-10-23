@@ -1,0 +1,179 @@
+"""Distance-based aggregator assignment for the case study (meeting of 22 Oct 2026).
+
+Three aggregators of (almost) equal size; one of them (the "far" aggregator) gets more prosumers that are electrically
+far from their LV transformer. Settings: inputs/case-study/aggregators_config.json. Network data: the CSV export of
+Database.mdb made by export_network.ps1.
+
+Writes (inputs/case-study/):
+  aggregators.csv              one row per battery: transformer, bus, phase, distance, percentile, aggregator (and the
+                               aggregator in Database.mdb, for reference)
+  aggregators_case_study.txt   the same assignment as AIMMS data (BattAgg := DATA {...}); the model reads it when
+                               CaseAggMap = 1 (section Paper1); the runner copies it into every lane
+  aggregators_stats.md         settings, software versions and the distance statistics by aggregator and transformer
+
+Usage (from the repository root):
+  python scripts/paper1/case_study/make_aggregators.py ..\\case-study-network            # write the three files
+  python scripts/paper1/case_study/make_aggregators.py ..\\case-study-network --check    # verify the committed files
+"""
+import argparse
+import hashlib
+import json
+import sys
+from collections import deque
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+REPO = Path(__file__).resolve().parents[3]
+INP = REPO / "inputs" / "case-study"
+OHM_PER_PU = 0.4 ** 2 / 1.0   # Zbase = Vbase^2 / Sbase = 0.4 kV^2 / 1 MVA
+
+ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+ap.add_argument("network", help="folder with Batteries.csv, Lines.csv, Trafos.csv (export_network.ps1)")
+ap.add_argument("--check", action="store_true", help="recompute and compare with the committed files; write nothing")
+a = ap.parse_args()
+net = Path(a.network)
+cfg = json.loads((INP / "aggregators_config.json").read_text(encoding="utf-8"))
+
+bat = pd.read_csv(net / "Batteries.csv")
+lines = pd.read_csv(net / "Lines.csv")
+tr = pd.read_csv(net / "Trafos.csv")
+
+# ---------------------------------------------------------------- electrical distance (radial walk from each LV bus)
+adj = {}
+for r in lines.itertuples():
+    z = abs(complex(r.Rs, r.Xs))
+    for u, v in ((str(r.StartBus), str(r.EndBus)), (str(r.EndBus), str(r.StartBus))):
+        adj.setdefault(u, []).append((v, z, r.Rs, r.Xs))
+mv_side = {str(t.StartBusTr) for t in tr.itertuples()}
+dist = {}
+for t in tr.itertuples():
+    seen = {str(t.EndBusTr): (0.0, 0.0, 0.0)}
+    q = deque([str(t.EndBusTr)])
+    while q:
+        u = q.popleft()
+        for v, z, rs, xs in adj.get(u, []):
+            if v not in seen and v not in mv_side:
+                d, dr, dx = seen[u]
+                seen[v] = (d + z, dr + rs, dx + xs)
+                q.append(v)
+    for bus, val in seen.items():
+        dist.setdefault(bus, (t.TrafoName,) + val)
+
+bat["BattBus"] = bat.BattBus.astype(str)
+miss = bat[~bat.BattBus.isin(dist)]
+if len(miss):
+    sys.exit(f"{len(miss)} batteries not reached from any transformer: {list(miss.BattName[:5])}")
+bat["trafo_walk"] = bat.BattBus.map(lambda b: dist[b][0])
+bad = bat[bat.trafo_walk != bat.BattTr]
+if len(bad):
+    sys.exit(f"{len(bad)} batteries reached from another transformer than BattTr: {list(bad.BattName[:5])}")
+bat["dist_pu"] = bat.BattBus.map(lambda b: dist[b][1])
+bat["dist_R_pu"] = bat.BattBus.map(lambda b: dist[b][2])
+bat["dist_X_pu"] = bat.BattBus.map(lambda b: dist[b][3])
+bat["dist_ohm"] = bat.dist_pu * OHM_PER_PU
+bat = bat.sort_values(["BattTr", "BattName"]).reset_index(drop=True)
+bat["pct_in_trafo"] = bat.groupby("BattTr").dist_pu.rank(pct=True, method="average")
+
+# ---------------------------------------------------------------- weighted draw, equal sizes
+rng = np.random.default_rng(cfg["seed"])
+far, (near1, near2) = cfg["far_aggregator"], cfg["near_aggregators"]
+agg = pd.Series("", index=bat.index)
+for k, (name, g) in enumerate(bat.groupby("BattTr", sort=True)):
+    idx = g.index.to_numpy()
+    n = len(idx)
+    n_far = int(round(n / 3))
+    w = np.exp(-0.5 * ((g.pct_in_trafo.to_numpy() - cfg["mu"]) / cfg["sigma"]) ** 2)
+    pick = rng.choice(n, size=n_far, replace=False, p=w / w.sum())
+    agg[idx[pick]] = far
+    rest = np.setdiff1d(np.arange(n), pick)
+    rng.shuffle(rest)
+    n1 = (len(rest) + (k % 2)) // 2          # the odd prosumer alternates between the two near aggregators
+    agg[idx[rest[:n1]]] = near1
+    agg[idx[rest[n1:]]] = near2
+bat["BattAgg_db"] = bat.BattAgg
+bat["BattAgg"] = agg
+assert (bat.BattAgg != "").all()
+
+# ---------------------------------------------------------------- outputs
+cols = ["BattName", "BattTr", "BattBus", "BattPhase", "dist_pu", "dist_R_pu", "dist_X_pu", "dist_ohm", "pct_in_trafo",
+        "BattAgg", "BattAgg_db"]
+csv_txt = bat[cols].to_csv(index=False, float_format="%.6f", lineterminator="\n")
+aimms = ["! Case-study aggregator assignment (meeting 22 Oct 2026), generated by scripts/paper1/case_study/make_aggregators.py",
+         "! from inputs/case-study/aggregators_config.json. Read by Load_data_static when CaseAggMap = 1. Do not edit by hand.",
+         "BattAgg := DATA {"]
+aimms += [f"    '{r.BattName}' : '{r.BattAgg}'," for r in bat.itertuples()]
+aimms[-1] = aimms[-1].rstrip(",")
+aimms += ["} ;", ""]
+aimms_txt = "\n".join(aimms)
+
+
+def q(s, p):
+    return float(np.quantile(s, p))
+
+
+rows = []
+for g, d in bat.groupby("BattAgg"):
+    rows.append(f"| {g}{' (far)' if g == far else ''} | {len(d)} | {d.dist_pu.median():.3f} | {d.dist_pu.mean():.3f} | "
+                f"{q(d.dist_pu, 0.8):.3f} | {q(d.dist_pu, 0.9):.3f} | {d.pct_in_trafo.mean():.3f} | {d.dist_ohm.median():.3f} |")
+db_rows = [f"| {g} | {len(d)} | {d.dist_pu.median():.3f} | {d.pct_in_trafo.mean():.3f} |" for g, d in bat.groupby("BattAgg_db")]
+ct = pd.crosstab(bat.BattTr, bat.BattAgg)
+ct_rows = [f"| {t} | {' | '.join(str(v) for v in r)} | {r.sum()} |" for t, r in ct.iterrows()]
+
+
+def ks(x, y):
+    grid = np.sort(np.concatenate([x, y]))
+    return float(np.max(np.abs(np.searchsorted(np.sort(x), grid, "right") / len(x) - np.searchsorted(np.sort(y), grid, "right") / len(y))))
+
+
+k12 = ks(bat.pct_in_trafo[bat.BattAgg == near1].to_numpy(), bat.pct_in_trafo[bat.BattAgg == near2].to_numpy())
+if (net / "source.txt").exists():
+    raw = (net / "source.txt").read_bytes()
+    src = raw.decode("utf-16" if raw[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8").strip()
+else:
+    src = "(source.txt not found)"
+stats = f"""# Case-study aggregator assignment
+
+Generated by `scripts/paper1/case_study/make_aggregators.py` from `inputs/case-study/aggregators_config.json`.
+Network data: {src}. Python {sys.version.split()[0]}, numpy {np.__version__}, pandas {pd.__version__}.
+
+**Method.** Electrical distance of each prosumer = sum of the series self-impedance |Rs + jXs| of the cables from the LV
+side of its transformer to its bus (per unit on the model base; 1 p.u. = {OHM_PER_PU:.2f} ohm). Each prosumer gets its
+percentile p inside its own transformer. In every transformer, round(n/3) prosumers are drawn for the far aggregator
+**{far}** without replacement, with probability proportional to exp(-0.5((p - {cfg['mu']})/{cfg['sigma']})^2); the rest
+are shuffled and split evenly between {near1} and {near2}. Seed {cfg['seed']}.
+
+## Distance by aggregator (case study)
+
+| Aggregator | Prosumers | Median (p.u.) | Mean (p.u.) | 80th pct (p.u.) | 90th pct (p.u.) | Mean percentile in transformer | Median (ohm) |
+|---|---|---|---|---|---|---|---|
+{chr(10).join(rows)}
+
+{near1} vs {near2}: Kolmogorov-Smirnov distance of the within-transformer percentiles = {k12:.3f} (0 = identical spread).
+
+## Assignment in Database.mdb (for comparison: random, no distance bias)
+
+| Aggregator | Prosumers | Median (p.u.) | Mean percentile in transformer |
+|---|---|---|---|
+{chr(10).join(db_rows)}
+
+## Prosumers by transformer and aggregator
+
+| Transformer | {' | '.join(ct.columns)} | Total |
+|---|{'---|' * (len(ct.columns) + 1)}
+{chr(10).join(ct_rows)}
+"""
+files = {"aggregators.csv": csv_txt, "aggregators_case_study.txt": aimms_txt, "aggregators_stats.md": stats}
+if a.check:
+    ok = True
+    for name in ("aggregators.csv", "aggregators_case_study.txt"):
+        old = (INP / name).read_text(encoding="utf-8") if (INP / name).exists() else ""
+        same = old.replace(chr(13) + chr(10), chr(10)) == files[name]   # Git on Windows may check the files out with CRLF
+        ok &= same
+        print(f"{name}: {'identical' if same else 'DIFFERENT'}")
+    sys.exit(0 if ok else 1)
+for name, txt in files.items():
+    (INP / name).write_text(txt, encoding="utf-8", newline="\n")
+    print(f"wrote {INP / name}  sha256 {hashlib.sha256(txt.encode()).hexdigest()[:16]}")
+print(stats.split("## Assignment")[0].split("## Distance by aggregator (case study)")[1])

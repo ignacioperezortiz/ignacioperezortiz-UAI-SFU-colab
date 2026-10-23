@@ -1,0 +1,3 @@
+# T1 (docs/paper1-fairness.md): bit-identity with the box off. Run the same line on a worktree of
+# origin/feature/paper1-model WITHOUT the FairBox field (lane O1) and compare the CSVs row by row.
+SPD_SMOKE free_today a2x4p8fin TR4 FairBox=0

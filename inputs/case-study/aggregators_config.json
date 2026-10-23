@@ -1,0 +1,12 @@
+{
+  "_what": "Settings of the distance-based aggregator assignment (case study, meeting 22 Oct 2026). Read by scripts/paper1/case_study/make_aggregators.py; change a value only together with Nacho, then regenerate and commit the outputs.",
+  "distance": "sum of |Rs + jXs| (series self-impedance of the phase conductor) of the cables on the radial path from the LV side of the prosumer's transformer to its bus; per unit on the model base (1 MVA, 0.4 kV: 1 p.u. = 0.16 ohm)",
+  "rank": "within-transformer percentile of the distance (ties share the mean rank), so every transformer contributes near and far prosumers",
+  "far_aggregator": "Agg3",
+  "near_aggregators": ["Agg1", "Agg2"],
+  "group_sizes": "per transformer: round(n/3) to the far aggregator, the rest split as evenly as possible between the two near aggregators (alternating the odd one by transformer)",
+  "weight": "Gaussian of the percentile p: w = exp(-0.5*((p - mu)/sigma)^2); the far aggregator is drawn without replacement with probabilities proportional to w; the near ones by a seeded shuffle of the rest",
+  "mu": 0.9,
+  "sigma": 0.2,
+  "seed": 20261022
+}

@@ -1,0 +1,7 @@
+{
+ "id": "CS_A",
+ "family": "case study",
+ "note": "Case study Run A (meeting 22 Oct 2026): one day, 48 periods, no service; the FOR is built at every half-hour (reference and fairness variants via the job line)",
+ "sweep_all": 1,
+ "requests": {}
+}

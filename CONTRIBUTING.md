@@ -124,9 +124,10 @@ Do not start the next piece of work from the old branch. Go back to step 1.
 
 The model is organised into these sections (see `MainProject/OPF.ams`):
 
-`Configuration` · `InputData` · `NetworkModel` · `BatteryModel` ·
+`Paper1` · `Configuration` · `InputData` · `NetworkModel` · `BatteryModel` ·
 `SelfConsumptionOPF` · `FOR_Computation` · `NetworkReduction` ·
-`RollingHorizonFOR` · `Validation` · `ResultsOutput`
+`RollingHorizonFOR` · `DOE_Dispatch` · `Validation` · `ResultsOutput` · `SCSafeTest` ·
+`Archive_*` (procedures the paper-1 runs do not call; layout of 19 Oct 2026, see `docs/paper1-model-guide.md`)
 
 **Divide work by section, not by file.** Two people in different sections of the same
 file still conflict textually, but the conflicts are localised and resolvable. Two
@@ -222,6 +223,13 @@ Rules:
 
 If the two of us diverge on input data, results stop being comparable — which
 silently invalidates any comparison against `results/`.
+
+**Case study (October 2026).** The case study uses `v1_baseline` unchanged plus small
+inputs that are versioned **in Git** under `inputs/case-study/` (the distance-based
+aggregator assignment, read by the model when `CaseAggMap = 1`). Change them only
+together, regenerate them with their script, and say so in the PR. How the case-study
+runs are made, recorded and submitted (run records, run ids, results PRs):
+`docs/case-study.md`.
 
 ---
 
