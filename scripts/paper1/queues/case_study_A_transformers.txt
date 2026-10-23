@@ -1,0 +1,34 @@
+# Case study Run A, transformer by transformer (Tulio). Meeting 22 Oct 2026; docs/case-study.md.
+# One day, FOR at every half-hour, distance-based aggregators (CaseAggMap=1). Three variants x nine transformers.
+# Speeds: TR5/TR8 fewer threads (memory), TR6/TR7 sequential sweep (memory; the runner never runs both at once).
+# Run with: python scripts/paper1/run_paper1.py prepare L1 L2 L3 --strict ; then one 'lane' per seat.
+# --- reference FOR
+CS_A free_today a0x2p4fin TR6 CaseAggMap=1
+CS_A free_today a2x2p4fin TR5 CaseAggMap=1
+CS_A free_today a2x2p4fin TR8 CaseAggMap=1
+CS_A free_today a0x2p4fin TR7 CaseAggMap=1
+CS_A free_today a2x4p8fin TR9 CaseAggMap=1
+CS_A free_today a2x4p8fin TR1 CaseAggMap=1
+CS_A free_today a2x4p8fin TR2 CaseAggMap=1
+CS_A free_today a2x4p8fin TR3 CaseAggMap=1
+CS_A free_today a2x4p8fin TR4 CaseAggMap=1
+# --- HP within each aggregator
+CS_A free_today a0x2p4fin TR6 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x2p4fin TR5 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x2p4fin TR8 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a0x2p4fin TR7 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x4p8fin TR9 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x4p8fin TR1 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x4p8fin TR2 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x4p8fin TR3 CaseAggMap=1 FairCrit=2 FairScope=1
+CS_A free_today a2x4p8fin TR4 CaseAggMap=1 FairCrit=2 FairScope=1
+# --- HP network-wide
+CS_A free_today a0x2p4fin TR6 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x2p4fin TR5 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x2p4fin TR8 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a0x2p4fin TR7 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x4p8fin TR9 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x4p8fin TR1 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x4p8fin TR2 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x4p8fin TR3 CaseAggMap=1 FairCrit=2 FairScope=2
+CS_A free_today a2x4p8fin TR4 CaseAggMap=1 FairCrit=2 FairScope=2

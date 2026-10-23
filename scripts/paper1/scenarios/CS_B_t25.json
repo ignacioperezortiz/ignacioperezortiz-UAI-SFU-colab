@@ -1,0 +1,15 @@
+{
+ "id": "CS_B_t25",
+ "family": "case study",
+ "note": "Case study Run B: as Run A plus ONE service in flexibility slot 25 (12:00-12:30; its FOR is built at step 24, the set-points are executed in slot 25); the FOR is built at every half-hour, so the later FORs can be compared with Run A",
+ "blocked": "the requested point and the fairness case of Run B are not decided yet (meeting 22 Oct 2026, decision table). Set 'requests' and delete this key. Encoding per slot [U1, U2, U3, edge]: edge 2 = the FOR corner with the most export, 3 = the corner with the most import (U1-U3 ignored); edge 1 = on the edge between two corners (U1 picks the triangle by area, U3 the position); edge 0 = interior (U1 triangle, U2 distance from the schedule point S0, U3 position between the corners). Example: {\"25\": [0, 0, 0, 2]} = maximum export.",
+ "sweep_all": 1,
+ "requests": {
+  "25": [
+   0,
+   0,
+   0,
+   2
+  ]
+ }
+}

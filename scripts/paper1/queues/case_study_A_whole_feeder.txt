@@ -1,0 +1,9 @@
+# Case study Run A, whole feeder (Nacho). Meeting 22 Oct 2026; docs/case-study.md.
+# One day, FOR at every half-hour, distance-based aggregators (CaseAggMap=1). Speed: Nacho's 3 x 5 split (adjust to the machine).
+# Run with: python scripts/paper1/run_paper1.py prepare W1 --strict ; python scripts/paper1/run_paper1.py lane W1 <this file>
+# --- reference FOR
+CS_A free_today a3x5p16fin ALL CaseAggMap=1
+# --- HP within each aggregator
+CS_A free_today a3x5p16fin ALL CaseAggMap=1 FairCrit=2 FairScope=1
+# --- HP network-wide
+CS_A free_today a3x5p16fin ALL CaseAggMap=1 FairCrit=2 FairScope=2

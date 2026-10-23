@@ -1,0 +1,15 @@
+# Case study Run B: one service in slot 25 (12:00-12:30), then the rolling horizon continues; FOR at every half-hour.
+# BLOCKED until the requested point and the fairness case are decided (scenarios/CS_B_t25.json, key 'blocked').
+# When decided: edit CS_B_t25.json, keep ONE fairness case below (delete the others) and record the choice in docs/case-study.md.
+# transformer by transformer (Tulio):
+CS_B_t25 free_today a0x2p4fin TR6 CaseAggMap=1
+CS_B_t25 free_today a2x2p4fin TR5 CaseAggMap=1
+CS_B_t25 free_today a2x2p4fin TR8 CaseAggMap=1
+CS_B_t25 free_today a0x2p4fin TR7 CaseAggMap=1
+CS_B_t25 free_today a2x4p8fin TR9 CaseAggMap=1
+CS_B_t25 free_today a2x4p8fin TR1 CaseAggMap=1
+CS_B_t25 free_today a2x4p8fin TR2 CaseAggMap=1
+CS_B_t25 free_today a2x4p8fin TR3 CaseAggMap=1
+CS_B_t25 free_today a2x4p8fin TR4 CaseAggMap=1
+# whole feeder (Nacho): put this line in a queue of its own
+# CS_B_t25 free_today a3x5p16fin ALL CaseAggMap=1
