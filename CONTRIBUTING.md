@@ -224,6 +224,13 @@ Rules:
 If the two of us diverge on input data, results stop being comparable — which
 silently invalidates any comparison against `results/`.
 
+**Case study (October 2026).** The case study uses `v1_baseline` unchanged plus small
+inputs that are versioned **in Git** under `inputs/case-study/` (the distance-based
+aggregator assignment, read by the model when `CaseAggMap = 1`). Change them only
+together, regenerate them with their script, and say so in the PR. How the case-study
+runs are made, recorded and submitted (run records, run ids, results PRs):
+`docs/case-study.md`.
+
 ---
 
 ## 7. Validation baseline
