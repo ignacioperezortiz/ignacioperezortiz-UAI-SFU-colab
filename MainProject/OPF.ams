@@ -131,6 +131,208 @@ Model Main_OPF_VI_LG {
 				}
 			}
 		}
+		DeclarationSection ACAudit_Declarations {
+			Parameter ACAudit {
+				Range: binary;
+				Default: 0;
+				Comment: "AC AUDIT (2026-10-23): 1 = after every FOR, each corner is checked with an AC power flow of the service slot and, if it breaks a limit, moved toward S0 to its furthest AC-feasible point (option C + SOC trimming); logged in FOR_rolling_ac<tag>.csv. Does NOT change the FOR, the delivery or any other output unless ACAuditApply = 1.";
+			}
+			Parameter ACAuditApply {
+				Range: binary;
+				Default: 0;
+				Comment: "AC AUDIT: 1 = the corners used for delivery are replaced by their audited points (option C + SOC trimming, as tested on TR1/TR2/TR3/TR4/TR8/TR9 in October 2026). CHANGES the results; for comparison runs only.";
+			}
+			Parameter ACA_NetT {
+				IndexDomain: t;
+				Default: 1;
+				Comment: "AC AUDIT: 1 = the network rows exist at slot t (always, except during the audit: service slot only).";
+			}
+			Parameter ACA_LimT {
+				IndexDomain: t;
+				Default: 1;
+				Comment: "AC AUDIT: 1 = the limit rows exist at slot t (0 during the audit).";
+			}
+			Parameter ACA_MaxIter {
+				Default: 10;
+				Comment: "AC AUDIT: maximum re-linearization passes of the load flow.";
+			}
+			Parameter ACA_ConvTol {
+				Default: 1e-6;
+				Comment: "AC AUDIT: convergence, max change of Vre+Vim over all buses and phases (p.u.).";
+			}
+			Parameter ACA_LimTol {
+				Default: 1e-6;
+				Comment: "AC AUDIT: tolerance on the limits (p.u. voltage, or share of the rating).";
+			}
+			Parameter ACA_NBis {
+				Default: 7;
+				Comment: "AC AUDIT: bisection steps on lambda.";
+			}
+			Parameter ACA_V0re {
+				IndexDomain: (n,f);
+			}
+			Parameter ACA_V0im {
+				IndexDomain: (n,f);
+			}
+			Parameter ACA_MaxVS {
+				IndexDomain: n;
+			}
+			Parameter ACA_MinVS {
+				IndexDomain: n;
+			}
+			Parameter ACA_MaxCS {
+				IndexDomain: l;
+			}
+			Parameter ACA_MaxAS {
+				IndexDomain: tr;
+			}
+			Parameter ACA_N {
+				IndexDomain: bat;
+			}
+			Parameter ACA_Qb {
+				IndexDomain: bat;
+			}
+			Parameter ACA_NRaw {
+				IndexDomain: bat;
+			}
+			Parameter ACA_NLo {
+				IndexDomain: bat;
+			}
+			Parameter ACA_QLob {
+				IndexDomain: bat;
+			}
+			Parameter ACA_SOCc {
+				IndexDomain: bat;
+			}
+			Parameter ACA_CapC {
+				IndexDomain: bat;
+			}
+			Parameter ACA_CapD {
+				IndexDomain: bat;
+			}
+			Parameter ACA_V2 {
+				IndexDomain: bat;
+			}
+			Parameter ACA_SVre {
+				IndexDomain: (n,f,t);
+			}
+			Parameter ACA_SVim {
+				IndexDomain: (n,f,t);
+			}
+			Parameter ACA_SIreL {
+				IndexDomain: (l,f,t);
+			}
+			Parameter ACA_SIimL {
+				IndexDomain: (l,f,t);
+			}
+			Parameter ACA_SIreT {
+				IndexDomain: (tr,f,n,t) | n = StartBusTr(tr) or n = EndBusTr(tr);
+			}
+			Parameter ACA_SIimT {
+				IndexDomain: (tr,f,n,t) | n = StartBusTr(tr) or n = EndBusTr(tr);
+			}
+			Parameter ACA_SIreS {
+				IndexDomain: (sg,t);
+			}
+			Parameter ACA_SIimS {
+				IndexDomain: (sg,t);
+			}
+			Parameter ACA_SIreB {
+				IndexDomain: (bat,t);
+			}
+			Parameter ACA_SIimB {
+				IndexDomain: (bat,t);
+			}
+			Parameter ACA_SInvP {
+				IndexDomain: bat;
+			}
+			Parameter ACA_SInvQ {
+				IndexDomain: bat;
+			}
+			Parameter ACA_Lo {
+			}
+			Parameter ACA_Hi {
+			}
+			Parameter ACA_Lam {
+			}
+			Parameter ACA_K {
+			}
+			Parameter ACA_Done {
+			}
+			Parameter ACA_It {
+			}
+			Parameter ACA_dV {
+			}
+			Parameter ACA_OK {
+			}
+			Parameter ACA_OV {
+			}
+			Parameter ACA_UV {
+			}
+			Parameter ACA_LN {
+			}
+			Parameter ACA_TR {
+			}
+			Parameter ACA_OK0 {
+			}
+			Parameter ACA_OV0 {
+			}
+			Parameter ACA_UV0 {
+			}
+			Parameter ACA_LN0 {
+			}
+			Parameter ACA_TR0 {
+			}
+			Parameter ACA_LP {
+			}
+			Parameter ACA_LQ {
+			}
+			Parameter ACA_PLo {
+			}
+			Parameter ACA_QLo {
+			}
+			Parameter ACA_LP1 {
+			}
+			Parameter ACA_OVf {
+			}
+			Parameter ACA_UVf {
+			}
+			Parameter ACA_LNf {
+			}
+			Parameter ACA_TRf {
+			}
+			Parameter ACA_TrimW {
+			}
+			Parameter ACA_Sec {
+			}
+			Variable ACA_LFObj {
+				Range: free;
+				Definition: sum(sg, Ire_SlackGen(sg, PeriodMaxP));
+				Comment: "AC AUDIT: objective of the load flow ACA_LF (the problem is square; any objective will do). Excluded from every other program (NotTobeExcluded_variables).";
+			}
+			Set ACA_LFCons {
+				SubsetOf: AllConstraints;
+				Definition: AllConstraints * NetworkModel;
+			}
+			Set ACA_LFVars {
+				SubsetOf: AllVariables;
+				Definition: AllVariables * NetworkModel + AllVariables * ACAudit_Declarations;
+			}
+			MathematicalProgram ACA_LF {
+				Objective: ACA_LFObj;
+				Direction: minimize;
+				Constraints: ACA_LFCons;
+				Variables: ACA_LFVars;
+				Type: Automatic;
+			}
+			StringParameter ACA_CSVName {
+				Definition: "FOR_rolling_ac" + RollFileSuffix + ".csv";
+			}
+			File ACA_CSV {
+				Name: ACA_CSVName;
+				Mode: append;
+			}
+		}
 		Procedure PV2_Run {
 			Body: {
 				! one TR4 day with FOR-first TSO requests from scenario.txt (written by scripts/run_frq.py):
@@ -282,6 +484,13 @@ Model Main_OPF_VI_LG {
 				put SCT_ExecCSV;
 				put "now,battery,svc,base_status,soc_start,imp1_kWh,exp1_kWh,imp_plan_fut_kWh,batt1_kWh,cut1_kWh,pv1_kWh,zx_cut1_kWh,zx_cap1_kWh" / ;
 				putclose SCT_ExecCSV;
+				if ACAudit = 1 then   ! AC AUDIT (2026-10-23)
+					if FileExists( ACA_CSVName ) then FileDelete( ACA_CSVName ); endif;
+					ACA_CSV.PageWidth := 32767;
+					put ACA_CSV;
+					put "now,target,angle_deg,ok0,ov0_pu,uv0_pu,line0,trafo0,lambda,evals,P_kW,Q_kvar,P_new_kW,Q_new_kvar,ovf_pu,uvf_pu,linef,trafof,P_lf1_kW,trim_kW,lf_sec" / ;
+					putclose ACA_CSV;
+				endif;
 				if FileExists( SCT_InfoName ) then FileDelete( SCT_InfoName ); endif;
 				SCT_Info.PageWidth := 32767;
 				put SCT_Info;
@@ -294,6 +503,7 @@ Model Main_OPF_VI_LG {
 				put "AGGREGATORS: CaseAggMap ", CaseAggMap:2:0, "   batteries per aggregator:";   ! CASE STUDY (2026-10)
 				for (a) do put "  ", a, " ", (sum(bat | BattAgg(bat) = a, 1)):5:0; endfor;
 				put / ;
+				put "AC AUDIT: ACAudit ", ACAudit:2:0, "   ACAuditApply ", ACAuditApply:2:0 / ;   ! AC AUDIT (2026-10-23)
 				put "finished ", CurrentToString("%c%y-%m-%d %H:%M:%S") / ;
 				putclose SCT_Info;
 				SCT_On            := 0;
@@ -939,9 +1149,9 @@ Model Main_OPF_VI_LG {
 				Property: NoSave;
 				Definition: {
 					if IncludeNetworkConstraints=0 then
-						AllVariables - AllVariables*NetworkModel
+						AllVariables - AllVariables*NetworkModel - AllVariables*ACAudit_Declarations
 					else
-						AllVariables
+						AllVariables - AllVariables*ACAudit_Declarations
 					endif
 				}
 			}
@@ -1393,7 +1603,7 @@ Model Main_OPF_VI_LG {
 		}
 		DeclarationSection BusVars {
 			Variable Vmag2approx {
-				IndexDomain: (n,f,t);
+				IndexDomain: (n,f,t) | ACA_NetT(t);
 				Range: free;
 				Definition: Vre0(n,f,t)^2 + Vim0(n,f,t)^2 + 2*Vre0(n,f,t)*(Vre(n,f,t)-Vre0(n,f,t)) + 2*Vim0(n,f,t)*(Vim(n,f,t)-Vim0(n,f,t));
 			}
@@ -1501,7 +1711,7 @@ Model Main_OPF_VI_LG {
 		}
 		DeclarationSection NonLinearConstraints {
 			Constraint Vre_calc_Trafo {
-				IndexDomain: (tr,f,t);
+				IndexDomain: (tr,f,t) | ACA_NetT(t);
 				Definition: {
 					if f=1 then
 					Vre(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vre(EndBusTr(tr),2,t)+Vre(EndBusTr(tr),3,t)
@@ -1519,7 +1729,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint Vim_calc_Trafo {
-				IndexDomain: (tr,f,t);
+				IndexDomain: (tr,f,t) | ACA_NetT(t);
 				Definition: {
 					if f=1 then
 					Vim(StartBusTr(tr),f,t) = -(nomratio(tr)*Tapratio(tr,t)/3)*(2*Vim(EndBusTr(tr),2,t)+Vim(EndBusTr(tr),3,t)
@@ -1548,7 +1758,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint Ire_calc_Trafo {
-				IndexDomain: (tr,f,t);
+				IndexDomain: (tr,f,t) | ACA_NetT(t);
 				Definition: {
 					if f<3 then
 						Ire_Trafo(tr,f,StartBusTr(tr),t)*nomratio(tr)*Tapratio(tr,t) = Ire_Trafo(tr,f,EndBusTr(tr),t) - Ire_Trafo(tr,f+1,EndBusTr(tr),t)
@@ -1558,7 +1768,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint Iim_calc_Trafo {
-				IndexDomain: (tr,f,t);
+				IndexDomain: (tr,f,t) | ACA_NetT(t);
 				Definition: {
 					if f<3 then
 						Iim_Trafo(tr,f,StartBusTr(tr),t)*nomratio(tr)*Tapratio(tr,t) = Iim_Trafo(tr,f,EndBusTr(tr),t) - Iim_Trafo(tr,f+1,EndBusTr(tr),t)
@@ -1568,7 +1778,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint I2maxTrafos {
-				IndexDomain: (tr,f,t);
+				IndexDomain: (tr,f,t) | ACA_NetT(t) and ACA_LimT(t);
 				Definition: {
 					!constraining the primary side current per phase
 					Ire_Trafo(tr,f,StartBusTr(tr),t)^2+Iim_Trafo(tr,f,StartBusTr(tr),t)^2 <= MaxAmps(tr)^2
@@ -1578,7 +1788,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint I2maxLines {
-				IndexDomain: (l,f,t);
+				IndexDomain: (l,f,t) | ACA_NetT(t) and ACA_LimT(t);
 				Definition: {
 					Ire_Line(l,f,t)^2+Iim_Line(l,f,t)^2 <= MaxCurrent(l)^2
 					
@@ -1587,13 +1797,13 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint Vmax {
-				IndexDomain: (n,f,t);
+				IndexDomain: (n,f,t) | ACA_NetT(t) and ACA_LimT(t);
 				Definition: (1-FOR_LinearizeVmax)*( Vre(n,f,t)^2 + Vim(n,f,t)^2 ) + FOR_LinearizeVmax * Vmag2approx(n,f,t) <= MaxV(n)^2;
 			}
 		}
 		DeclarationSection OtherLinearConstraints {
 			Constraint Vmin {
-				IndexDomain: (n,f,t);
+				IndexDomain: (n,f,t) | ACA_NetT(t) and ACA_LimT(t);
 				Definition: {
 					Vmag2approx(n,f,t) >= MinV(n)^2
 					
@@ -1601,7 +1811,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint SlackVim {
-				IndexDomain: (ref,f,t);
+				IndexDomain: (ref,f,t) | ACA_NetT(t);
 				Definition: {
 					if f=1 then
 						Vim(ref,f,t)=0
@@ -1613,7 +1823,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint SlackVre {
-				IndexDomain: (ref,f,t);
+				IndexDomain: (ref,f,t) | ACA_NetT(t);
 				Definition: {
 					if f=1 then
 						Vre(ref,f,t)=1
@@ -1623,7 +1833,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint Ire_balance {
-				IndexDomain: (n,f,t);
+				IndexDomain: (n,f,t) | ACA_NetT(t);
 				Definition: {
 					sum(sg|SlackGenBus(sg)=n and SlackGenPhase(sg)=f,Ire_SlackGen(sg,t))
 					+ sum(l|EndBus(l)=n, Ire_Line(l,f,t))
@@ -1635,7 +1845,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint Iim_balance {
-				IndexDomain: (n,f,t);
+				IndexDomain: (n,f,t) | ACA_NetT(t);
 				Definition: {
 					sum(sg|SlackGenBus(sg)=n and SlackGenPhase(sg)=f,Iim_SlackGen(sg,t))
 					+ sum(l|EndBus(l)=n, Iim_Line(l,f,t))
@@ -1647,15 +1857,15 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Constraint VdropLines_re {
-				IndexDomain: (l,f,t);
+				IndexDomain: (l,f,t) | ACA_NetT(t);
 				Definition: Vre(StartBus(l),f,t)-Vre(EndBus(l),f,t) = sum(h|h<>f,Rm(l)*Ire_Line(l,h,t) - Xm(l)*Iim_Line(l,h,t)) + Rs(l)*Ire_Line(l,f,t) - Xs(l)*Iim_Line(l,f,t);
 			}
 			Constraint VdropLines_im {
-				IndexDomain: (l,f,t);
+				IndexDomain: (l,f,t) | ACA_NetT(t);
 				Definition: Vim(StartBus(l),f,t)-Vim(EndBus(l),f,t) = sum(h|h<>f,Xm(l)*Ire_Line(l,h,t) + Rm(l)*Iim_Line(l,h,t)) + Xs(l)*Ire_Line(l,f,t) + Rs(l)*Iim_Line(l,f,t);
 			}
 			Constraint FixedTaps {
-				IndexDomain: (tr,t)|Is_OLTC(tr)=0;
+				IndexDomain: (tr,t)|Is_OLTC(tr)=0 and ACA_NetT(t);
 				Definition: TapPosUnits(tr,t)=FixedTapPos(tr);
 			}
 		}
@@ -1725,7 +1935,7 @@ Model Main_OPF_VI_LG {
 		}
 		DeclarationSection LoadAndGenVars {
 			Variable Ire_Gen {
-				IndexDomain: (d,t);
+				IndexDomain: (d,t) | ACA_NetT(t);
 				Range: free;
 				Definition: {
 					(GenP0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
@@ -1734,7 +1944,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Variable Ire_Load {
-				IndexDomain: (d,t);
+				IndexDomain: (d,t) | ACA_NetT(t);
 				Range: free;
 				Definition: {
 					(P0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t) + Q0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
@@ -1743,7 +1953,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Variable Iim_Load {
-				IndexDomain: (d,t);
+				IndexDomain: (d,t) | ACA_NetT(t);
 				Range: free;
 				Definition: {
 					(P0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t) - Q0(d,t)*Vre0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
@@ -1752,7 +1962,7 @@ Model Main_OPF_VI_LG {
 				}
 			}
 			Variable Iim_Gen {
-				IndexDomain: (d,t);
+				IndexDomain: (d,t) | ACA_NetT(t);
 				Range: free;
 				Definition: {
 					(GenP0(d,t)*Vim0(LoadBus(d),LoadPhase(d),t))/(Vre0(LoadBus(d),LoadPhase(d),t)^2+Vim0(LoadBus(d),LoadPhase(d),t)^2)
@@ -6359,6 +6569,157 @@ Model Main_OPF_VI_LG {
 						putclose SRQ_CSV;
 						FairActive  := 0;
 						SCRefActive := 0;
+					endif;
+
+					! ---- AC AUDIT (ACAudit = 1, 2026-10-23): each corner of the FOR just built goes through an AC power flow of the
+					! ---- service slot (fixed injections, re-linearized until converged, limits relaxed). A corner that breaks a limit is
+					! ---- moved toward S0 (P1's set-points) by bisection, with the execution rule's SOC trimming, to its furthest
+					! ---- AC-feasible point. Logged in FOR_rolling_ac<tag>.csv. The corners used for delivery change only with
+					! ---- ACAuditApply = 1 (option C); every limit, linearization point and network level is restored afterwards.
+					if ACAudit = 1 and SRQ_Mode = 2 and sum(ia, FRQ_VOK(ia)) >= 1 then
+						ACA_V0re(n,f) := Vre0(n,f,PeriodMaxP);
+						ACA_V0im(n,f) := Vim0(n,f,PeriodMaxP);
+						ACA_SVre(n,f,tGMP) := Vre(n,f,tGMP);
+						ACA_SVim(n,f,tGMP) := Vim(n,f,tGMP);
+						ACA_SIreL(l,f,tGMP) := Ire_Line(l,f,tGMP);
+						ACA_SIimL(l,f,tGMP) := Iim_Line(l,f,tGMP);
+						ACA_SIreT(tr,f,n,tGMP) := Ire_Trafo(tr,f,n,tGMP);
+						ACA_SIimT(tr,f,n,tGMP) := Iim_Trafo(tr,f,n,tGMP);
+						ACA_SIreS(sg,tGMP) := Ire_SlackGen(sg,tGMP);
+						ACA_SIimS(sg,tGMP) := Iim_SlackGen(sg,tGMP);
+						ACA_SIreB(bat,tGMP) := Ire_Batt(bat,tGMP);
+						ACA_SIimB(bat,tGMP) := Iim_Batt(bat,tGMP);
+						ACA_SInvP(bat) := BattInvPn(bat);
+						ACA_SInvQ(bat) := BattInvQn(bat);
+						ACA_MaxVS(n) := MaxV(n);
+						ACA_MinVS(n) := MinV(n);
+						ACA_MaxCS(l) := MaxCurrent(l);
+						ACA_MaxAS(tr) := MaxAmps(tr);
+						MaxV(n) := 3;
+						MinV(n) := 0;
+						MaxCurrent(l) := 1000*MaxCurrent(l);
+						MaxAmps(tr) := 1000*MaxAmps(tr);
+						ACA_NetT(tGMP) := if ord(tGMP) = PeriodMaxP then 1 else 0 endif;
+						ACA_LimT(tGMP) := 0;
+						ACA_SOCc(bat) := min( BattSOCmaxPhys(bat) - RollSOCEps, max( BattSOCmin(bat) + RollSOCEps, RollSOCnext(bat) ) );
+						ACA_CapC(bat) := max( 0, (BattSOCmaxPhys(bat) - RollSOCEps - ACA_SOCc(bat))*BattEcap(bat)/(etaChg(bat)*DeltaT) );
+						ACA_CapD(bat) := max( 0, (ACA_SOCc(bat) - BattSOCmin(bat) - RollSOCEps)*BattEcap(bat)*etaDis(bat)/DeltaT );
+						for (ia | FRQ_VOK(ia)) do
+							ACA_Lo := 0;
+							ACA_Hi := 1;
+							ACA_Lam := 1;
+							ACA_K := 0;
+							ACA_Done := 0;
+							ACA_TrimW := 0;
+							ACA_Sec := 0;
+							ACA_PLo := FRQ_S0P;
+							ACA_QLo := FRQ_S0Q;
+							ACA_NLo(bat) := FRQ_Chg0(bat) - FRQ_Dis0(bat);
+							ACA_QLob(bat) := FRQ_Q0(bat);
+							ACA_OVf := -1;
+							ACA_UVf := -1;
+							ACA_LNf := -1;
+							ACA_TRf := -1;
+							while ACA_Done = 0 do
+								ACA_N(bat) := (FRQ_Chg0(bat) - FRQ_Dis0(bat)) + ACA_Lam*((FRQ_Chg(ia,bat) - FRQ_Dis(ia,bat)) - (FRQ_Chg0(bat) - FRQ_Dis0(bat)));
+								ACA_Qb(bat) := FRQ_Q0(bat) + ACA_Lam*(FRQ_Qv(ia,bat) - FRQ_Q0(bat));
+								ACA_NRaw(bat) := ACA_N(bat);   ! the execution rule's SOC trimming, as in the recovery
+								ACA_N(bat) := min( max(0, ACA_NRaw(bat)), ACA_CapC(bat) ) - min( max(0, -ACA_NRaw(bat)), ACA_CapD(bat) );
+								if ACA_K = 0 then ACA_TrimW := sum(bat, abs(ACA_NRaw(bat) - ACA_N(bat))); endif;
+								Vre0(n,f,PeriodMaxP) := ACA_V0re(n,f);
+								Vim0(n,f,PeriodMaxP) := ACA_V0im(n,f);
+								ACA_It := 0;
+								ACA_dV := 1;
+								ACA_OK := 1;
+								while ACA_It < ACA_MaxIter and ACA_dV > ACA_ConvTol do
+									ACA_V2(bat) := Vre0(BattBus(bat),BattPhase(bat),PeriodMaxP)^2 + Vim0(BattBus(bat),BattPhase(bat),PeriodMaxP)^2;
+									Ire_Batt(bat,PeriodMaxP) := (Vre0(BattBus(bat),BattPhase(bat),PeriodMaxP)*ACA_N(bat) + Vim0(BattBus(bat),BattPhase(bat),PeriodMaxP)*ACA_Qb(bat)) / ACA_V2(bat);
+									Iim_Batt(bat,PeriodMaxP) := (Vim0(BattBus(bat),BattPhase(bat),PeriodMaxP)*ACA_N(bat) - Vre0(BattBus(bat),BattPhase(bat),PeriodMaxP)*ACA_Qb(bat)) / ACA_V2(bat);
+									solve ACA_LF
+										where  method     := 'deterministic concurrent',
+											time_limit := 3000;
+									ACA_It := ACA_It + 1;
+									ACA_Sec := ACA_Sec + ACA_LF.SolutionTime;
+									if ACA_LF.ProgramStatus <> 'Optimal' and ACA_LF.ProgramStatus <> 'LocallyOptimal' then
+										ACA_OK := 0;
+										break;
+									endif;
+									if ACA_It = 1 then
+										ACA_LP := sum(sg, Vre_PCC(SlackGenPhase(sg))*Ire_SlackGen(sg,PeriodMaxP) + Vim_PCC(SlackGenPhase(sg))*Iim_SlackGen(sg,PeriodMaxP));
+										ACA_LQ := sum(sg, Vim_PCC(SlackGenPhase(sg))*Ire_SlackGen(sg,PeriodMaxP) - Vre_PCC(SlackGenPhase(sg))*Iim_SlackGen(sg,PeriodMaxP));
+									endif;
+									ACA_dV := max((n,f), abs(Vre(n,f,PeriodMaxP) - Vre0(n,f,PeriodMaxP)) + abs(Vim(n,f,PeriodMaxP) - Vim0(n,f,PeriodMaxP)));
+									Vre0(n,f,PeriodMaxP) := Vre(n,f,PeriodMaxP);
+									Vim0(n,f,PeriodMaxP) := Vim(n,f,PeriodMaxP);
+								endwhile;
+								if ACA_dV > ACA_ConvTol then ACA_OK := 0; endif;   ! not converged
+								ACA_OV := max((n,f), sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2) - ACA_MaxVS(n));
+								ACA_UV := max((n,f), ACA_MinVS(n) - sqrt(Vre(n,f,PeriodMaxP)^2 + Vim(n,f,PeriodMaxP)^2));
+								ACA_LN := max((l,f) | ACA_MaxCS(l) > 0, sqrt(Ire_Line(l,f,PeriodMaxP)^2 + Iim_Line(l,f,PeriodMaxP)^2)/ACA_MaxCS(l));
+								ACA_TR := max((tr,f) | ACA_MaxAS(tr) > 0, sqrt(Ire_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)^2 + Iim_Trafo(tr,f,StartBusTr(tr),PeriodMaxP)^2)/ACA_MaxAS(tr));
+								if ACA_OV > ACA_LimTol or ACA_UV > ACA_LimTol or ACA_LN > 1 + ACA_LimTol or ACA_TR > 1 + ACA_LimTol then ACA_OK := 0; endif;
+								if ACA_K = 0 then   ! the corner as built (trimmed)
+									ACA_OV0 := ACA_OV;
+									ACA_UV0 := ACA_UV;
+									ACA_LN0 := ACA_LN;
+									ACA_TR0 := ACA_TR;
+									ACA_OK0 := ACA_OK;
+									ACA_LP1 := ACA_LP;
+								endif;
+								if ACA_OK = 1 then
+									ACA_Lo := ACA_Lam;
+									ACA_PLo := ACA_LP;
+									ACA_QLo := ACA_LQ;
+									ACA_NLo(bat) := ACA_N(bat);
+									ACA_QLob(bat) := ACA_Qb(bat);
+									ACA_OVf := ACA_OV;
+									ACA_UVf := ACA_UV;
+									ACA_LNf := ACA_LN;
+									ACA_TRf := ACA_TR;
+								else
+									ACA_Hi := ACA_Lam;
+								endif;
+								ACA_K := ACA_K + 1;
+								if (ACA_K = 1 and ACA_OK = 1) or ACA_K > ACA_NBis then
+									ACA_Done := 1;
+								else
+									ACA_Lam := 0.5*(ACA_Lo + ACA_Hi);
+								endif;
+							endwhile;
+							put ACA_CSV;
+							put RollNow:3:0, ",", (mod(RollNow, nPeriods) + 1):3:0, ",", (360*(ord(ia) - 1)/FOR_nAngles):6:1, ",", ACA_OK0:2:0, ",", ACA_OV0:12:8, ",", ACA_UV0:12:8, ",",
+								ACA_LN0:9:6, ",", ACA_TR0:9:6, ",", (if ACA_OK0 = 1 then 1 else ACA_Lo endif):8:5, ",", ACA_K:3:0, ",",
+								(1000*FRQ_VP(ia)):12:4, ",", (1000*FRQ_VQ(ia)):12:4, ",", (1000*ACA_PLo):12:4, ",", (1000*ACA_QLo):12:4, ",",
+								ACA_OVf:12:8, ",", ACA_UVf:12:8, ",", ACA_LNf:9:6, ",", ACA_TRf:9:6, ",", (1000*ACA_LP1):12:4, ",", (1000*ACA_TrimW):10:4, ",", ACA_Sec:10:3 / ;
+							putclose ACA_CSV;
+							if ACAuditApply = 1 then   ! option C: the corner is replaced by its audited point (S0 itself if no lambda > 0 passed), stored trimmed
+								FRQ_VP(ia) := ACA_PLo;
+								FRQ_VQ(ia) := ACA_QLo;
+								FRQ_Chg(ia,bat) := max(0, ACA_NLo(bat));
+								FRQ_Dis(ia,bat) := max(0, -ACA_NLo(bat));
+								FRQ_Qv(ia,bat) := ACA_QLob(bat);
+							endif;
+						endfor;
+						Vre0(n,f,PeriodMaxP) := ACA_V0re(n,f);
+						Vim0(n,f,PeriodMaxP) := ACA_V0im(n,f);
+						MaxV(n) := ACA_MaxVS(n);
+						MinV(n) := ACA_MinVS(n);
+						MaxCurrent(l) := ACA_MaxCS(l);
+						MaxAmps(tr) := ACA_MaxAS(tr);
+						ACA_NetT(tGMP) := 1;
+						ACA_LimT(tGMP) := 1;
+						Vre(n,f,tGMP) := ACA_SVre(n,f,tGMP);
+						Vim(n,f,tGMP) := ACA_SVim(n,f,tGMP);
+						Ire_Line(l,f,tGMP) := ACA_SIreL(l,f,tGMP);
+						Iim_Line(l,f,tGMP) := ACA_SIimL(l,f,tGMP);
+						Ire_Trafo(tr,f,n,tGMP) := ACA_SIreT(tr,f,n,tGMP);
+						Iim_Trafo(tr,f,n,tGMP) := ACA_SIimT(tr,f,n,tGMP);
+						Ire_SlackGen(sg,tGMP) := ACA_SIreS(sg,tGMP);
+						Iim_SlackGen(sg,tGMP) := ACA_SIimS(sg,tGMP);
+						Ire_Batt(bat,tGMP) := ACA_SIreB(bat,tGMP);
+						Iim_Batt(bat,tGMP) := ACA_SIimB(bat,tGMP);
+						BattInvPn(bat) := ACA_SInvP(bat);
+						BattInvQn(bat) := ACA_SInvQ(bat);
 					endif;
 
 					! ---- FOR-FIRST REQUEST (SRQ_Mode = 2): the TSO picks a point inside the FOR just published (the

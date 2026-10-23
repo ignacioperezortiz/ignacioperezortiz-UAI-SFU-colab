@@ -36,6 +36,7 @@ reference for the case-study runs of paper 1: what is run, with which inputs, ho
 | Fairness rows | headroom box on, effective headrooms (`FairBox = 1`, `FairEffHead = 1`) | `PV2_Run` defaults (PR #25) |
 | FOR | 12 directions, every 30° | model |
 | Solver | CPLEX 22.1 (pinned by `SCT_UseCPLEX`), exact QCP | model |
+| AC audit | `ACAudit=1` in the transformer runs: every FOR corner checked with an AC power flow and, if it breaks a limit, the point option C would offer instead; a log only (`FOR_rolling_ac<tag>.csv`), results unchanged. Off for the whole feeder | model (section Paper1, `ACAudit_Declarations`) |
 | AIMMS | 26.3.2.1 (Tulio); Nacho's version in his records | run record (`aimms_cmd`) |
 
 Every run records these automatically (section 6). Nothing in this table may change during the campaign without a
@@ -88,7 +89,7 @@ python scripts/paper1/run_paper1.py lane L1 scripts/paper1/queues/case_study_A_t
 (one `lane` command per seat: L1, L2, L3; start them about a minute apart). The queue holds 27 jobs: three variants ×
 nine transformers, longest first. TR6 and TR7 use the sequential sweep and never run at the same time (memory); the
 other lanes take the next job meanwhile. Expected: about 14 h per variant on three seats, so about 2–2.5 days in all
-(TR6 / TR7 take 8–9 h each).
+(TR6 / TR7 take 8–9 h each), plus about 10–25 % for the AC audit (`ACAudit=1`, a log only).
 
 ### 5.3 Nacho: the whole feeder
 
@@ -149,10 +150,12 @@ the queue, record the choice in section 11, and run it like Run A.
 | Whole feeder vs Minkowski sum | `analysis/minkowski.py --variant REF` | per period: areas, largest directional differences, solve times; compare the reference FORs first (a fairness rule applied per transformer is not the same rule over the feeder) |
 | Run B vs Run A | (to add with Run B) | delivered vs requested exchange, set-points against the model's limits (voltage, thermal, battery), SOC and imports per prosumer after period 25, later FORs |
 | Computation time | records + `time_per_step.csv` | report solver settings and computers; the two computers differ, so wall times alone do not isolate the effect of decomposition |
+| AC audit of the FOR corners | `analysis/ac_audit.py` | corners that break a limit in AC and why; how far option C would move them; FOR area kept with the audited corners; audit time |
 
 Setpoint feasibility (meeting §10): record, for Run B, the interface tracking error and the voltage, thermal and battery
-limits of the recovered dispatch in the model; keep model feasibility separate from any AC validation. The AC audit of
-the FOR corners (an add-on that does not change the results) comes in a separate PR.
+limits of the recovered dispatch in the model; keep model feasibility separate from any AC validation. The AC audit
+(`ACAudit=1`) checks every corner in AC and logs the point option C would offer, without changing any result;
+`ACAuditApply=1` would replace the corners used for delivery (option C) and therefore change Run B: comparison only.
 
 ## 9. Fairness tolerance (later, transformers only)
 
@@ -173,7 +176,7 @@ cost; do not scale the 48-period total by a period ratio (solve times vary over 
 | Aggregator assignment | **Closed 23 Oct**: weighted draw, equal sizes, Agg3 far (section 4) |
 | Run A variants | **Closed 23 Oct**: reference + HP within each aggregator + HP network-wide, both scopes |
 | Results storage | **Closed 23 Oct**: records and summaries in Git, raw zips in the shared folder |
-| AC check of the FOR corners | **Closed 23 Oct**: as an add-on that does not change the results (AC audit, separate PR) |
+| AC check of the FOR corners | **Closed 23 Oct**: as an add-on that does not change the results: `ACAudit=1` in the transformer runs (log only); `ACAuditApply=1` (option C) for comparisons only |
 | Interface convention for the Minkowski comparison | OPEN (proposal in section 3) |
 | Run B: requested point and fairness case | OPEN (period 25 agreed) |
 | Fairness tolerance values | OPEN (section 9) |
