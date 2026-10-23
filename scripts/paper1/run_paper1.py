@@ -22,6 +22,13 @@ Outputs go to the lane folder, named with the tag _<scenario>_<case>_<speed>[_<n
 day-2 files end in _d2. A job is skipped when a done file with "Return value = 0" exists in any lane, or when
 another lane has claimed it (runs/claims/<tag>.claim; delete the claim to run it again).
 
+Run records (case study, Oct 2026): "prepare" writes prepare_info.json in each lane (Git commit and whether the working
+tree had uncommitted changes, SHA-256 of the model and input files as copied); after every job the lane gets
+record<tag>.json (job line, scenario, start/end, wall time, return line, computer, AIMMS, the prepare info and every
+output file with size and SHA-256). "prepare --strict" refuses to prepare from a working tree with uncommitted changes
+(use it for production runs). Inputs from inputs/case-study/ (aggregator mapping) are copied into every lane.
+At most one TR6 / TR7 job runs at a time (memory); the other lanes take the next job meanwhile.
+
 Usage (from the repository root):
   python scripts/paper1/run_paper1.py prepare L1 L2 L3            # copy the model into <work>/L1 ...
   python scripts/paper1/run_paper1.py lane L1 scripts/paper1/queues/tr_by_tr.txt
@@ -33,8 +40,10 @@ Re-run "prepare" after changing the model: it refreshes MainProject/ in every la
 """
 import argparse
 import glob
+import hashlib
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -45,6 +54,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SCEN = Path(__file__).resolve().parent / "scenarios"
 DATA = ("Database.mdb", "Database.dsn", "OpData.xls")
+CASE_INPUTS = REPO / "inputs" / "case-study"
+CASE_FILES = ("aggregators_case_study.txt",)   # copied into every lane (read by the model when CaseAggMap = 1)
+HEAVY = re.compile(r"_(TR6|TR7)(_|$)")          # transformers whose sessions need ~15 GB: one at a time
 COMMON = {"ZX_GMP": 1, "SCTight": 1, "SPD_TimeLog": 1, "EnableRollDiag": 0}
 CASES = {"free_today": {"PV2_Regime": 0, "SRQ_Coord": 0, "FRQ_BF": 0}}   # paper 1: rule (i), PV never cut
 FINAL = {"SPD_P1NoNet": 1, "SPD_P1Q0": 1, "SPD_S0FOR": 0, "SPD_NCAll": 1, "SPD_FixSlotK": 1, "SPD_CornersOnly": 1}
@@ -91,8 +103,44 @@ def job_tag(sid, case, speed, net, extra):
     return tag + "".join(f"_{k}{v}" for k, v in extra.items())
 
 
+def job_line(sid, case, speed, net, extra):
+    return " ".join([sid, case, speed] + ([net] if net else []) + [f"{k}={v}" for k, v in extra.items()])
+
+
+def sha16(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()[:16]
+
+
+def git_info():
+    def git(*args):
+        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    dirty = [l for l in git("status", "--porcelain", "--untracked-files=no").splitlines() if l.strip()]
+    return {"commit": git("rev-parse", "HEAD"), "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
+            "dirty": bool(dirty), "dirty_files": [l[3:] for l in dirty]}
+
+
+def computer_info():
+    info = {"host": platform.node(), "os": platform.platform(), "logical_cpus": os.cpu_count()}
+    try:
+        ps = ("$c = Get-CimInstance Win32_Processor | Select-Object -First 1; $m = Get-CimInstance Win32_ComputerSystem; "
+              "\"$($c.Name)|$($c.NumberOfCores)|$([math]::Round($m.TotalPhysicalMemory / 1GB, 1))\"")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60).stdout.strip()
+        cpu, cores, ram = out.split("|")
+        info.update(cpu=cpu.strip(), cores=int(cores), ram_gb=float(ram))
+    except Exception:   # the record is still written without these fields
+        pass
+    return info
+
+
 def scenario_txt(sid, case, speed, net, extra):
     s = json.loads((SCEN / f"{sid}.json").read_text())
+    if s.get("blocked"):   # a scenario whose settings are not decided yet (e.g. the Run B request point)
+        raise SystemExit(f"scenario {sid} is blocked: {s['blocked']}")
     req = {int(p): v for p, v in s["requests"].items()}
     ps = sorted(req)
     lines = [f'SRQ_Tag := "{job_tag(sid, case, speed, net, extra)}" ;', f"SRQ_MaxPer := {int(s.get('max_per', 0))} ;",
@@ -141,6 +189,27 @@ def wait_free(lane_dir):
     time.sleep(15)
 
 
+def write_record(lane_dir, lane, job, tag, start, end, mins, return_line, ok):
+    """record<tag>.json: everything needed to trace a result back to its code, inputs and computer."""
+    sid = job[0]
+    prep = lane_dir / "prepare_info.json"
+    outputs = []
+    for f in sorted(lane_dir.glob(f"*{tag}*")):
+        if f.is_file() and not f.name.startswith(("record", "done")):
+            outputs.append({"file": f.name, "bytes": f.stat().st_size, "sha256": sha16(f)})
+    rec = {
+        "tag": tag, "job_line": job_line(*job), "lane": lane, "lane_dir": str(lane_dir),
+        "scenario": {"id": sid, "file": f"scripts/paper1/scenarios/{sid}.json", "sha256": sha16(SCEN / f"{sid}.json"),
+                     "scenario_txt": (lane_dir / "scenario.txt").read_text()},
+        "start": f"{start:%Y-%m-%d %H:%M:%S}", "end": f"{end:%Y-%m-%d %H:%M:%S}", "wall_min": round(mins, 2),
+        "return_line": return_line, "ok": bool(ok),
+        "computer": computer_info(), "aimms_cmd": aimms_cmd(),
+        "prepare_info": json.loads(prep.read_text()) if prep.exists() else None,
+        "outputs": outputs,
+    }
+    (lane_dir / f"record{tag}.json").write_text(json.dumps(rec, indent=1))
+
+
 def run_job(work, lane_dir, lane, job):
     sid, case, speed, net, extra = job
     tag = job_tag(*job)
@@ -171,6 +240,9 @@ def run_job(work, lane_dir, lane, job):
             continue
         if err.exists():   # keep each job's error log: the next job overwrites log/aimms.err
             shutil.copyfile(err, lane_dir / f"aimms_err{tag}.txt")
+        end = datetime.now()
+        write_record(lane_dir, lane, job, tag, start, end, mins, ret[-1] if ret else "no return line",
+                     "Return value = 0" in text)
         (lane_dir / f"done{tag}.txt").write_text((ret[-1] if ret else "no return line") + "\n")
         log(lane_dir, f"done {tag} in {mins:.1f} min: {ret[-1] if ret else 'no return line'}")
         jobs = work / "jobs.csv"
@@ -184,21 +256,46 @@ def run_job(work, lane_dir, lane, job):
     log(lane_dir, f"{tag}: gave up after 40 tries")
 
 
-def prepare(work, lanes, project):
+def prepare(work, lanes, project, strict=False):
     missing = [f for f in DATA if not (REPO / f).exists()]
     if missing:
         raise SystemExit(f"input data missing in the repository root: {', '.join(missing)}")
+    gi = git_info()
+    if strict and (gi["dirty"] or not gi["commit"]):
+        raise SystemExit("--strict: the working tree has uncommitted changes to tracked files "
+                         f"({', '.join(gi['dirty_files'][:5])}); commit or stash them first")
     for lane in lanes:
         d = work / lane
         d.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(project, d / "OPF.aimms")
         for f in DATA:
             shutil.copyfile(REPO / f, d / f)
+        for f in CASE_FILES:
+            if (CASE_INPUTS / f).exists():
+                shutil.copyfile(CASE_INPUTS / f, d / f)
         if (d / "MainProject").exists():
             shutil.rmtree(d / "MainProject")
         shutil.copytree(REPO / "MainProject", d / "MainProject",
                         ignore=shutil.ignore_patterns("log", "backup", "PROTemp", "*.aimmslockfile"))
-        print("prepared", d)
+        files = {f: sha16(d / f) for f in ("OPF.aimms", *DATA, *CASE_FILES) if (d / f).exists()}
+        files["MainProject/OPF.ams"] = sha16(d / "MainProject" / "OPF.ams")
+        other = hashlib.sha256()   # project settings (solver options etc.) besides OPF.ams
+        for f in sorted(p for p in (d / "MainProject").rglob("*") if p.is_file() and p.name != "OPF.ams"):
+            other.update(f.relative_to(d).as_posix().encode() + bytes.fromhex(sha16(f)))
+        files["MainProject/other files"] = other.hexdigest()[:16]
+        info = {"prepared": f"{datetime.now():%Y-%m-%d %H:%M:%S}", "repo": str(REPO), "git": gi,
+                "project_file": str(Path(project).resolve()), "files_sha256": files,
+                "runner_sha256": sha16(Path(__file__)), "strict": strict}
+        (d / "prepare_info.json").write_text(json.dumps(info, indent=1))
+        print("prepared", d, "(commit", gi["commit"][:7] + (", UNCOMMITTED CHANGES" if gi["dirty"] else "") + ")")
+
+
+def heavy_running(work):
+    """A TR6 / TR7 job is running when its claim exists and no lane has its done file yet."""
+    for c in (work / "claims").glob("*.claim"):
+        if HEAVY.search(c.stem) and not any(work.glob(f"*/done{c.stem}.txt")):
+            return True
+    return False
 
 
 def main():
@@ -207,10 +304,11 @@ def main():
     ap.add_argument("args", nargs="+")
     ap.add_argument("--work", default=str(REPO.parent / "paper1-runs"))
     ap.add_argument("--project", default=str(REPO / "OPF.aimms"))
+    ap.add_argument("--strict", action="store_true", help="prepare only: refuse a working tree with uncommitted changes")
     a = ap.parse_args()
     work = Path(a.work).resolve()   # absolute: AimmsCmd runs inside the lane folder, a relative path fails to start
     if a.cmd == "prepare":
-        prepare(work, a.args, Path(a.project))
+        prepare(work, a.args, Path(a.project), a.strict)
     elif a.cmd == "show":   # print the scenario.txt of one job line, nothing is run
         print(scenario_txt(*parse_job(a.args)), end="")
     else:
@@ -219,13 +317,28 @@ def main():
         if not (d / "OPF.aimms").exists():
             raise SystemExit(f"{d} is not prepared: run 'prepare {lane}' first")
         jobs = [parse_job(l.split()) for l in qfile.read_text().splitlines() if l.strip() and not l.startswith("#")]
+        for job in jobs:   # fail now, not hours later, on a scenario that does not exist or is blocked
+            scenario_txt(*job)
         log(d, f"lane {lane} start: queue {qfile.name}, {len(jobs)} jobs")
-        for job in jobs:
-            tag = job_tag(*job)
-            if done_anywhere(work, tag) or not claim(work, tag, lane):
-                continue
-            log(d, f"start {tag}")
-            run_job(work, d, lane, job)
+        pending = list(jobs)
+        while pending:
+            started = False
+            for job in list(pending):
+                tag = job_tag(*job)
+                if done_anywhere(work, tag) or (work / "claims" / f"{tag}.claim").exists():
+                    pending.remove(job)
+                    continue
+                if HEAVY.search(tag) and heavy_running(work):   # wait for the other TR6 / TR7 job
+                    continue
+                pending.remove(job)
+                if not claim(work, tag, lane):
+                    continue
+                log(d, f"start {tag}")
+                run_job(work, d, lane, job)
+                started = True
+                break
+            if pending and not started:   # only TR6 / TR7 jobs left, and one is running elsewhere
+                time.sleep(300)
         log(d, f"lane {lane} finished queue {qfile.name}")
 
 
