@@ -3340,6 +3340,16 @@ Model Main_OPF_VI_LG {
 					"Realised SOC carried forward between steps; seeds BattSOCini for the current window."
 				}
 			}
+			Parameter RollStartPeriod {
+				Default: 0;
+				Comment: "RESUME (2026-10-24): first step this process solves. 0 or 1 = the whole day from step 1, as always. K > 1 = resume a stopped run at step K: the state the rolling horizon carries into step K (BattSOCstart and the plan-once commitment SPD_PrevChg, SPD_PrevDis, SPD_PrevOK) is read from FOR_rolling_ckpt_resume.dat, a copy of the stopped run's checkpoint that must be good for step K, and steps 1..K-1 are skipped. The job writes its own files (its tag carries _RollStartPeriodK); they are merged with the stopped run's steps 1..K-1 afterwards.";
+			}
+			Parameter RollCkptPeriod {
+				Comment: "RESUME working: the step the checkpoint is good for, i.e. the next step to solve. Written with the state and checked against RollStartPeriod on resume.";
+			}
+			Parameter RollCkptSvcPend {
+				Comment: "RESUME working: RollSvcPend as the checkpoint holds it. A resume with a committed service pending is refused: the service state is not in the checkpoint.";
+			}
 			Parameter RollUseSOCSeed {
 				Default: 0;
 				Comment: "0 = start the day from BattSOCini as the database gives it (PRODUCTION). 1 = start from the SeedSOC slots instead, for chaining a second and third day off the first. Read in exactly one place, the BattSOCstart seeding line of RunFOR_Rolling.";
@@ -3426,6 +3436,13 @@ Model Main_OPF_VI_LG {
 			}
 			StringParameter FOR_RollProgressName {
 				Definition: "FOR_rolling_progress" + RollFileSuffix + FairFileTag + ".txt";
+			}
+			StringParameter FOR_RollCkptName {
+				Definition: "FOR_rolling_ckpt" + RollFileSuffix + FairFileTag + ".dat";
+			}
+			File FOR_RollCkpt {
+				Name: FOR_RollCkptName;
+				Comment: "RESUME (2026-10-24): checkpoint rewritten at the end of every step with the whole state the rolling horizon carries into the next one (the same state TWO DAYS seeds day 2 with). Written with put at 17 decimals, not with WRITE, which rounds to display precision (2026-08 chunked runs). Read back only with RollStartPeriod > 1.";
 			}
 			File FOR_RollProgress {
 				Name: FOR_RollProgressName;
@@ -4496,6 +4513,22 @@ Model Main_OPF_VI_LG {
 				else
 					BattSOCstart(bat) := BattSOCini(bat);
 				endif;
+				! RESUME (2026-10-24): RollStartPeriod = K > 1 continues a stopped run at step K from the state its checkpoint
+				! holds for step K; steps 1..K-1 are skipped in the loop below.
+				if RollStartPeriod > 1 then
+					if not FileExists( "FOR_rolling_ckpt_resume.dat" ) then
+						halt with "RollStartPeriod > 1 but there is no FOR_rolling_ckpt_resume.dat (a copy of the stopped run's checkpoint).";
+					endif;
+					RollCkptPeriod  := 0;
+					RollCkptSvcPend := 0;
+					read from file "FOR_rolling_ckpt_resume.dat";   ! BattSOCstart, SPD_PrevChg, SPD_PrevDis, SPD_PrevOK, RollCkptSvcPend, RollCkptPeriod
+					if RollCkptPeriod <> RollStartPeriod then
+						halt with "the checkpoint is good for step " + FormatString("%i", RollCkptPeriod) + " but RollStartPeriod is " + FormatString("%i", RollStartPeriod) + ".";
+					endif;
+					if RollCkptSvcPend = 1 then
+						halt with "the checkpoint has a committed service pending: resuming it is not supported.";
+					endif;
+				endif;
 				
 				! CSV headers. Switch the active file with 'put <file>'. The three files are declared
 				! Mode: append (see RollFlushCSV), which makes deleting them HERE mandatory - otherwise this
@@ -4578,6 +4611,7 @@ Model Main_OPF_VI_LG {
 				
 				for (t) do
 					RollNow     := ord(t);
+					if RollStartPeriod > 1 and RollNow < RollStartPeriod then skip; endif;   ! RESUME: steps the stopped run already closed
 					if RollMaxPeriods > 0 and RollNow > RollMaxPeriods then break; endif;   ! SMOKE cap (whole-feeder sizing): 0 = full day; the putclose block below still runs, so capped CSVs are valid
 					RollMap(tt) := Element(Time, mod(ord(tt)-1 + (RollNow-1), nPeriods) + 1);
 					if SPD_TimeLog = 1 then SPD_T0(t) := CurrentToString("%c%y-%m-%d %H:%M:%S"); endif;   ! SPEED TEST
@@ -7127,6 +7161,40 @@ Model Main_OPF_VI_LG {
 					! ---- started this whole investigation - while the comment claimed the opposite.
 					BattSOCstart(bat) := min( BattSOCmaxPhys(bat) - RollSOCEps,
 					                          max( BattSOCmin(bat) + RollSOCEps, RollSOCnext(bat) ) );
+
+					! RESUME (2026-10-24): the whole state the next step needs - the realised SOC just carried forward and
+					! P1's plan for the next slot (plan once) - rewritten every step, so a stopped run can continue at the
+					! first step it did not close (RollStartPeriod). Writing it changes nothing in this run.
+					RollCkptPeriod := RollNow + 1;
+					if FileExists( FOR_RollCkptName ) then FileDelete( FOR_RollCkptName ); endif;
+					FOR_RollCkpt.PageWidth := 32767;
+					put FOR_RollCkpt;
+					put "BattSOCstart(bat) := data" / ;
+					put "{" / ;
+					for (bat) do
+						if ord(bat) > 1 then put " ," / ; endif;
+						put "  '", bat, "' : ", BattSOCstart(bat):24:17;
+					endfor;
+					put " } ;" / ;
+					put "SPD_PrevChg(bat) := data" / ;
+					put "{" / ;
+					for (bat) do
+						if ord(bat) > 1 then put " ," / ; endif;
+						put "  '", bat, "' : ", SPD_PrevChg(bat):24:17;
+					endfor;
+					put " } ;" / ;
+					put "SPD_PrevDis(bat) := data" / ;
+					put "{" / ;
+					for (bat) do
+						if ord(bat) > 1 then put " ," / ; endif;
+						put "  '", bat, "' : ", SPD_PrevDis(bat):24:17;
+					endfor;
+					put " } ;" / ;
+					put "SPD_PrevOK := ", SPD_PrevOK:2:0, " ;" / ;
+					put "RollCkptSvcPend := ", RollSvcPend:2:0, " ;" / ;
+					put "RollCkptPeriod := ", RollCkptPeriod:4:0, " ;" / ;
+					putclose FOR_RollCkpt;
+					put FOR_RollCSV;   ! restore the active file
 				endfor;
 				
 				putclose FOR_RollCSV;
