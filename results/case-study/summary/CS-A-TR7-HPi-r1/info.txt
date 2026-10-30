@@ -1,0 +1,67 @@
+﻿SC-safe test _CS_A_free_today_a0x2p16fin_TR7_CaseAggMap1_FairCrit2_FairScope1_ACAudit1   started 2026-10-25 22:51:13   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  2   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model   259   DetailTagCSV TR7   DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF,  1,d_cut  258,d_zero   14,d_cut_kW   217.250786,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.710505e-16
+FAIREFF,  2,d_cut  254,d_zero   10,d_cut_kW   180.989154,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 3.252607e-16
+FAIREFF,  3,d_cut  253,d_zero    9,d_cut_kW   148.176594,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 3.317796e-16
+FAIREFF,  4,d_cut  253,d_zero    9,d_cut_kW   115.408248,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.105932e-16
+FAIREFF,  5,d_cut  253,d_zero    9,d_cut_kW    85.527920,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF,  6,d_cut  252,d_zero    8,d_cut_kW    54.422256,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF,  7,d_cut  225,d_zero    4,d_cut_kW    24.472053,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 5.421011e-17
+FAIREFF,  8,d_cut   67,d_zero    1,d_cut_kW     5.442574,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.105932e-16
+FAIREFF,  9,d_cut   16,d_zero    0,d_cut_kW     3.172097,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 10,d_cut    8,d_zero    1,d_cut_kW     2.771251,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 11,d_cut    6,d_zero    1,d_cut_kW     3.441279,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 12,d_cut    9,d_zero    1,d_cut_kW     6.091348,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 13,d_cut   12,d_zero    1,d_cut_kW     8.642910,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 14,d_cut   10,d_zero    1,d_cut_kW     8.918205,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 15,d_cut   12,d_zero    1,d_cut_kW    13.088003,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.084202e-15
+FAIREFF, 16,d_cut   10,d_zero    1,d_cut_kW    13.964115,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 17,d_cut    7,d_zero    1,d_cut_kW    10.307559,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 18,d_cut    4,d_zero    1,d_cut_kW     6.625807,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 19,d_cut    3,d_zero    1,d_cut_kW     5.120016,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.336809e-16
+FAIREFF, 20,d_cut    3,d_zero    1,d_cut_kW     2.536832,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.589415e-16
+FAIREFF, 21,d_cut    2,d_zero    0,d_cut_kW     1.063180,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.589415e-16
+FAIREFF, 22,d_cut    2,d_zero    0,d_cut_kW     1.479206,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 6.776264e-16
+FAIREFF, 23,d_cut    3,d_zero    0,d_cut_kW     1.973998,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.878910e-16
+FAIREFF, 24,d_cut    4,d_zero    0,d_cut_kW     3.516461,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 5.421011e-16
+FAIREFF, 25,d_cut    3,d_zero    0,d_cut_kW     4.091454,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 6.776264e-16
+FAIREFF, 26,d_cut    4,d_zero    0,d_cut_kW     5.742554,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.517883e-15
+FAIREFF, 27,d_cut    8,d_zero    0,d_cut_kW     7.863799,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 28,d_cut   14,d_zero    0,d_cut_kW    12.155762,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.409463e-15
+FAIREFF, 29,d_cut   24,d_zero    0,d_cut_kW    26.491462,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 30,d_cut   38,d_zero    0,d_cut_kW    50.179024,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 31,d_cut   68,d_zero    2,d_cut_kW    96.297413,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 32,d_cut   97,d_zero    8,d_cut_kW   164.114680,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 33,d_cut  131,d_zero   16,d_cut_kW   238.158820,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.301043e-15
+FAIREFF, 34,d_cut  158,d_zero   24,d_cut_kW   322.436229,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 35,d_cut  180,d_zero   38,d_cut_kW   380.882514,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.589415e-16
+FAIREFF, 36,d_cut  195,d_zero   47,d_cut_kW   430.587403,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.878910e-16
+FAIREFF, 37,d_cut  205,d_zero   68,d_cut_kW   453.779122,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 6.979551e-16
+FAIREFF, 38,d_cut  205,d_zero   79,d_cut_kW   436.648830,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.355253e-17
+FAIREFF, 39,d_cut  200,d_zero   79,d_cut_kW   395.812338,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 40,d_cut  189,d_zero   76,d_cut_kW   367.112299,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.336809e-16
+FAIREFF, 41,d_cut  188,d_zero   75,d_cut_kW   344.546939,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+FAIREFF, 42,d_cut  186,d_zero   75,d_cut_kW   327.055350,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 43,d_cut  184,d_zero   70,d_cut_kW   294.917758,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.336809e-16
+FAIREFF, 44,d_cut  175,d_zero   65,d_cut_kW   265.300408,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 6.635592e-16
+FAIREFF, 45,d_cut  180,d_zero   60,d_cut_kW   227.694108,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+FAIREFF, 46,d_cut  175,d_zero   53,d_cut_kW   190.332467,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+FAIREFF, 47,d_cut  168,d_zero   46,d_cut_kW   153.163376,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+FAIREFF, 48,d_cut  166,d_zero   40,d_cut_kW   126.393775,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.032879e-16
+AGGREGATORS: CaseAggMap  1   batteries per aggregator:  Agg1            86  Agg2            87  Agg3            86
+AC AUDIT: ACAudit  1   ACAuditApply  0
+finished 2026-10-26 07:42:45
+PV2 summary (PV2_Regime  0, SRQ_Coord  0, FRQ_BF  0, twins     0 failed    0, step-2 retries    0 fallbacks    0, exec rescued   0, ZX_On  0, PVC_On  0, PVC_Mode  0, FRQ_Diag  0, RollUseGMP  1, SCTight  1, ZX_EndOn  0, ZX_AnchorOn  0): execution failures   0   energy shaved off commitments     0.000000 kWh   FRQ_SweepAll  1   PVC_SweepPen  0.100
+SPEED settings: RollAsyncK  0  RollAsyncThreads  2  SPD_P1Threads 16  SPD_P1NoNet  1  network checks   48  failed   0  SPD_S0FOR  0  S0 from FOR    0  failed   0  SPD_NCAll  1  trafo TR7
+NC RESCUE: network P1 still infeasible after a failed check   0  rescued   0  of which service as the exact combination   0  execution failures   0
+DECISION TEST: SPD_FixSlotK  1  kept plans   47  infeasible   0  SPD_CornersOnly  1  rebuilt from corners    0  outside corners polygon   0
+SCALPHA SWITCH: SCAlpha     0.0000  (0 = self-consumption guarantee on; large = relaxed)  RollOfferLog  0
