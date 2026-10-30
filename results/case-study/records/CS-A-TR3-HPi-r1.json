@@ -1,0 +1,154 @@
+{
+ "tag": "_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1",
+ "job_line": "CS_A free_today a2x4p8fin TR3 CaseAggMap=1 FairCrit=2 FairScope=1 ACAudit=1",
+ "lane": "L2",
+ "lane_dir": "C:\\Users\\thc22\\projects\\case-study-runs\\L2",
+ "scenario": {
+  "id": "CS_A",
+  "file": "scripts/paper1/scenarios/CS_A.json",
+  "sha256": "c073f957a97cb994",
+  "scenario_txt": "SRQ_Tag := \"_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1\" ;\nSRQ_MaxPer := 0 ;\nFRQ_SweepAll := 1 ;\nFRQ_PlanLog := 0 ;\nSRQ_Periods := \"\" ;\nZX_GMP := 1 ;\nSCTight := 1 ;\nSPD_TimeLog := 1 ;\nEnableRollDiag := 0 ;\nPV2_Regime := 0 ;\nSRQ_Coord := 0 ;\nFRQ_BF := 0 ;\nRollAsyncK := 2 ;\nRollAsyncThreads := 4 ;\nSPD_P1Threads := 8 ;\nSPD_P1NoNet := 1 ;\nSPD_P1Q0 := 1 ;\nSPD_S0FOR := 0 ;\nSPD_NCAll := 1 ;\nSPD_FixSlotK := 1 ;\nSPD_CornersOnly := 1 ;\nSPD_TwoDays := 0 ;\nCaseAggMap := 1 ;\nFairCrit := 2 ;\nFairScope := 1 ;\nACAudit := 1 ;\nSPD_Trafo := \"TR3\" ;\n"
+ },
+ "start": "2026-10-24 18:33:50",
+ "end": "2026-10-24 19:14:10",
+ "wall_min": 40.34,
+ "return_line": "Return value = 0",
+ "ok": true,
+ "computer": {
+  "host": "srye-pes-05",
+  "os": "Windows-11-10.0.26200-SP0",
+  "logical_cpus": 32,
+  "cpu": "Intel(R) Core(TM) i9-14900",
+  "cores": 24,
+  "ram_gb": 31.7
+ },
+ "aimms_cmd": "C:\\Users\\thc22\\AppData\\Local\\AIMMS\\IFA\\Aimms\\26.3.2.1-x64-VS2022_v2\\Bin\\AimmsCmd.exe",
+ "prepare_info": {
+  "prepared": "2026-10-23 15:21:55",
+  "repo": "C:\\Users\\thc22\\projects\\UAI-SFU-colab-paper1org",
+  "git": {
+   "commit": "b71cb9252865875ccf7336aafa092655ba5ed10c",
+   "branch": "feature/case-study",
+   "dirty": false,
+   "dirty_files": []
+  },
+  "project_file": "C:\\Users\\thc22\\projects\\case-study-runs\\OPF_aimms26.3.aimms",
+  "files_sha256": {
+   "OPF.aimms": "2b4c6d02990e0a49",
+   "Database.mdb": "8b474da7f5b57956",
+   "Database.dsn": "3b9783d0d6801898",
+   "OpData.xls": "daf841adc4db08f3",
+   "aggregators_case_study.txt": "cae5a62b709f921f",
+   "MainProject/OPF.ams": "96e2c1319190f05e",
+   "MainProject/other files": "efbee8567e2ff520"
+  },
+  "runner_sha256": "d2a02b8bd813ef0d",
+  "strict": true
+ },
+ "outputs": [
+  {
+   "file": "aimms_err_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.txt",
+   "bytes": 722,
+   "sha256": "5d04edd45ee305a0"
+  },
+  {
+   "file": "BF_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 144,
+   "sha256": "52e514bdfbe3f991"
+  },
+  {
+   "file": "FOR_rolling_ac_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 121688,
+   "sha256": "0c8474dfe1a64cc6"
+  },
+  {
+   "file": "FOR_rolling_crit_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 376914,
+   "sha256": "846cc4cf5b63ed62"
+  },
+  {
+   "file": "FOR_rolling_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 80149,
+   "sha256": "81b91cb87d04a4a0"
+  },
+  {
+   "file": "FOR_rolling_fair_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 226470,
+   "sha256": "72dc08b4a7cdead0"
+  },
+  {
+   "file": "FOR_rolling_progress_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.txt",
+   "bytes": 229,
+   "sha256": "6804479b6330b842"
+  },
+  {
+   "file": "FOR_rolling_soc_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 366996,
+   "sha256": "648ad6c2ce446ea8"
+  },
+  {
+   "file": "FOR_rolling_svc_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 120,
+   "sha256": "78cef5299ff6daa1"
+  },
+  {
+   "file": "FORtwin_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 44,
+   "sha256": "f2b5b094fc430706"
+  },
+  {
+   "file": "FRQ_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 233,
+   "sha256": "2251244b39835489"
+  },
+  {
+   "file": "SCT_exec_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 367040,
+   "sha256": "4a2cd37984ebe8f5"
+  },
+  {
+   "file": "SCT_info_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.txt",
+   "bytes": 9079,
+   "sha256": "da6fea2bba8108e4"
+  },
+  {
+   "file": "SCT_regret_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 318,
+   "sha256": "bed05ee1a2ea8522"
+  },
+  {
+   "file": "SPDtime_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 3662,
+   "sha256": "618ddfd22eb529b3"
+  },
+  {
+   "file": "SRQ_p1_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.csv",
+   "bytes": 151,
+   "sha256": "0cd7e4111509e2f3"
+  },
+  {
+   "file": "stdout_CS_A_free_today_a2x4p8fin_TR3_CaseAggMap1_FairCrit2_FairScope1_ACAudit1.txt",
+   "bytes": 18,
+   "sha256": "89748497bcf558df"
+  }
+ ],
+ "run_id": "CS-A-TR3-HPi-r1",
+ "collected_by": "Tulio",
+ "collected": "2026-10-28 07:52:21",
+ "note": "",
+ "raw_zip": {
+  "file": "CS-A-TR3-HPi-r1.zip",
+  "sha256": "393385106d2f8e78",
+  "bytes": 195286
+ },
+ "summary_files": [
+  "ac_audit_corners.csv",
+  "fairness_criteria.csv",
+  "fairness_groups.csv",
+  "fleet_by_step.csv",
+  "for_corners.csv",
+  "info.txt",
+  "prosumer_day.csv",
+  "time_per_step.csv"
+ ]
+}
