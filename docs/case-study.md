@@ -104,9 +104,11 @@ stops for more than 45 min, re-run that job with a sequential sweep (`a0x...`) a
 
 ### 5.4 Run B (after its decisions)
 
-`scripts/paper1/queues/case_study_B.txt` and `scenarios/CS_B_t25.json` are **blocked** (OPEN: requested point and
-fairness case). When decided: set `requests` in `CS_B_t25.json`, delete its `blocked` key, keep one fairness case in
-the queue, record the choice in section 11, and run it like Run A.
+Decided 2 Nov 2026 (section 11): the request in period 25 is the FOR corner with the most export, on the reference
+FOR (`scenarios/CS_B_t25.json`). A corner is the one request that means the same on both scopes: on the whole feeder
+it is that FOR's corner, and the same corner of the Minkowski sum is exactly the sum of the nine transformer corners.
+Queue `scripts/paper1/queues/case_study_B.txt`: the same job settings as the Run A reference jobs, so every Run B job
+has a Run A twin; TR2 and TR9 with P1 on the network (`SPD_P1NoNet=0`). Run it like Run A.
 
 ## 6. How every run is recorded
 
@@ -179,6 +181,6 @@ cost; do not scale the 48-period total by a period ratio (solve times vary over 
 | Results storage | **Closed 23 Oct**: records and summaries in Git, raw zips in the shared folder |
 | AC check of the FOR corners | **Closed 23 Oct**: as an add-on that does not change the results: `ACAudit=1` in the transformer runs (log only); `ACAuditApply=1` (option C) for comparisons only |
 | Interface convention for the Minkowski comparison | OPEN (proposal in section 3) |
-| Run B: requested point and fairness case | OPEN (period 25 agreed) |
+| Run B: requested point and fairness case | **Closed 2 Nov**: the FOR corner with the most export in period 25, reference FOR; transformer runs: TR2 and TR9 with P1 on the network (section 5.4) |
 | Fairness tolerance values | OPEN (section 9) |
 | Selected windows | OPEN (section 10) |
