@@ -1,0 +1,215 @@
+==== tramo de los puntos 1-4 (_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1)
+SC-safe test _CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1   started 2026-10-24 22:19:32   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF,  1,d_cut 1205,d_zero   95,d_cut_kW  1032.183830,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 6.635592e-16
+FAIREFF,  2,d_cut 1195,d_zero   85,d_cut_kW   861.713273,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 5.529660e-16
+FAIREFF,  3,d_cut 1184,d_zero   74,d_cut_kW   697.014203,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.423728e-16
+FAIREFF,  4,d_cut 1177,d_zero   67,d_cut_kW   551.029745,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.105932e-16
+FAIREFF,  5,d_cut 1167,d_zero   57,d_cut_kW   409.536708,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 5.421011e-17
+
+==== tramo de los puntos 5-9 (_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod5)
+SC-safe test _CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod5   started 2026-10-25 10:04:26   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF,  5,d_cut 1167,d_zero   57,d_cut_kW   409.661536,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.313135e-15
+FAIREFF,  6,d_cut 1158,d_zero   48,d_cut_kW   269.204740,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 5.421011e-17
+FAIREFF,  7,d_cut 1054,d_zero   31,d_cut_kW   128.551323,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.168404e-16
+FAIREFF,  8,d_cut  314,d_zero    9,d_cut_kW    36.163900,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+FAIREFF,  9,d_cut   71,d_zero    7,d_cut_kW    19.324588,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.105932e-16
+
+==== tramo de los puntos 10-10 (_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod10_SRQ_MaxPer10)
+SC-safe test _CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod10_SRQ_MaxPer10   started 2026-10-27 00:42:13   kappa   0.0000   shrink points   1   RollMaxPeriods  10
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 10,d_cut   42,d_zero    7,d_cut_kW    18.540736,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+AGGREGATORS: CaseAggMap  1   batteries per aggregator:  Agg1           406  Agg2           406  Agg3           404
+AC AUDIT: ACAudit  0   ACAuditApply  0
+finished 2026-10-27 03:48:30
+PV2 summary (PV2_Regime  0, SRQ_Coord  0, FRQ_BF  0, twins     0 failed    0, step-2 retries    0 fallbacks    0, exec rescued   0, ZX_On  0, PVC_On  0, PVC_Mode  0, FRQ_Diag  0, RollUseGMP  1, SCTight  1, ZX_EndOn  0, ZX_AnchorOn  0): execution failures   0   energy shaved off commitments     0.000000 kWh   FRQ_SweepAll  1   PVC_SweepPen  0.100
+SPEED settings: RollAsyncK  0  RollAsyncThreads 16  SPD_P1Threads 16  SPD_P1NoNet  1  network checks    1  failed   0  SPD_S0FOR  0  S0 from FOR    0  failed   0  SPD_NCAll  1  trafo ALL
+NC RESCUE: network P1 still infeasible after a failed check   0  rescued   0  of which service as the exact combination   0  execution failures   0
+DECISION TEST: SPD_FixSlotK  1  kept plans    1  infeasible   0  SPD_CornersOnly  1  rebuilt from corners    0  outside corners polygon   0
+SCALPHA SWITCH: SCAlpha     0.0000  (0 = self-consumption guarantee on; large = relaxed)  RollOfferLog  0
+
+==== tramo de los puntos 11-13 (_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod11)
+SC-safe test _CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod11   started 2026-10-28 03:03:51   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 11,d_cut   40,d_zero    7,d_cut_kW    20.925172,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 12,d_cut   46,d_zero    5,d_cut_kW    30.371228,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.439455e-16
+FAIREFF, 13,d_cut   46,d_zero    5,d_cut_kW    34.882457,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+FAIREFF, 14,d_cut   56,d_zero    5,d_cut_kW    41.048989,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+
+==== tramo de los puntos 14-14 (_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod14)
+SC-safe test _CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod14   started 2026-10-29 04:01:21   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 14,d_cut   56,d_zero    5,d_cut_kW    41.048989,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW   0.00000000
+
+==== tramo de los puntos 15-38 (_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod15)
+SC-safe test _CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod15   started 2026-10-30 01:35:13   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 15,d_cut   56,d_zero    5,d_cut_kW    49.191061,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.192622e-15
+FAIREFF, 16,d_cut   50,d_zero    5,d_cut_kW    50.997276,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 17,d_cut   38,d_zero    4,d_cut_kW    42.649383,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 18,d_cut   31,d_zero    4,d_cut_kW    37.111078,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 19,d_cut   27,d_zero    4,d_cut_kW    33.566857,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 9.757820e-16
+FAIREFF, 20,d_cut   20,d_zero    3,d_cut_kW    28.142959,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.788934e-15
+FAIREFF, 21,d_cut   22,d_zero    3,d_cut_kW    26.308183,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 22,d_cut   20,d_zero    3,d_cut_kW    29.472878,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 23,d_cut   20,d_zero    2,d_cut_kW    25.424822,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+NETCHECK at step  24: P1 plan not network-feasible (Infeasible  ) -> P1 re-solved with the network
+FAIREFF, 24,d_cut   21,d_zero    3,d_cut_kW    29.732895,u_cut    0,u_cut_kW     0.000000,base_out    3,base_out_max_kW   0.35988336
+FAIRCLIP at step  24: slot-2 baseline above the charging envelope    3, above the discharging envelope    0, largest excess   0.359883 kW
+NETCHECK at step  25: P1 plan not network-feasible (Infeasible  ) -> P1 re-solved with the network
+FAIREFF, 25,d_cut   24,d_zero    3,d_cut_kW    36.559254,u_cut    0,u_cut_kW     0.000000,base_out    4,base_out_max_kW   0.35988563
+FAIRCLIP at step  25: slot-2 baseline above the charging envelope    4, above the discharging envelope    0, largest excess   0.359886 kW
+NETCHECK at step  26: P1 plan not network-feasible (Infeasible  ) -> P1 re-solved with the network
+FAIREFF, 26,d_cut   35,d_zero    3,d_cut_kW    52.270616,u_cut    0,u_cut_kW     0.000000,base_out    3,base_out_max_kW   0.35987999
+FAIRCLIP at step  26: slot-2 baseline above the charging envelope    3, above the discharging envelope    0, largest excess   0.359880 kW
+NETCHECK at step  27: P1 plan not network-feasible (Infeasible  ) -> P1 re-solved with the network
+FAIREFF, 27,d_cut   45,d_zero    3,d_cut_kW    71.736779,u_cut    0,u_cut_kW     0.000000,base_out    3,base_out_max_kW   0.35983983
+FAIRCLIP at step  27: slot-2 baseline above the charging envelope    3, above the discharging envelope    0, largest excess   0.359840 kW
+FAIREFF, 28,d_cut   71,d_zero    5,d_cut_kW   105.113401,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 8.529622e-16
+FAIREFF, 29,d_cut  113,d_zero    7,d_cut_kW   159.061807,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 9.757820e-16
+FAIREFF, 30,d_cut  185,d_zero    7,d_cut_kW   259.625125,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.994932e-16
+FAIREFF, 31,d_cut  309,d_zero   15,d_cut_kW   458.859318,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 8.387744e-16
+FAIREFF, 32,d_cut  414,d_zero   27,d_cut_kW   723.527100,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.809644e-16
+FAIREFF, 33,d_cut  577,d_zero   55,d_cut_kW  1046.671638,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.301043e-15
+FAIREFF, 34,d_cut  707,d_zero   94,d_cut_kW  1418.243170,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 1.966032e-15
+FAIREFF, 35,d_cut  803,d_zero  140,d_cut_kW  1680.834146,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.989638e-16
+FAIREFF, 36,d_cut  871,d_zero  197,d_cut_kW  1915.397993,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 5.963112e-16
+FAIREFF, 37,d_cut  910,d_zero  276,d_cut_kW  1994.627491,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 7.318365e-16
+FAIREFF, 38,d_cut  918,d_zero  326,d_cut_kW  1944.159384,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 8.639736e-16
+
+==== tramo de los puntos 39-40 (_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod39)
+SC-safe test _CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod39   started 2026-11-02 00:25:28   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 39,d_cut  886,d_zero  323,d_cut_kW  1728.110392,u_cut    0,u_cut_kW 1.970537e-14,base_out    0,base_out_max_kW 4.866101e-15
+FAIREFF, 40,d_cut  856,d_zero  316,d_cut_kW  1600.226487,u_cut    0,u_cut_kW 1.951564e-15,base_out    0,base_out_max_kW 4.423728e-16
+FAIREFF, 41,d_cut  838,d_zero  309,d_cut_kW  1510.110639,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.423728e-16
+
+==== tramo de los puntos 41-41 (_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod41)
+SC-safe test _CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod41   started 2026-11-02 17:40:00   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 41,d_cut  840,d_zero  311,d_cut_kW  1512.140918,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.644914e-15
+
+==== tramo de los puntos 42-48 (_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod42)
+SC-safe test _CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod42   started 2026-11-03 01:08:45   kappa   0.0000   shrink points   1   RollMaxPeriods   0
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+FAIREFF, 42,d_cut  835,d_zero  303,d_cut_kW  1427.512405,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.764830e-15
+FAIREFF, 43,d_cut  820,d_zero  284,d_cut_kW  1318.386792,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.336809e-16
+FAIREFF, 44,d_cut  797,d_zero  261,d_cut_kW  1174.213121,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.336809e-16
+FAIREFF, 45,d_cut  786,d_zero  237,d_cut_kW  1010.026940,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 6.635592e-16
+FAIREFF, 46,d_cut  760,d_zero  202,d_cut_kW   849.429630,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 4.423728e-16
+FAIREFF, 47,d_cut  736,d_zero  171,d_cut_kW   716.627275,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+FAIREFF, 48,d_cut  724,d_zero  148,d_cut_kW   586.718173,u_cut    0,u_cut_kW     0.000000,base_out    0,base_out_max_kW 2.211864e-16
+AGGREGATORS: CaseAggMap  1   batteries per aggregator:  Agg1           406  Agg2           406  Agg3           404
+AC AUDIT: ACAudit  0   ACAuditApply  0
+finished 2026-11-03 19:17:13
+PV2 summary (PV2_Regime  0, SRQ_Coord  0, FRQ_BF  0, twins     0 failed    0, step-2 retries    0 fallbacks    0, exec rescued   0, ZX_On  0, PVC_On  0, PVC_Mode  0, FRQ_Diag  0, RollUseGMP  1, SCTight  1, ZX_EndOn  0, ZX_AnchorOn  0): execution failures   0   energy shaved off commitments     0.000000 kWh   FRQ_SweepAll  1   PVC_SweepPen  0.100
+SPEED settings: RollAsyncK  0  RollAsyncThreads 16  SPD_P1Threads 16  SPD_P1NoNet  1  network checks    7  failed   0  SPD_S0FOR  0  S0 from FOR    0  failed   0  SPD_NCAll  1  trafo ALL
+NC RESCUE: network P1 still infeasible after a failed check   0  rescued   0  of which service as the exact combination   0  execution failures   0
+DECISION TEST: SPD_FixSlotK  1  kept plans    7  infeasible   0  SPD_CornersOnly  1  rebuilt from corners    0  outside corners polygon   0
+SCALPHA SWITCH: SCAlpha     0.0000  (0 = self-consumption guarantee on; large = relaxed)  RollOfferLog  0
+
+==== repeticion del punto 27 (_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_SRQ_MaxPer27_RollStartPeriod27): de ella sale solo el vertice 27 / 30 grados
+SC-safe test _CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_SRQ_MaxPer27_RollStartPeriod27   started 2026-11-07 01:52:12   kappa   0.0000   shrink points   1   RollMaxPeriods  27
+FAIR settings: FairCrit  0   FairScope  1   FairEps  0.000   FairBox  1   FairEffHead  1   FairAllowNoBox  0   kappa_slot (FOR_ThruPenSlot)  0.200   P2SlotPen -1.000   FairMode  0
+MinImports     (baseline + regret re-plans) : type QCP            solver CPLEX 22.1
+FOR_VertexCont (directional sweep)          : type QCP            solver CPLEX 22.1
+FOR_PolyS  0   FOR_LinearizeVmax  0   RollLinearized  0   IncludeNetworkConstraints  1   IncludeQforMaxP  1
+AllowChargeAtPmax  1   RollCyclicSOC  1   CyclicSOCBand  0.050   PeriodMaxP   2   nPeriods  48
+BattThroughputPen  0.200   FOR_ThruPenSlot  0.200   FOR_SCWeight   0.0000   FOR_SCExpWeight 1.00   SCT_Hard  0   SCT_Regret  0   SCT_FeasTol        0.000   SCT_BarTol        0.000   RollSweepFrom   0   SCT_DualReplan  1   SCT_IPExp  0.010   P1ExpScale 1.00   RollSvcMode  4   RollSvcAngle   180   RollSvcRho  0.50   SCFirst  1   SCAlpha  0.000   FairMode  0   RollUseGMP  1   UseBattComp  0   PVC_On  0   PVC_Mode  0   PVC_SweepPen   0.1000   PVC_ReplanPen     3.00
+batteries in the model  1216   DetailTagCSV    DetailLoadPattern
+SRQ_P1Coord    (coordinated P1, step 2)     : not used (SRQ_Coord = 0)
+SRQ_Ray        (largest deliverable share)  : not used (SRQ_Mode =  2)
+SRQ_Mode  2   SRQ_Coord  0   requests   0   RollSvcTol    1.000e-04   SRQ_RayTol    1.000e-05   BaselineOnly  0
+NETCHECK at step  27: P1 plan not network-feasible (Infeasible  ) -> P1 re-solved with the network
+FAIREFF, 27,d_cut   45,d_zero    3,d_cut_kW    71.739765,u_cut    0,u_cut_kW     0.000000,base_out    2,base_out_max_kW   0.35988535
+FAIRCLIP at step  27: slot-2 baseline above the charging envelope    2, above the discharging envelope    0, largest excess   0.359885 kW
+AGGREGATORS: CaseAggMap  1   batteries per aggregator:  Agg1           406  Agg2           406  Agg3           404
+AC AUDIT: ACAudit  0   ACAuditApply  0
+finished 2026-11-07 06:09:52
+PV2 summary (PV2_Regime  0, SRQ_Coord  0, FRQ_BF  0, twins     0 failed    0, step-2 retries    0 fallbacks    0, exec rescued   0, ZX_On  0, PVC_On  0, PVC_Mode  0, FRQ_Diag  0, RollUseGMP  1, SCTight  1, ZX_EndOn  0, ZX_AnchorOn  0): execution failures   0   energy shaved off commitments     0.000000 kWh   FRQ_SweepAll  1   PVC_SweepPen  0.100
+SPEED settings: RollAsyncK  3  RollAsyncThreads  5  SPD_P1Threads 16  SPD_P1NoNet  1  network checks    1  failed   1  SPD_S0FOR  0  S0 from FOR    0  failed   0  SPD_NCAll  1  trafo ALL
+NC RESCUE: network P1 still infeasible after a failed check   0  rescued   0  of which service as the exact combination   0  execution failures   0
+DECISION TEST: SPD_FixSlotK  1  kept plans    1  infeasible   0  SPD_CornersOnly  1  rebuilt from corners    0  outside corners polygon   0
+SCALPHA SWITCH: SCAlpha     0.0000  (0 = self-consumption guarantee on; large = relaxed)  RollOfferLog  0
