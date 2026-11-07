@@ -1,0 +1,407 @@
+{
+ "tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1",
+ "job_line": "CS_A free_today a3x5p16fin ALL CaseAggMap=1",
+ "lane": "W1",
+ "lane_dir": "C:\\Users\\LAPTOP-01\\master\\paper1-runs\\W1_runA_unido",
+ "scenario": {
+  "id": "CS_A",
+  "file": "scripts/paper1/scenarios/CS_A.json",
+  "sha256": "c073f957a97cb994",
+  "scenario_txt": "SRQ_Tag := \"_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1\" ;\nSRQ_MaxPer := 0 ;\nFRQ_SweepAll := 1 ;\nFRQ_PlanLog := 0 ;\nSRQ_Periods := \"\" ;\nZX_GMP := 1 ;\nSCTight := 1 ;\nSPD_TimeLog := 1 ;\nEnableRollDiag := 0 ;\nPV2_Regime := 0 ;\nSRQ_Coord := 0 ;\nFRQ_BF := 0 ;\nRollAsyncK := 3 ;\nRollAsyncThreads := 5 ;\nSPD_P1Threads := 16 ;\nSPD_P1NoNet := 1 ;\nSPD_P1Q0 := 1 ;\nSPD_S0FOR := 0 ;\nSPD_NCAll := 1 ;\nSPD_FixSlotK := 1 ;\nSPD_CornersOnly := 1 ;\nSPD_TwoDays := 0 ;\nCaseAggMap := 1 ;\nSPD_Trafo := \"ALL\" ;\n"
+ },
+ "start": "2026-10-24 22:19:29",
+ "end": "2026-11-07 06:10:00",
+ "wall_min": 8470.7,
+ "return_line": "Return value = 0",
+ "ok": true,
+ "computer": {
+  "host": "DESKTOP-Q3KR6LB",
+  "os": "Windows-10-10.0.26200-SP0",
+  "logical_cpus": 22,
+  "cpu": "Intel(R) Core(TM) Ultra 9 185H",
+  "cores": 16,
+  "ram_gb": 63.4
+ },
+ "aimms_cmd": "C:\\Users\\LAPTOP-01\\AppData\\Local\\AIMMS\\IFA\\Aimms\\26.4.1.1-x64-VS2022_v2\\Bin\\AimmsCmd.exe",
+ "prepare_info": {
+  "prepared": "2026-10-24 22:19:13",
+  "repo": "C:\\Users\\LAPTOP-01\\master\\UAI-SFU-colab",
+  "git": {
+   "commit": "9345ccf874adbafc4f8f08eb767d92c75ae364cb",
+   "branch": "feature/resume-checkpoint",
+   "dirty": false,
+   "dirty_files": []
+  },
+  "project_file": "C:\\Users\\LAPTOP-01\\master\\aimms-26.4-project-sinwebui\\OPF.aimms",
+  "files_sha256": {
+   "OPF.aimms": "cb2c17572af43658",
+   "Database.mdb": "8af0d1240d2464fd",
+   "Database.dsn": "3b9783d0d6801898",
+   "OpData.xls": "0f323632eaab38c1",
+   "aggregators_case_study.txt": "b6232189e1f16b58",
+   "MainProject/OPF.ams": "6af2ee2d436642fe",
+   "MainProject/other files": "42ecb7dc3c0ca877"
+  },
+  "runner_sha256": "d2a02b8bd813ef0d",
+  "strict": true
+ },
+ "outputs": [
+  {
+   "file": "BF_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 144,
+   "sha256": "52e514bdfbe3f991"
+  },
+  {
+   "file": "done_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.txt",
+   "bytes": 18,
+   "sha256": "89748497bcf558df"
+  },
+  {
+   "file": "FOR_rolling_crit_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 314706,
+   "sha256": "f891bc3600019cf5"
+  },
+  {
+   "file": "FOR_rolling_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 80149,
+   "sha256": "8ffafc45437e39da"
+  },
+  {
+   "file": "FOR_rolling_fair_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 226470,
+   "sha256": "1271b5ed0e6380c0"
+  },
+  {
+   "file": "FOR_rolling_soc_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 9105492,
+   "sha256": "eef010525baaccea"
+  },
+  {
+   "file": "FOR_rolling_svc_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 120,
+   "sha256": "78cef5299ff6daa1"
+  },
+  {
+   "file": "FORtwin_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 44,
+   "sha256": "f2b5b094fc430706"
+  },
+  {
+   "file": "FRQ_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 233,
+   "sha256": "2251244b39835489"
+  },
+  {
+   "file": "SCT_exec_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 9105536,
+   "sha256": "62d2ac523a2051bc"
+  },
+  {
+   "file": "SCT_info_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.txt",
+   "bytes": 27664,
+   "sha256": "5addee3d69a0ab1a"
+  },
+  {
+   "file": "SCT_regret_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 318,
+   "sha256": "bed05ee1a2ea8522"
+  },
+  {
+   "file": "SPDtime_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 702,
+   "sha256": "5fb5d65a72dd5043"
+  },
+  {
+   "file": "SRQ_p1_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.csv",
+   "bytes": 151,
+   "sha256": "0cd7e4111509e2f3"
+  },
+  {
+   "file": "stdout_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1.txt",
+   "bytes": 18,
+   "sha256": "89748497bcf558df"
+  }
+ ],
+ "segments": [
+  {
+   "points": "1-4",
+   "tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1",
+   "speed": "a3x5p16fin",
+   "folder": "tramo_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_20261025-100325",
+   "start": "2026-10-24 22:19:29",
+   "end": "2026-10-25 10:03:57",
+   "wall_min": 704.47,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 1-4"
+  },
+  {
+   "points": "5-9",
+   "tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod5",
+   "speed": "a3x5p16fin",
+   "folder": "tramo_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod5_20261025-210211",
+   "start": "2026-10-25 10:04:21",
+   "end": "2026-10-25 21:02:08",
+   "wall_min": 657.78,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 5-9"
+  },
+  {
+   "points": "10-10",
+   "tag": "_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod10_SRQ_MaxPer10",
+   "speed": "a0x16p16fin",
+   "folder": "tramo_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod10_SRQ_MaxPer10_20261027-034951",
+   "start": "2026-10-27 00:42:08",
+   "end": "2026-10-27 03:48:32",
+   "wall_min": 186.4,
+   "ended": "Return value = 0",
+   "rows_used": "steps 10-10"
+  },
+  {
+   "points": "11-13",
+   "tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod11",
+   "speed": "a3x5p16fin",
+   "folder": "tramo_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod11_20261028-124246",
+   "start": "2026-10-28 03:03:47",
+   "end": "2026-10-28 12:43:17",
+   "wall_min": 579.5,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 11-13"
+  },
+  {
+   "points": "14-14",
+   "tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod14",
+   "speed": "a3x5p16fin",
+   "folder": "tramo_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_RollStartPeriod14_20261029-065729",
+   "start": "2026-10-29 04:01:03",
+   "end": "2026-10-29 06:57:29",
+   "wall_min": 176.43,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 14-14"
+  },
+  {
+   "points": "15-38",
+   "tag": "_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod15",
+   "speed": "a0x16p16fin",
+   "folder": "tramo_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod15_20261101-233118",
+   "start": "2026-10-30 01:34:53",
+   "end": "2026-11-01 23:31:18",
+   "wall_min": 4196.42,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 15-38"
+  },
+  {
+   "points": "39-40",
+   "tag": "_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod39",
+   "speed": "a0x16p16fin",
+   "folder": "tramo_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod39_20261102-070638",
+   "start": "2026-11-02 00:25:09",
+   "end": "2026-11-02 07:06:38",
+   "wall_min": 401.48,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 39-40"
+  },
+  {
+   "points": "41-41",
+   "tag": "_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod41",
+   "speed": "a0x16p16fin",
+   "folder": "tramo_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod41_20261102-212119",
+   "start": "2026-11-02 17:39:34",
+   "end": "2026-11-02 21:21:19",
+   "wall_min": 221.75,
+   "ended": "stopped (pause or hang); next segment resumed from its checkpoint",
+   "rows_used": "steps 41-41"
+  },
+  {
+   "points": "42-48",
+   "tag": "_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod42",
+   "speed": "a0x16p16fin",
+   "folder": "tramo_CS_A_free_today_a0x16p16fin_ALL_CaseAggMap1_RollStartPeriod42_20261106-185827",
+   "start": "2026-11-03 01:08:41",
+   "end": "2026-11-03 19:17:18",
+   "wall_min": 1088.62,
+   "ended": "Return value = 0",
+   "rows_used": "steps 42-48"
+  },
+  {
+   "points": "27-27",
+   "tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_SRQ_MaxPer27_RollStartPeriod27",
+   "speed": "a3x5p16fin",
+   "folder": "W1",
+   "start": "2026-11-07 01:52:09",
+   "end": "2026-11-07 06:10:00",
+   "wall_min": 257.85,
+   "ended": "Return value = 0",
+   "rows_used": "vertex 27 / 30 deg only"
+  }
+ ],
+ "segments_zip": {
+  "file": "CS-A-ALL-REF-r1_segments.zip",
+  "sha256": "05a8c76dc062751d",
+  "bytes": 2222395
+ },
+ "replaced_vertices": [
+  {
+   "now": 27,
+   "angle_deg": 30.0,
+   "files": [
+    "FOR_rolling",
+    "FOR_rolling_crit",
+    "FOR_rolling_fair"
+   ],
+   "original_status": "IntermediateNonOptimal",
+   "from_tag": "_CS_A_free_today_a3x5p16fin_ALL_CaseAggMap1_SRQ_MaxPer27_RollStartPeriod27",
+   "p1_vs_original": {
+    "FOR_rolling_soc": {
+     "rows": 1216,
+     "different_rows_except_plan": 0
+    },
+    "SCT_exec": {
+     "rows": 1216,
+     "different_rows_except_plan": 0,
+     "imp_plan_fut_kWh": {
+      "different_rows": 331,
+      "max_abs_diff": 0.000415
+     }
+    },
+    "SRQ_p1": {
+     "rows": 0,
+     "different_rows_except_plan": 0
+    }
+   },
+   "rerun_non_optimal_angles_not_used": [
+    0.0,
+    300.0
+   ],
+   "other_vertices_diff_P_Q_kW_kvar": {
+    "60.0": [
+     0.012,
+     0.008
+    ],
+    "90.0": [
+     -0.002,
+     -0.001
+    ],
+    "120.0": [
+     -0.114,
+     -0.1
+    ],
+    "150.0": [
+     -0.026,
+     -0.033
+    ],
+    "180.0": [
+     0.012,
+     0.175
+    ],
+    "210.0": [
+     0.002,
+     0.001
+    ],
+    "240.0": [
+     -0.005,
+     0.009
+    ],
+    "270.0": [
+     0.019,
+     -0.017
+    ],
+    "330.0": [
+     -0.001,
+     0.004
+    ]
+   }
+  }
+ ],
+ "splice_checks": [
+  {
+   "archivo": "FOR_rolling",
+   "punto": 5,
+   "filas": 6,
+   "distintas": 5
+  },
+  {
+   "archivo": "FOR_rolling",
+   "punto": 41,
+   "filas": 1,
+   "distintas": 1
+  },
+  {
+   "archivo": "FOR_rolling_crit",
+   "punto": 5,
+   "filas": 18,
+   "distintas": 18
+  },
+  {
+   "archivo": "FOR_rolling_crit",
+   "punto": 41,
+   "filas": 3,
+   "distintas": 3
+  },
+  {
+   "archivo": "FOR_rolling_fair",
+   "punto": 5,
+   "filas": 18,
+   "distintas": 16
+  },
+  {
+   "archivo": "FOR_rolling_fair",
+   "punto": 41,
+   "filas": 3,
+   "distintas": 0
+  },
+  {
+   "archivo": "FOR_rolling_soc",
+   "punto": 5,
+   "filas": 1216,
+   "distintas": 0
+  },
+  {
+   "archivo": "FOR_rolling_soc",
+   "punto": 14,
+   "filas": 1216,
+   "distintas": 0
+  },
+  {
+   "archivo": "FOR_rolling_soc",
+   "punto": 41,
+   "filas": 1216,
+   "distintas": 0
+  },
+  {
+   "archivo": "SCT_exec",
+   "punto": 5,
+   "filas": 1216,
+   "distintas": 25
+  },
+  {
+   "archivo": "SCT_exec",
+   "punto": 14,
+   "filas": 1216,
+   "distintas": 0
+  },
+  {
+   "archivo": "SCT_exec",
+   "punto": 41,
+   "filas": 1216,
+   "distintas": 3
+  }
+ ],
+ "run_id": "CS-A-ALL-REF-r1",
+ "collected_by": "Nacho",
+ "collected": "2026-11-07 06:13:59",
+ "note": "joined from 9 checkpoint segments (periods 1-14 parallel a3x5, 15-48 sequential a0x16) + corner 27/30deg from a re-run of period 27 (a3x5p16fin); see segments, replaced_vertices, splice_checks; raw segments in CS-A-ALL-REF-r1_segments.zip",
+ "raw_zip": {
+  "file": "CS-A-ALL-REF-r1.zip",
+  "sha256": "5e9aa2598aa3f969",
+  "bytes": 1759292
+ },
+ "summary_files": [
+  "fairness_criteria.csv",
+  "fairness_groups.csv",
+  "fleet_by_step.csv",
+  "for_corners.csv",
+  "info.txt",
+  "prosumer_day.csv",
+  "time_per_step.csv"
+ ]
+}
