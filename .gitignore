@@ -52,6 +52,11 @@ FOR_gmp_probe*.txt
 !results/parallel_k3_2026-08/FOR_rolling*.csv
 !results/parallel_k3_2026-08/FOR_rolling_progress*.txt
 
+# Paper 1 task docs/tasks/fairness-cphb-runs (Thu 12 Nov 2026): the TR4 CP reference read by its consistency check, and the
+# CP/HB outputs returned under results/paper1-cphb-runA/ (summed with the runs made in Chile for Section VI-C of paper 1).
+!docs/tasks/fairness-cphb-runs/reference_TR4_CP/FOR_rolling*.csv
+!results/paper1-cphb-runA/**/FOR_rolling*.csv
+
 # ---------------------------------------------------------------------------
 # Post-processing validation inputs (per-customer load+PV reference tables).
 # Shared separately via cloud (like the model input data), NOT through GitHub.
