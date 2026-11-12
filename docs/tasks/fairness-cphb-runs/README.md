@@ -8,6 +8,23 @@ Section VI-C of paper 1 must report the fairness criteria CP and HB at the TSO-D
 CP and HB are already run in Chile for TR1-TR4, for TR6 (CP) and for TR5 (CP). This task runs the **8 missing jobs** with the exact model of those
 runs, after a consistency check that your setup reproduces ours. The interface sums are then computed in Chile from your outputs.
 
+**Why the runs are per transformer when the result is at the interface:**
+
+- The method solves each LV network separately: P2 with one network in detail and the other eight lumped as fixed loads.
+- It then adds the nine FORs direction by direction to form the FOR at the TSO-DSO interface (paper, Section V, eq. `for_sum`).
+- The fairness groups also stay inside one LV network: one per aggregator for HPi, one per network for HPn.
+- So the interface FOR under CP or HB needs all nine networks run under CP and HB:
+
+  | LV network | CP | HB |
+  |---|---|---|
+  | TR1-TR4 | Chile | Chile |
+  | TR5 | Chile | **this task** |
+  | TR6 | Chile | **this task** |
+  | TR7-TR9 | **this task** | **this task** |
+
+- With your 8 jobs, all nine are complete, and `v_cphb_sum.py` in Chile adds them into the interface FOR.
+- The TR4 job at the top of the queue only checks your setup. It is not part of the result.
+
 The review of the fairness text (introduction, Section IV-C, run design, VI-C, Discussion, Conclusion) is part of the same handoff. The paper files are
 **not** in this repository, which is public. They come in a private package from Tulio (`handoff_ignacio.zip`, folder `2_review`, with its own README).
 Never commit paper text, PDFs or results tables of the paper to this repository.
