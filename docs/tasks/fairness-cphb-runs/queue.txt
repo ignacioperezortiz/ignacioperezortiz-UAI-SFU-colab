@@ -1,0 +1,11 @@
+# Run A with CP and HB (eps 0.5), groups as HPi (FairScope=1), for the interface sums of Section VI-C. Line 1: consistency check (TR4 CP, already
+# run in Chile; compare with reference_TR4_CP before the rest). Then the 8 missing jobs. The runner runs TR6 and TR7 one at a time.
+CS_A free_today a0x4p8fin TR4 CaseAggMap=1 ACAudit=0 FairCrit=1 FairScope=1
+CS_A free_today a0x2p16fin TR7 CaseAggMap=1 ACAudit=0 FairCrit=1 FairScope=1
+CS_A free_today a0x2p16fin TR6 CaseAggMap=1 ACAudit=0 FairCrit=3 FairScope=1 FairEps=0.5
+CS_A free_today a0x2p16fin TR7 CaseAggMap=1 ACAudit=0 FairCrit=3 FairScope=1 FairEps=0.5
+CS_A free_today a0x2p4fin TR5 CaseAggMap=1 ACAudit=0 FairCrit=3 FairScope=1 FairEps=0.5
+CS_A free_today a0x2p4fin TR8 CaseAggMap=1 ACAudit=0 FairCrit=1 FairScope=1
+CS_A free_today a0x2p4fin TR8 CaseAggMap=1 ACAudit=0 FairCrit=3 FairScope=1 FairEps=0.5
+CS_A free_today a0x4p8fin TR9 CaseAggMap=1 ACAudit=0 FairCrit=1 FairScope=1 SPD_P1NoNet=0
+CS_A free_today a0x4p8fin TR9 CaseAggMap=1 ACAudit=0 FairCrit=3 FairScope=1 FairEps=0.5 SPD_P1NoNet=0
