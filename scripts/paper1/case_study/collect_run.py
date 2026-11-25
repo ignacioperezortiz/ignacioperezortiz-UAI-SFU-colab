@@ -35,6 +35,7 @@ REC, SUM = RES / "records", RES / "summary"
 SUMMARY = {   # output stem in the lane -> file in summary/<run_id>/ (copied as is: small)
     "FOR_rolling": "for_corners.csv", "FOR_rolling_crit": "fairness_criteria.csv", "FOR_rolling_fair": "fairness_groups.csv",
     "FRQ": "requests.csv", "FOR_rolling_svc": "service.csv", "SPDtime": "time_per_step.csv",
+    "FOR_rolling_ac": "ac_audit_corners.csv",
 }
 
 
@@ -62,8 +63,8 @@ def variant(extra):
         v += "e" + extra.get("FairEps", "0").replace(".", "")
     if float(extra.get("SCAlpha", "0")) > 0:
         v += "-noSC"
-    if extra.get("ACAudit", "0") == "1":
-        v += "-ac"
+    if extra.get("ACAuditApply", "0") == "1":   # option C applied: different results. The audit alone (ACAudit=1) only
+        v += "-acC"                             # adds a log, so it does not change the run id (see the register column)
     return v
 
 
@@ -158,7 +159,7 @@ def rebuild_register():
                      "start": r["start"], "end": r["end"], "wall_min": r["wall_min"], "ok": int(r["ok"]),
                      "host": c.get("host", ""), "cpu": c.get("cpu", ""), "ram_gb": c.get("ram_gb", ""),
                      "raw_zip": r.get("raw_zip", {}).get("file", ""), "raw_sha256": r.get("raw_zip", {}).get("sha256", ""),
-                     "note": r.get("note", "")})
+                     "ac_audit": int("ACAudit=1" in r["job_line"].split()), "note": r.get("note", "")})
     RES.mkdir(parents=True, exist_ok=True)
     with open(RES / "runs.csv", "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]) if rows else ["run_id"], lineterminator="\n")

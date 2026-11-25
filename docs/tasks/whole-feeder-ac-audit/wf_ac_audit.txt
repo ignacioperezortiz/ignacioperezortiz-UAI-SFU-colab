@@ -1,0 +1,4 @@
+CS_A free_today a0x16p16fin ALL CaseAggMap=1 ACAudit=1 SRQ_MaxPer=1 ACA_Export=1
+CS_A free_today a0x16p16fin ALL CaseAggMap=1 ACAudit=1 RollSweepFrom=8 SRQ_MaxPer=8 ACA_Export=1
+CS_A free_today a0x16p16fin ALL CaseAggMap=1 ACAudit=1 RollSweepFrom=25 SRQ_MaxPer=25 ACA_Export=1
+CS_A free_today a0x16p16fin ALL CaseAggMap=1 ACAudit=1 RollSweepFrom=36 SRQ_MaxPer=36 ACA_Export=1

@@ -54,6 +54,7 @@ The settings are written by the runner into `scenario.txt` (see `python scripts/
 | `SPD_Trafo` | `TR4` (default), `TR9`, `TR3,TR4`, `ALL` | network in detail; `ALL` = whole feeder |
 | `SCAlpha` | 0 | self-consumption guarantee on; a job line `SCAlpha=99` relaxes it (protection-off benchmark) |
 | `CaseAggMap` | 1 in the case study | aggregators from `inputs/case-study/aggregators_case_study.txt` (distance-based) instead of `Database.mdb`; see `docs/case-study.md` |
+| `ACAudit`, `ACAuditApply` | 1, 0 in the transformer runs of the case study | AC audit of every FOR corner, logged in `FOR_rolling_ac<tag>.csv` without changing results; `ACAuditApply=1` replaces the delivery corners by the audited points (option C), comparison only |
 
 ### Model layout (19 October 2026)
 
